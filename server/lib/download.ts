@@ -35,11 +35,16 @@ export async function downloadFile(
         "-Command",
         script,
       ],
-      { windowsHide: true, maxBuffer: 1024 * 1024 },
+      {
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+      },
     );
   } else {
     const response = await fetch(url, {
-      headers: { "User-Agent": "bilbao-transit-3d/0.1" },
+      headers: {
+        "User-Agent": "bilbao-transit-3d/0.2",
+      },
     });
 
     if (!response.ok) {

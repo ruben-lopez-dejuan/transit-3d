@@ -26,3 +26,8 @@ export const BIZKAIBUS_REALTIME_FILE = path.join(
   BIZKAIBUS_CACHE_DIR,
   "vehicle_positions.pb",
 );
+
+export const REALTIME_REFRESH_MS = 5_000;
+export const STATIC_GTFS_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+export const MAX_MAP_MATCH_DISTANCE_METERS = 120;
+export const STOP_WINDOW_MARGIN_METERS = 350;

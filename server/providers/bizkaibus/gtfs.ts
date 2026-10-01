@@ -9,6 +9,7 @@ import {
   BIZKAIBUS_GTFS_DIR,
   BIZKAIBUS_GTFS_URL,
   BIZKAIBUS_GTFS_ZIP,
+  STATIC_GTFS_MAX_AGE_MS,
 } from "./config";
 
 export type GtfsRoute = {
@@ -55,8 +56,7 @@ export type BizkaibusGtfs = {
   routeTripIds: Map<string, string[]>;
 };
 
-const MAX_GTFS_AGE_MS = 6 * 60 * 60 * 1000;
-let cache: BizkaibusGtfs | null = null;
+let memoryCache: BizkaibusGtfs | null = null;
 
 function isFresh(file: string, maxAgeMs: number) {
   try {
@@ -80,18 +80,19 @@ function readCsv(filename: string) {
 }
 
 async function ensureGtfsFiles() {
-  if (!isFresh(BIZKAIBUS_GTFS_ZIP, MAX_GTFS_AGE_MS)) {
-    console.log("Downloading Bizkaibus GTFS...");
+  if (!isFresh(BIZKAIBUS_GTFS_ZIP, STATIC_GTFS_MAX_AGE_MS)) {
+    console.log("[Bizkaibus] Downloading static GTFS...");
 
     const bytes = await downloadFile(
       BIZKAIBUS_GTFS_URL,
       BIZKAIBUS_GTFS_ZIP,
     );
 
-    console.log(`Downloaded ${bytes} bytes.`);
+    console.log(`[Bizkaibus] Static GTFS: ${bytes} bytes.`);
   }
 
   const markerPath = path.join(BIZKAIBUS_GTFS_DIR, ".source-mtime");
+
   const sourceMtime = String(
     Math.trunc(fs.statSync(BIZKAIBUS_GTFS_ZIP).mtimeMs),
   );
@@ -105,14 +106,16 @@ async function ensureGtfsFiles() {
   }
 
   if (extractedMtime !== sourceMtime) {
-    console.log("Extracting Bizkaibus GTFS...");
+    console.log("[Bizkaibus] Extracting static GTFS...");
 
     fs.rmSync(BIZKAIBUS_GTFS_DIR, {
       recursive: true,
       force: true,
     });
 
-    fs.mkdirSync(BIZKAIBUS_GTFS_DIR, { recursive: true });
+    fs.mkdirSync(BIZKAIBUS_GTFS_DIR, {
+      recursive: true,
+    });
 
     new AdmZip(BIZKAIBUS_GTFS_ZIP).extractAllTo(
       BIZKAIBUS_GTFS_DIR,
@@ -124,7 +127,7 @@ async function ensureGtfsFiles() {
 }
 
 export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
-  if (cache) return cache;
+  if (memoryCache) return memoryCache;
 
   await ensureGtfsFiles();
 
@@ -152,7 +155,9 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
       shapeId: row.shape_id || null,
       headsign: row.trip_headsign || "",
       directionId:
-        row.direction_id === "" ? null : Number(row.direction_id),
+        row.direction_id === ""
+          ? null
+          : Number(row.direction_id),
     };
 
     trips.set(trip.tripId, trip);
@@ -194,8 +199,8 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     });
   }
 
-  for (const items of tripStops.values()) {
-    items.sort((a, b) => a.sequence - b.sequence);
+  for (const stopTimes of tripStops.values()) {
+    stopTimes.sort((a, b) => a.sequence - b.sequence);
   }
 
   for (const row of readCsv("shapes.txt")) {
@@ -226,7 +231,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     points.sort((a, b) => a.sequence - b.sequence);
   }
 
-  cache = {
+  memoryCache = {
     routes,
     trips,
     shapes,
@@ -235,5 +240,10 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     routeTripIds,
   };
 
-  return cache;
+  console.log(
+    `[Bizkaibus] GTFS ready: ${routes.size} routes, ` +
+    `${trips.size} trips, ${stops.size} stops, ${shapes.size} shapes.`,
+  );
+
+  return memoryCache;
 }
