@@ -339,6 +339,7 @@ function ensureLayers() {
     "active-route",
     "active-stops",
     "live-buses",
+    "live-bus-bodies",
   ]) {
     if (!map.getSource(id)) {
       map.addSource(id, {
@@ -478,6 +479,27 @@ function ensureLayers() {
     });
   }
 
+  if (!map.getLayer("real-bus-bodies")) {
+    map.addLayer({
+      id: "real-bus-bodies",
+      type: "fill-extrusion",
+      source: "live-bus-bodies",
+      minzoom: 15.6,
+
+      paint: {
+        "fill-extrusion-color": [
+          "get",
+          "color",
+        ],
+
+        "fill-extrusion-height": 3.2,
+
+        "fill-extrusion-base": 0.15,
+
+        "fill-extrusion-opacity": 0.94,
+      },
+    });
+  }
   if (!map.getLayer("bus-shadow")) {
     map.addLayer({
       id: "bus-shadow",
@@ -508,6 +530,7 @@ function ensureLayers() {
       source: "live-buses",
       layout: {
         "icon-image": "bizkaibus-model",
+
         "icon-size": [
           "interpolate",
           ["linear"],
@@ -516,16 +539,33 @@ function ensureLayers() {
           0.42,
           13,
           0.62,
-          16,
-          0.88,
+          15.5,
+          0.78,
         ],
+
         "icon-rotate": ["get", "bearing"],
+
         "icon-rotation-alignment":
           "map",
+
         "icon-pitch-alignment":
           "map",
+
         "icon-allow-overlap": true,
+
         "icon-ignore-placement": true,
+      },
+
+      paint: {
+        "icon-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          15.3,
+          1,
+          16.2,
+          0,
+        ],
       },
     });
   }
@@ -934,6 +974,7 @@ map.on("load", () => {
 
   animator = new VehicleAnimator(
     getSource("live-buses"),
+    getSource("live-bus-bodies"),
   );
 
   animator.start();
