@@ -1,0 +1,28 @@
+{
+  "name": "bilbao-transit-3d",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.3",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.1",
+    "cors": "^2.8.6",
+    "csv-parse": "^7.0.3",
+    "express": "^5.2.1",
+    "gtfs-realtime-bindings": "^2.2.0",
+    "maplibre-gl": "^6.11.2"
+  }
+}
