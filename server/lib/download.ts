@@ -1,0 +1,66 @@
+import { execFile } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+function escapePowerShell(value: string) {
+  return value.replaceAll("'", "''");
+}
+
+export async function downloadFile(
+  url: string,
+  destination: string,
+): Promise<number> {
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+
+  const temporary = `${destination}.tmp`;
+  fs.rmSync(temporary, { force: true });
+
+  if (process.platform === "win32") {
+    const script = [
+      "$ErrorActionPreference='Stop'",
+      "$ProgressPreference='SilentlyContinue'",
+      `Invoke-WebRequest -UseBasicParsing -Uri '${escapePowerShell(url)}' -OutFile '${escapePowerShell(temporary)}'`,
+    ].join("; ");
+
+    await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+      ],
+      { windowsHide: true, maxBuffer: 1024 * 1024 },
+    );
+  } else {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "bilbao-transit-3d/0.1" },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Download failed: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    fs.writeFileSync(
+      temporary,
+      Buffer.from(await response.arrayBuffer()),
+    );
+  }
+
+  const size = fs.statSync(temporary).size;
+
+  if (size <= 0) {
+    fs.rmSync(temporary, { force: true });
+    throw new Error(`Downloaded file is empty: ${url}`);
+  }
+
+  fs.renameSync(temporary, destination);
+  return size;
+}
