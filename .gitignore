@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Transit runtime cache
+server/cache/*
+!server/cache/.gitkeep
+
+# Local GTFS / GTFS-RT artifacts
+*.pb
+*.zip
