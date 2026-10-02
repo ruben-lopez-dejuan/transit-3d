@@ -9,7 +9,7 @@ import {
   getBizkaibusSnapshot,
 } from "./providers/bizkaibus/service";
 import { getCityNetwork } from './transit/network';
-import { cityRegistry, defaultCityId } from './cities';
+import { cityRegistry, defaultCityId, cityPackageReports } from './cities';
 
 const app = express();
 
@@ -28,6 +28,7 @@ app.use('/api', (request, response, next) => {
 });
 app.get('/api/cities', (_request, response) => response.json(cityRegistry.getCities()));
 app.get('/api/cities/default', (_request, response) => response.json(cityRegistry.getCity(defaultCityId)!.manifest));
+app.get('/api/city-packages', (_request, response) => response.json(cityPackageReports));
 app.get('/api/cities/:cityId', (request, response) => {
   const city = cityRegistry.getCity(request.params.cityId);
   if (!city) { response.status(404).json({ error: 'Ciudad no registrada.' }); return; }
