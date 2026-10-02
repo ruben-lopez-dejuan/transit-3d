@@ -4,6 +4,7 @@ import { MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale }
 import { TransitRenderer } from './transitRenderer';
 import type { Vehicle } from '../transit/networkTypes';
 import type { Map as TransitMap } from 'maplibre-gl';
+import type { VehicleModels } from './vehicleModels';
 
 const bus = { mode: 'bus' as const, operatorId: 'bilbobus' };
 const metroStyle = { kind: 'metro' as const, composition: { count: 4, length: 17, gap: 1 }, lateralOffsetMeters: 1.7 };
@@ -106,4 +107,58 @@ test('animation start is idempotent and stop releases the only frame request', (
     renderer.stop(); assert.equal(canceled, 1);
     renderer.start(); assert.equal(requests, 2); renderer.stop();
   } finally { globalThis.requestAnimationFrame = originalRequest; globalThis.cancelAnimationFrame = originalCancel; }
+});
+
+test('3D mounts when its import resolves while GeoJSON workers are busy', async () => {
+  let idle = true, mounted = false, mounts = 0;
+  let resolve!: (models: VehicleModels) => void;
+  const pending = new Promise<VehicleModels>((done) => { resolve = done; });
+  const model = { ready: false, update: () => {} } as unknown as VehicleModels;
+  const map = {
+    getSource: () => ({ setData: () => { idle = false; } }),
+    isStyleLoaded: () => idle, getZoom: () => 18,
+    getLayer: (id: string) => id === 'selected-halo' || (id === 'transit-models' && mounted) ? {} : undefined,
+    getBounds: () => ({ contains: () => true }),
+    getLayoutProperty: () => 'visible', setLayoutProperty: () => {}, triggerRepaint: () => {},
+    addLayer: (layer: VehicleModels, before: string) => { assert.equal(before, 'selected-halo'); assert.equal(layer, model); mounts++; mounted = true; model.ready = true; },
+  } as unknown as TransitMap;
+  const renderer = new TransitRenderer(map, () => pending);
+  Object.assign(renderer, { animation: 1 });
+  renderer.update([], Date.now());
+  const render = () => (renderer as unknown as { render(): void }).render();
+  render();
+  assert.equal(idle, false, 'setData leaves source workers busy before the import resolves');
+  resolve(model);
+  await pending; await Promise.resolve();
+  assert.equal(mounts, 1, 'the existing style must accept 3D without waiting for idle sources');
+  idle = true; render();
+  assert.equal(renderer.modelFallbackReason, 'none');
+  assert.equal(renderer.lod, 'detailed');
+  assert.equal(mounts, 1);
+});
+
+test('pending 3D loading respects page stop and retries after the style anchor returns', async () => {
+  for (const interruptedBy of ['stop', 'style'] as const) {
+    let idle = true, anchor = true, mounted = false, mounts = 0;
+    let resolve!: (models: VehicleModels) => void;
+    const pending = new Promise<VehicleModels>((done) => { resolve = done; });
+    const model = { ready: false, update: () => {} } as unknown as VehicleModels;
+    const map = {
+      getSource: () => ({ setData: () => { idle = false; } }),
+      isStyleLoaded: () => idle, getZoom: () => 18,
+      getLayer: (id: string) => (id === 'selected-halo' && anchor) || (id === 'transit-models' && mounted) ? {} : undefined,
+      getBounds: () => ({ contains: () => true }), getLayoutProperty: () => 'visible', setLayoutProperty: () => {}, triggerRepaint: () => {},
+      addLayer: () => { mounts++; mounted = true; model.ready = true; },
+    } as unknown as TransitMap;
+    const renderer = new TransitRenderer(map, () => pending);
+    Object.assign(renderer, { animation: 1 }); renderer.update([], Date.now());
+    const render = () => (renderer as unknown as { render(): void }).render();
+    render();
+    if (interruptedBy === 'stop') Object.assign(renderer, { animation: 0 }); else anchor = false;
+    resolve(model); await pending; await Promise.resolve(); await Promise.resolve();
+    assert.equal(mounts, 0, 'do not mount into a stopped page or an absent style');
+    Object.assign(renderer, { animation: 1 }); anchor = true; idle = true;
+    render(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    assert.equal(mounts, 1, 'retry when the page and anchor become available');
+  }
 });

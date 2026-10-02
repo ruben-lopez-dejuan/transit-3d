@@ -34,7 +34,10 @@ export class TransitRenderer {
   renderMilliseconds = 0;
   renderedVehicles = 0;
   onSelectedPosition?: (coordinate: [number, number]) => void;
-  constructor(private readonly map: TransitMap) {}
+  constructor(private readonly map: TransitMap, private readonly loadModels: () => Promise<VehicleModels> = async () => {
+    const { VehicleModels } = await import('./vehicleModels');
+    return new VehicleModels();
+  }) {}
   private progress(state: State, now: number) {
     if (state.motion) return state.motion.position(now) ?? state.vehicle.progressMetersAlongShape;
     const dt = Math.max(0, (now - state.at) / 1000);
@@ -101,8 +104,11 @@ export class TransitRenderer {
     const bounds = this.map.getBounds(); const zoom = this.map.getZoom();
     if (zoom >= MODEL_MIN_ZOOM && !this.map.getLayer('transit-models') && !this.modelsLoading && !this.modelsFailed) {
       this.modelsLoading = true;
-      void import('./vehicleModels').then(({ VehicleModels }) => {
-        if (this.animation && this.map.isStyleLoaded() && !this.map.getLayer('transit-models')) { this.models = new VehicleModels(); this.map.addLayer(this.models, 'selected-halo'); }
+      void this.loadModels().then((models) => {
+        // GeoJSON setData marks isStyleLoaded() false while workers process it.
+        // The anchor layer proves the style can accept a custom layer even then.
+        // Requiring idle sources here can prevent cached imports from ever mounting.
+        if (this.animation && this.map.getLayer('selected-halo') && !this.map.getLayer('transit-models')) { this.models = models; this.map.addLayer(models, 'selected-halo'); }
       }).catch((error) => { this.modelsFailed = true; console.warn('[transit-models] Model loading failed; using mode silhouettes.', error); }).finally(() => { this.modelsLoading = false; });
     }
     const vehicles = this.getVehicles();

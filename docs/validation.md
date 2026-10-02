@@ -1,5 +1,27 @@
 # Validación de la entrega
 
+## Recuperación del 3D tras introducir el selector
+
+**3 de octubre de 2026.** El diagnóstico observado en la app local permanecía
+en `3D fallback: loading` y `3D vehicles/cars: 0/0`: los modelos no se montaban.
+La geometría de `vehicleModels.ts` coincide con la fase de pulido anterior.
+La condición asíncrona de montaje exigía `isStyleLoaded()` después de `setData`,
+que deja las fuentes GeoJSON ocupadas. El resultado dependía del orden de
+resolución del import y del trabajo de los workers; podía quedar en iconos.
+
+Ahora se comprueba la presencia de la capa ancla `selected-halo`, además de
+animación activa y ausencia del modelo, sin exigir fuentes inactivas. Se conservan
+modelos, LOD, colores, composición y movimiento. Dos pruebas reproducen fuentes
+ocupadas, parada de página y sustitución de estilo durante la carga asíncrona.
+
+`npm test`: **103 tests pasando**, 72 core y 31 frontend. `npm run build`:
+type-check y compilación correctos. El bundle de modelos conserva el hash
+`vehicleModels-CpFDDvy8`; el de LOD sigue siendo `vehicleLod-C7qbwaqK`.
+Con permiso del usuario se abrió la aplicación local: después de recargar,
+el diagnóstico mostró `3D fallback: none`, `LOD: detailed` y un Metro con
+`3D vehicles/cars: 1/4`. Antes permanecía en `loading` con `0/0`.
+No se hizo una validación deliberada de varios ciclos de Bizkaibus.
+
 ## Selector y paquetes de ciudades
 
 **3 de octubre de 2026.** `npm test`: **101 tests pasando**, 72 core y 29 frontend.
