@@ -5,6 +5,37 @@ import { applyRealtime } from '../providers/realtimeProvider';
 import { normalizeTripUpdates, resolveServiceDate, updatedTimeline, type TripUpdate, type RealtimeMessage } from './realtime';
 import { serviceEpoch } from './plans';
 import { generateScheduledVehicles } from './scheduled';
+import { anchorGpsTimeline } from './gpsTimeline';
+import { ObservationTracker } from './observations';
+
+test('invalid and physically impossible backwards GPS preserves the last accepted observation and stop state', () => {
+  const tracker = new ObservationTracker(), at = now.getTime();
+  tracker.accept('vehicle', { at, progress: 100, stoppedAtStop: true }, 'bus', at);
+  assert.equal(tracker.accept('vehicle', { at: at + 1000, progress: 50, stoppedAtStop: false }, 'bus', at + 1000), null);
+  assert.equal(tracker.accept('vehicle', { at: at + 1000, progress: NaN }, 'bus', at + 1000), null);
+  assert.deepEqual(tracker.latest('vehicle', at + 1000)?.current, { at, progress: 100, stoppedAtStop: true });
+});
+
+test('an explicit realtime station stop is normalized; an impossible next reading cannot overwrite it', () => {
+  const data = fixture();
+  const gps: RealtimeMessage = { header: feed().header, entity: [{ vehicle: { trip: { tripId: 't', startDate: date }, currentStatus: 'STOPPED_AT', timestamp: now.getTime() / 1000, position: { latitude: 43.26, longitude: -2.935 } } }] };
+  const first = applyRealtime(data, [], 'stop-test', new Map(), gps, now, 40)[0];
+  assert.equal(first.stoppedAtStop, true); assert.equal(first.maximumSpeedMetersPerSecond, 40);
+  gps.entity![0].vehicle!.timestamp! += 1;
+  gps.entity![0].vehicle!.position!.longitude = -2.931;
+  gps.entity![0].vehicle!.currentStatus = 'IN_TRANSIT_TO';
+  const next = applyRealtime(data, [], 'stop-test', new Map(), gps, new Date(now.getTime() + 1000), 40)[0];
+  assert.equal(next.stoppedAtStop, true); assert.equal(next.observationTimestamp, first.observationTimestamp);
+});
+
+test('forecast anchoring uses the GPS instant and retains stop dwell without rebasing on each query', () => {
+  const plan = [{ at: 1000, progress: 0 }, { at: 120000, progress: 1000 }, { at: 130000, progress: 1000 }, { at: 200000, progress: 2000 }];
+  const observation = { at: 60000, progress: 500 };
+  const anchored = anchorGpsTimeline(plan, observation);
+  assert.deepEqual(anchored, [observation, ...plan.slice(1)]);
+  assert.deepEqual(anchorGpsTimeline(anchored, observation), anchored);
+  assert.deepEqual(anchorGpsTimeline(plan, { at: 140000, progress: 1400 }), [{ at: 140000, progress: 1400 }, plan[3]]);
+});
 
 const date = '20261002', now = new Date(serviceEpoch(date, 10 * 3600 + 5 * 60));
 function fixture(): BizkaibusGtfs {

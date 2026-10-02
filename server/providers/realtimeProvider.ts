@@ -58,12 +58,13 @@ export function applyRealtime(gtfs: BizkaibusGtfs, base: TransitVehicle[], opera
     const timeline = update ? updatedTimeline(gtfs, update) : timelineFor(plan, date);
     const mode = modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1);
     const key = `${operatorId}:${date}:${trip.tripId}:${trip.shapeId}`;
-    const history = gpsObservations.accept(key, { at: observedAt, progress: projection.progressMeters }, mode, now.getTime(), maximumGpsSpeed) ?? gpsObservations.latest(key, now.getTime());
+    const stoppedAtStop = Object.hasOwn(observation, 'currentStatus') ? observation.currentStatus === 'STOPPED_AT' || observation.currentStatus === 1 : undefined;
+    const history = gpsObservations.accept(key, { at: observedAt, progress: projection.progressMeters, stoppedAtStop }, mode, now.getTime(), maximumGpsSpeed) ?? gpsObservations.latest(key, now.getTime());
     if (!history) continue;
     const progress = history.current.progress, acceptedAt = history.current.at;
     const position = positionAtProgress(plan.metric, progress); if (!position) continue;
     const id = `${operatorId}:${tripInstanceKey(date, trip.tripId)}`, previous = vehicles.get(id);
-    vehicles.set(id, { ...previous, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode, shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: now.getTime() - acceptedAt <= 45_000 ? 'live' : 'predicted', observationTimestamp: acceptedAt, predictionTimestamp: now.getTime(), delaySeconds: previous?.delaySeconds ?? null, timetableTimestamp: update?.updatedAt ?? null, observationProgressMeters: progress, previousObservation: history.previous, speedMetersPerSecond: history.speed, vehicleId: observation.vehicle?.id ?? observation.vehicle?.label ?? trip.tripId, tripIdentityQuality: 'exact', positionSource: 'gps' });
+    vehicles.set(id, { ...previous, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode, shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: now.getTime() - acceptedAt <= 45_000 ? 'live' : 'predicted', observationTimestamp: acceptedAt, predictionTimestamp: now.getTime(), delaySeconds: previous?.delaySeconds ?? null, timetableTimestamp: update?.updatedAt ?? null, observationProgressMeters: progress, previousObservation: history.previous, speedMetersPerSecond: history.speed, maximumSpeedMetersPerSecond: maximumGpsSpeed, stoppedAtStop: history.current.stoppedAtStop, vehicleId: observation.vehicle?.id ?? observation.vehicle?.label ?? trip.tripId, tripIdentityQuality: 'exact', positionSource: 'gps' });
   }
   return [...vehicles.values()];
 }

@@ -19,6 +19,8 @@ export type TransitVehicle = {
   timetableTimestamp?: number | null;
   vehicleId?: string | null;
   speedMetersPerSecond?: number | null;
+  maximumSpeedMetersPerSecond?: number;
+  stoppedAtStop?: boolean;
   observationProgressMeters?: number | null;
   previousObservation?: { at: number; progress: number } | null;
   tripIdentityQuality?: 'exact' | 'estimated';

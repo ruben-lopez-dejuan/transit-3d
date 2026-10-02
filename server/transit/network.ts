@@ -7,6 +7,7 @@ import { formatServiceDate, isServiceActive, parseGtfsTime } from "./gtfsCalenda
 import { distanceMeters } from "./motionEngine";
 import { infrastructureFor } from './infrastructure';
 import { passengerHeadsign, placeShortcuts } from './labels';
+import { anchorGpsTimeline } from './gpsTimeline';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape } from "../../src/transit/networkTypes";
 
@@ -117,19 +118,19 @@ function enrich(vehicle: import("./types").TransitVehicle, now: Date): Vehicle |
       const previous = plan.anchors[index - 1];
       const fraction = Math.max(0, Math.min(1, (vehicle.progressMetersAlongShape - previous.progress) / (interval.progress - previous.progress)));
       const scheduleAt = serviceEpoch(serviceDate, previous.seconds + fraction * (interval.seconds - previous.seconds));
-      const positionAt = vehicle.positionQuality === "predicted" ? now.getTime() : vehicle.observationTimestamp;
+      const positionAt = vehicle.observationTimestamp;
       shiftSeconds = Math.round((positionAt - scheduleAt) / 1000);
       if (Math.abs(shiftSeconds) <= 3600) { delaySeconds = shiftSeconds; delayEstimated = true; }
     }
   }
   let fullTimeline = update ? updatedTimeline(gtfs, update) ?? (plan ? timelineFor(plan, serviceDate) : []) : plan ? timelineFor(plan, serviceDate, shiftSeconds) : [];
-  if (update && vehicle.observationTimestamp !== null) {
+  if (vehicle.observationTimestamp !== null) {
     // The actual GPS anchors the map position; the forecasts control the following station times.
-    fullTimeline = [{ at: now.getTime(), progress: vehicle.progressMetersAlongShape }, ...fullTimeline.filter((a) => a.at > now.getTime() && a.progress >= vehicle.progressMetersAlongShape)];
+    fullTimeline = anchorGpsTimeline(fullTimeline, { at: vehicle.observationTimestamp, progress: vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape });
   }
   let nextAnchor = fullTimeline.findIndex((a) => a.at >= now.getTime());
   if (nextAnchor < 0) nextAnchor = fullTimeline.length - 1;
-  const timeline = fullTimeline.slice(Math.max(0, nextAnchor - 1), nextAnchor + 5);
+  const timeline = vehicle.observationTimestamp !== null ? fullTimeline.slice(0, Math.max(6, nextAnchor + 5)) : fullTimeline.slice(Math.max(0, nextAnchor - 1), nextAnchor + 5);
   const next = plan?.stops.find((s) => s.progress >= vehicle.progressMetersAlongShape + 10 && !update?.stops.get(s.sequence)?.skipped);
   const nextStop = next ? stopMap.get(`${vehicle.operatorId}:${next.stopId}`) : null;
   const nextUpdate = next ? update?.stops.get(next.sequence) : null;

@@ -20,6 +20,7 @@ export type RawRealtimeVehicle = {
   currentStopSequence: number | null;
   stopId: string | null;
   timestamp: number | null;
+  currentStatus?: number | null;
 };
 
 export type RawRealtimeSnapshot = {
@@ -105,6 +106,7 @@ async function refreshRealtime(): Promise<RawRealtimeSnapshot> {
           : null,
       stopId: vehicle.stopId ?? null,
       timestamp: toNumber(vehicle.timestamp),
+      currentStatus: Object.hasOwn(vehicle, 'currentStatus') ? toNumber(vehicle.currentStatus) : null,
     });
   }
 
