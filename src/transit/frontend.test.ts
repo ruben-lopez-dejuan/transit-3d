@@ -4,6 +4,7 @@ import { progressAt, positionAlong, correctionOffset, positionQuality } from './
 import { searchNetwork } from './search';
 import { esc, badge, departures, positionExplanation } from '../ui';
 import type { Network, Vehicle } from './networkTypes';
+import { GpsPlayback } from './gpsPlayback';
 
 test('client movement preserves station dwell and clamps the timeline', () => {
   const anchors = [{ at: 0, progress: 0 }, { at: 10000, progress: 1000 }, { at: 20000, progress: 1000 }, { at: 30000, progress: 2000 }];
@@ -71,4 +72,17 @@ test('A position predicted from TripUpdates does not claim to have a GPS signal'
   const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000 } as Vehicle;
   assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
   assert.ok(!positionExplanation(v, 16000).includes('Último GPS'));
+});
+test('GPS playback represents a 25-second observation interval over 25 seconds', () => {
+  const playback = new GpsPlayback();
+  playback.append({ at: 0, progress: 0 }); playback.position(1000);
+  playback.append({ at: 25000, progress: 250 });
+  assert.equal(playback.position(6000), 50);
+  // Polling the same observation must not restart or accelerate the animation.
+  playback.append({ at: 25000, progress: 250 });
+  assert.equal(playback.position(13500), 125);
+  playback.append({ at: 50000, progress: 500 });
+  assert.equal(playback.position(26000), 250);
+  assert.equal(playback.position(51000), 500);
+  assert.equal(playback.position(61000), 500);
 });

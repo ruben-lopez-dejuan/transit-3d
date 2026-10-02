@@ -166,7 +166,7 @@ app.get("/api/stops/:operatorId/:stopId", async (request, response) => {
 });
 app.get("/api/trips/:operatorId/:tripId", async (request, response) => {
   try {
-    const detail = await getTrip(request.params.operatorId, request.params.tripId, String(request.query.date ?? ""));
+    const detail = await getTrip(request.params.operatorId, request.params.tripId, String(request.query.date ?? ""), request.query.vehicleId ? String(request.query.vehicleId) : undefined);
     if (!detail) { response.status(404).json({ error: "Viaje no disponible." }); return; }
     response.json(detail);
   } catch { response.status(503).json({ error: "No se pudo cargar el viaje." }); }

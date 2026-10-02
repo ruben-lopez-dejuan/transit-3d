@@ -5,6 +5,8 @@ import { modeFor, timelineFor, tripPlan } from '../transit/plans';
 import { positionAtProgress, projectOntoShape } from '../transit/motionEngine';
 import type { TransitProvider, TransitVehicle, ProviderSnapshot } from '../transit/types';
 import type { MotionAnchor } from '../../src/transit/networkTypes';
+import { ObservationTracker } from '../transit/observations';
+const gpsObservations = new ObservationTracker();
 
 function progressAt(anchors: MotionAnchor[], at: number) {
   if (at <= anchors[0].at) return anchors[0].progress;
@@ -52,12 +54,13 @@ export function applyRealtime(gtfs: BizkaibusGtfs, base: TransitVehicle[], opera
     const projection = projectOntoShape(plan.metric, [longitude!, latitude!], previousStop?.progress ?? 0);
     if (!projection || projection.distanceMeters > 120) continue;
     const timeline = update ? updatedTimeline(gtfs, update) : timelineFor(plan, date);
-    let progress = projection.progressMeters;
-    // Advance an aging observation using the trip's time/distance profile, never a fixed speed.
-    if (now.getTime() - observedAt > 45_000 && timeline) progress += Math.max(0, progressAt(timeline, now.getTime()) - progressAt(timeline, observedAt));
+    const progress = projection.progressMeters;
+    const mode = modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1);
+    const history = gpsObservations.accept(`${operatorId}:${date}:${trip.tripId}:${trip.shapeId}`, { at: observedAt, progress }, mode, now.getTime());
+    if (!history) continue;
     const position = positionAtProgress(plan.metric, progress); if (!position) continue;
     const id = `${operatorId}:${tripInstanceKey(date, trip.tripId)}`, previous = vehicles.get(id);
-    vehicles.set(id, { ...previous, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode: modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1), shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', observationTimestamp: observedAt, predictionTimestamp: now.getTime(), delaySeconds: previous?.delaySeconds ?? null, timetableTimestamp: update?.updatedAt ?? null });
+    vehicles.set(id, { ...previous, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode, shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', observationTimestamp: observedAt, predictionTimestamp: now.getTime(), delaySeconds: previous?.delaySeconds ?? null, timetableTimestamp: update?.updatedAt ?? null, observationProgressMeters: progress, previousObservation: history.previous, speedMetersPerSecond: history.speed, tripIdentityQuality: 'exact', positionSource: 'gps' });
   }
   return [...vehicles.values()];
 }

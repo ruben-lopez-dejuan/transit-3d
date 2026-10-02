@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "test:bizkaibus-gtfs": "tsx server/test-bizkaibus-gtfs.ts",
     "test:bizkaibus-realtime": "tsx server/test-bizkaibus-realtime.ts",
-    "test:core": "tsx --test server/transit/core.test.ts server/transit/plans.test.ts server/transit/parser.test.ts server/transit/renfe.test.ts server/transit/realtime.test.ts",
+    "test:core": "tsx --test server/transit/core.test.ts server/transit/plans.test.ts server/transit/parser.test.ts server/transit/renfe.test.ts server/transit/realtime.test.ts server/transit/bilbobus.test.ts",
     "test:frontend": "tsx --test src/transit/frontend.test.ts",
     "test:network": "tsx server/test-network.ts",
     "test": "npm run test:core && npm run test:frontend"
@@ -22,8 +22,11 @@
     "cors": "^2.8.6",
     "csv-parse": "^7.0.3",
     "express": "^5.2.1",
+    "fast-xml-parser": "^5.11.2",
     "gtfs-realtime-bindings": "^2.2.0",
     "maplibre-gl": "^6.11.2",
+    "proj4": "^2.22.0",
+    "three": "^0.186.1",
     "tsx": "^4.23.15"
   },
   "devDependencies": {
@@ -31,6 +34,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.3",
+    "@types/three": "^0.186.0",
     "concurrently": "^10.0.5",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"

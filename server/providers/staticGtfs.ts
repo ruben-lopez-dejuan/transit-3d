@@ -4,7 +4,7 @@ import AdmZip from "adm-zip";
 import { downloadFile } from "../lib/download";
 import { parseGtfsDirectory, type BizkaibusGtfs, type GtfsRoute } from "./bizkaibus/gtfs";
 import { generateScheduledVehicles } from "../transit/scheduled";
-import type { TransitProvider } from "../transit/types";
+import type { TransitProvider, ProviderSnapshot } from "../transit/types";
 
 export class StaticGtfsProvider implements TransitProvider {
   private data: Promise<BizkaibusGtfs> | null = null;
@@ -36,7 +36,7 @@ export class StaticGtfsProvider implements TransitProvider {
     console.log(`[${this.operatorId}] GTFS ready: ${gtfs.routes.size} routes, ${gtfs.trips.size} trips.`);
     return gtfs;
   }
-  async getSnapshot(now = new Date()) {
+  async getSnapshot(now = new Date()): Promise<ProviderSnapshot> {
     const gtfs = await this.getGtfs();
     return { operatorId: this.operatorId, fetchedAt: now.getTime(), sourceTimestamp: null, status: this.stale ? "degraded" as const : "ok" as const, vehicles: generateScheduledVehicles(gtfs, now, this.operatorId), ...(this.stale ? { error: "Using the last available static timetable." } : {}) };
   }

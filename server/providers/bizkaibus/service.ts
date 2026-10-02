@@ -8,7 +8,8 @@ import { matchVehicleToTrip } from "./mapMatching";
 import { getBizkaibusRealtime } from "./realtime";
 import { generateScheduledVehicles } from "../../transit/scheduled";
 import type { ProviderSnapshot, TransitVehicle } from "../../transit/types";
-import { buildShapeMetric, positionAtProgress } from "../../transit/motionEngine";
+import { ObservationTracker } from '../../transit/observations';
+import { freshTimestamp, resolveServiceDate } from '../../transit/realtime';
 
 export type LiveVehicle = {
   entityId: string;
@@ -50,6 +51,7 @@ let cache:
       snapshot: BizkaibusSnapshot;
     }
   | null = null;
+const observations = new ObservationTracker();
 
 function findReferenceStop(
   gtfs: BizkaibusGtfs,
@@ -236,28 +238,18 @@ export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<Pr
       error = "Realtime feed timestamp is stale; showing scheduled service when available.";
     }
     for (const vehicle of snapshot.vehicles) {
-      const observedAt = vehicle.timestamp ? vehicle.timestamp * 1000 : snapshot.fetchedAtMs;
+      const observedAt = freshTimestamp(vehicle.timestamp ?? undefined, now.getTime());
+      if (observedAt === null) continue;
       const ageMs = Math.max(0, now.getTime() - observedAt);
       if (ageMs > 180_000) continue;
       const quality = ageMs <= 45_000 ? "live" : "predicted";
-      let longitude = vehicle.longitude;
-      let latitude = vehicle.latitude;
-      let bearing = vehicle.bearing;
-      let progressMetersAlongShape = vehicle.progressMetersAlongShape;
-      if (quality === "predicted") {
-        const shape = gtfs.shapes.get(vehicle.shapeId);
-        if (shape) {
-          const metric = buildShapeMetric(shape);
-          progressMetersAlongShape = Math.min(metric.totalMeters, progressMetersAlongShape + ((ageMs - 45_000) / 1000) * 7.5);
-          const predicted = positionAtProgress(metric, progressMetersAlongShape);
-          if (predicted) {
-            [longitude, latitude] = predicted.coordinate;
-            bearing = predicted.bearing;
-          }
-        }
-      }
+      const { longitude, latitude, bearing, progressMetersAlongShape } = vehicle;
+      const date = resolveServiceDate(gtfs, { tripId: vehicle.tripId }, new Date(observedAt));
+      if (!date) continue;
+      const history = observations.accept(`${vehicle.vehicleId ?? vehicle.tripId}:${date}:${vehicle.tripId}:${vehicle.shapeId}`, { at: observedAt, progress: progressMetersAlongShape }, 'bus', now.getTime());
+      if (!history) continue;
       const matched: TransitVehicle = {
-        id: byTrip.get(vehicle.tripId)?.id ?? `bizkaibus:${formatServiceId(now)}:${vehicle.tripId}`,
+        id: `bizkaibus:${date}:${vehicle.tripId}`,
         operatorId: "bizkaibus",
         mode: "bus",
         tripId: vehicle.tripId,
@@ -272,6 +264,11 @@ export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<Pr
         observationTimestamp: observedAt,
         predictionTimestamp: now.getTime(),
         delaySeconds: null,
+        vehicleId: vehicle.vehicleId,
+        observationProgressMeters: progressMetersAlongShape,
+        previousObservation: history.previous,
+        speedMetersPerSecond: history.speed,
+        tripIdentityQuality: 'exact', positionSource: 'gps',
       };
       byTrip.set(vehicle.tripId, matched);
     }

@@ -1,8 +1,9 @@
 import type { Map as TransitMap, GeoJSONSource } from "maplibre-gl";
 import type { Shape, Vehicle, TransitMode } from "../transit/networkTypes";
 import { progressAt, positionAlong, correctionOffset, positionQuality } from "../transit/motion";
+import { GpsPlayback } from '../transit/gpsPlayback';
 
-type State = { vehicle: Vehicle; offset: number; startedAt: number; duration: number };
+type State = { vehicle: Vehicle; offset: number; startedAt: number; duration: number; playback?: GpsPlayback };
 export class TransitRenderer {
   private states = new Map<string, State>();
   readonly shapes = new Map<string, Shape>();
@@ -18,6 +19,7 @@ export class TransitRenderer {
   onSelectedPosition?: (coordinate: [number, number]) => void;
   constructor(private readonly map: TransitMap) {}
   private progress(state: State, now: number) {
+    if (state.playback) return state.playback.position(now) ?? state.vehicle.progressMetersAlongShape;
     return (progressAt(state.vehicle.timeline, now, state.vehicle.mode !== "bus") ?? state.vehicle.progressMetersAlongShape) + correctionOffset(state.offset, state.startedAt, state.duration, now);
   }
   update(vehicles: Vehicle[], fetchedAt: number, serverTime = Date.now()) {
@@ -26,6 +28,12 @@ export class TransitRenderer {
     const next = new Map<string, State>();
     for (const vehicle of vehicles) {
       const previous = this.states.get(vehicle.id);
+      if (vehicle.observationTimestamp !== null) {
+        const playback = previous?.vehicle.shapeKey === vehicle.shapeKey ? previous.playback ?? new GpsPlayback() : new GpsPlayback();
+        playback.append({ at: vehicle.observationTimestamp, progress: vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape }, vehicle.previousObservation);
+        next.set(vehicle.id, { vehicle, offset: 0, startedAt: now, duration: 0, playback });
+        continue;
+      }
       const target = progressAt(vehicle.timeline, now, vehicle.mode !== "bus") ?? vehicle.progressMetersAlongShape;
       if (previous && previous.vehicle.shapeKey === vehicle.shapeKey) {
         const offset = this.progress(previous, now) - target;
@@ -50,6 +58,7 @@ export class TransitRenderer {
     this.animation = requestAnimationFrame(tick);
   }
   stop() { cancelAnimationFrame(this.animation); }
+  dataQuality(id: string) { const state = this.states.get(id); return !state?.vehicle.observationTimestamp ? 'estimated' as const : state.playback?.interpolated ? 'interpolated' as const : 'real' as const; }
   private render() {
     const source = this.map.getSource("vehicles") as GeoJSONSource | undefined;
     if (!source || !this.map.isStyleLoaded()) return;

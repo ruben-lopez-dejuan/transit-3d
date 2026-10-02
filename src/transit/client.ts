@@ -11,4 +11,4 @@ export const loadSnapshot = () => request<Snapshot>("/api/transit");
 export const loadShapes = (keys: string[]) => request<Shape[]>("/api/geometries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keys }) });
 export const loadLine = (route: Route, direction = "all") => request<LineDetail>(`/api/lines/${encodeURIComponent(route.operatorId)}/${encodeURIComponent(route.routeId)}?direction=${encodeURIComponent(direction)}`);
 export const loadStop = (stop: Stop) => request<StopDetail>(`/api/stops/${encodeURIComponent(stop.operatorId)}/${encodeURIComponent(stop.stopId)}`);
-export const loadTrip = (vehicle: Vehicle) => request<TripDetail>(`/api/trips/${encodeURIComponent(vehicle.operatorId)}/${encodeURIComponent(vehicle.tripId)}?date=${vehicle.serviceDate}`);
+export const loadTrip = (vehicle: Vehicle) => request<TripDetail>(`/api/trips/${encodeURIComponent(vehicle.operatorId)}/${encodeURIComponent(vehicle.tripId)}?date=${vehicle.serviceDate}&vehicleId=${encodeURIComponent(vehicle.id)}`);

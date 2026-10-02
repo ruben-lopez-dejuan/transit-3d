@@ -17,6 +17,12 @@ export type TransitVehicle = {
   observationTimestamp: number | null;
   predictionTimestamp: number;
   timetableTimestamp?: number | null;
+  vehicleId?: string | null;
+  speedMetersPerSecond?: number | null;
+  observationProgressMeters?: number | null;
+  previousObservation?: { at: number; progress: number } | null;
+  tripIdentityQuality?: 'exact' | 'estimated';
+  positionSource?: 'gps' | 'trip-updates' | 'schedule';
   delaySeconds: number | null;
 };
 
