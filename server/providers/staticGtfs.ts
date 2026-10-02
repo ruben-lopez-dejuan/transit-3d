@@ -11,7 +11,8 @@ export class StaticGtfsProvider implements TransitProvider {
   private data: Promise<BizkaibusGtfs> | null = null;
   private expires = 0;
   private stale = false;
-  constructor(readonly operatorId: string, private readonly url: string, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void } = {}) {}
+  private receivedTimestamp: number | null = null;
+  constructor(readonly operatorId: string, private readonly url: string, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void; timezone?: string; cacheNamespace?: string } = {}) {}
   getGtfs(): Promise<BizkaibusGtfs> {
     if (!this.data || Date.now() >= this.expires) {
       this.expires = Infinity;
@@ -20,7 +21,7 @@ export class StaticGtfsProvider implements TransitProvider {
     return this.data;
   }
   private async load() {
-    const directory = path.resolve("server/cache", this.operatorId);
+    const directory = this.options.cacheNamespace ? path.resolve('server/cache', encodeURIComponent(this.options.cacheNamespace), encodeURIComponent(this.operatorId)) : path.resolve('server/cache', this.operatorId);
     const zipPath = path.join(directory, "gtfs.zip");
     fs.mkdirSync(directory, { recursive: true });
     const fresh = fs.existsSync(zipPath) && Date.now() - fs.statSync(zipPath).mtimeMs < 6 * 3600_000;
@@ -29,6 +30,7 @@ export class StaticGtfsProvider implements TransitProvider {
       catch (error) { if (!fs.existsSync(zipPath)) throw error; this.stale = true; }
     }
     const parsedPath = path.join(directory, 'parsed.v8');
+    this.receivedTimestamp = fs.statSync(zipPath).mtimeMs;
     const parsed = readParsedFeed(parsedPath, zipPath);
     if (parsed) return parsed;
     const zip = new AdmZip(zipPath);
@@ -47,6 +49,6 @@ export class StaticGtfsProvider implements TransitProvider {
   }
   async getSnapshot(now = new Date()): Promise<ProviderSnapshot> {
     const gtfs = await this.getGtfs();
-    return { operatorId: this.operatorId, fetchedAt: now.getTime(), sourceTimestamp: null, status: this.stale ? "degraded" as const : "ok" as const, vehicles: generateScheduledVehicles(gtfs, now, this.operatorId), ...(this.stale ? { error: "Using the last available static timetable." } : {}) };
+    return { operatorId: this.operatorId, fetchedAt: now.getTime(), sourceTimestamp: null, receivedTimestamp: this.receivedTimestamp, status: this.stale ? 'degraded' as const : 'ok' as const, vehicles: generateScheduledVehicles(gtfs, now, this.operatorId, this.options.timezone), ...(this.stale ? { error: 'Using the last available static timetable.' } : {}) };
   }
 }

@@ -10,6 +10,7 @@ import { TransitRenderer } from './map/transitRenderer';
 import { empty, styleUrl, setData, installLayers, installVehicleIcons, stopsData, routeData, fitShapes } from './map/networkMap';
 import { createShell, configureTimezone, esc, badge, quality, eta, time, departures, positionExplanation, delayLabel } from './ui';
 import { setupPwa } from './pwa';
+import { migrateFavorites } from './transit/favorites';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 $('#app').textContent = 'Cargando la red de transporte…';
@@ -94,7 +95,7 @@ async function refresh() {
   if (polling || !navigator.onLine) return;
   polling = true; $('#refresh').textContent = 'Actualizando…';
   try {
-    if (!network) { network = await loadNetwork(); network.operators.forEach((o) => renderer.operators.add(o.id)); setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network); }
+    if (!network) { network = await loadNetwork(); favorites = migrateFavorites(favorites, network); write('transit:favorites', JSON.stringify([...favorites])); network.operators.forEach((o) => renderer.operators.add(o.id)); setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network); }
     snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); filters(); renderDetails();
   } catch (error) { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
   finally { polling = false; $('#refresh').textContent = '↻ Actualizar datos'; }
@@ -151,6 +152,7 @@ function renderDetails() {
     $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(v.operatorName)} · ${v.mode === 'rail' ? 'Metro / tren' : v.mode === 'tram' ? 'Tranvía' : v.mode === 'funicular' ? 'Funicular' : 'Bus'}</div><div class="title-row">${badge(v)}<h1>${esc(v.headsign || 'Servicio en circulación')}</h1></div>${quality(q, renderer.dataQuality(v.id))}<p class="quality-explanation">${esc(positionExplanation(v, Date.now() + renderer.clockOffset))}</p></div><div class="next-stop"><span>Próxima parada</span><strong>${esc(v.nextStop?.name ?? next?.name ?? 'Fin del recorrido')}</strong><div>${next?.realtime ? eta(next.at) : v.nextStop ? eta(v.nextStop.at) : next ? eta(next.at) : '—'}${delay !== null ? `<small> · ${v.delayEstimated ? 'Desfase estimado · ' : ''}${delayLabel(delay)}</small>` : ''}</div></div><div class="detail-actions"><button data-follow class="${following ? 'primary' : ''}">${following ? '● Siguiendo' : '⌖ Seguir vehículo'}</button><button data-fit>Ver recorrido</button></div><section class="detail-section"><div class="section-heading"><h2>Paradas del recorrido</h2><button data-full-line class="text-button">Ver línea →</button></div>${trip ? stopRows(trip.stops, v.progressMetersAlongShape) : loading}</section>`;
     if (new URLSearchParams(location.search).has('debug')) { $('#debug').hidden = false; $('#debug').textContent = `trip: ${v.tripId}\nshape: ${v.shapeKey}\nprogress: ${v.progressMetersAlongShape.toFixed(1)} m\nrendered coordinate: ${renderer.coordinate(v.id)?.map(n => n.toFixed(6)).join(", ")}\nquality: ${q}\nGPS: ${v.observationTimestamp ? new Date(v.observationTimestamp).toISOString() : 'none'}\nlast query: ${snapshot ? new Date(snapshot.fetchedAt).toISOString() : 'none'}\nrender frame: ${new Date().toISOString()}\nmotion time: ${new Date(renderer.renderedTimestamp(v.id)).toISOString()}\nrendered: ${renderer.renderedVehicles} / ${renderer.getVehicles().length}\nframe: ${renderer.renderMilliseconds.toFixed(2)} ms\nspeed: ${v.speedMetersPerSecond?.toFixed(1) ?? 'unknown'} m/s\nshape cache: ${renderer.shapes.size}\n${following ? 'following' : ''}`; }
     if (new URLSearchParams(location.search).has('debug')) $('#debug').textContent += `\nLOD: ${renderer.lod}\n3D fallback: ${renderer.modelFallbackReason}\n3D vehicles/cars: ${renderer.modelVehicles}/${renderer.modelCars}\nmotion: ${JSON.stringify(renderer.diagnostics(v.id), null, 2)}`;
+    if (new URLSearchParams(location.search).has('debug')) $('#debug').textContent += `\nsource timestamp: ${v.sourceTimestamp === null ? 'unknown' : new Date(v.sourceTimestamp).toISOString()}\nreceived timestamp: ${v.receivedTimestamp === null ? 'unknown' : new Date(v.receivedTimestamp).toISOString()}\nposition source: ${v.positionSource}\nrendered position source: ${renderer.positionSource(v.id)}`;
   } else if (selection.kind === 'route') {
     const route = selection.route, line = detail as LineDetail | null;
     const active = renderer.getVehicles().filter((v) => v.routeKey === route.key && (selection?.kind !== 'route' || selection.direction === 'all' || String(v.directionId ?? 'unknown') === selection.direction));

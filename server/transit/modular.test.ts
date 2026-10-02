@@ -6,6 +6,9 @@ import { normalizeVehicle, normalizeRoute, normalizeStop, normalizeTrip } from '
 import { RegisteredProvider } from './registeredProvider';
 import { ProviderRegistry } from './registry';
 import type { AdapterVehicle, CityManifest, ProviderDefinition, SourceAdapter } from '../../shared/transit/contracts';
+import { RealtimeFeedClient } from '../providers/realtimeFeed';
+import { RealtimeProvider } from '../providers/realtimeProvider';
+import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
 
 export const testDefinition = (id = 'provider'): ProviderDefinition => ({ id, name: id, color: '#123456', realtime: true, capabilities: { staticGtfs: true, vehiclePositions: true, tripUpdates: true, serviceAlerts: false, occupancy: false, speed: false, bearing: false, stopArrivals: false } });
 const city = { id: 'test-city', timezone: 'Europe/Madrid' };
@@ -59,6 +62,7 @@ test('invalid coordinates and foreign provider identities are omitted, optional 
   assert.equal(normalizeVehicle(raw({ operatorId: 'other' }), scope, null, at), null);
   const value = normalizeVehicle(raw({ speedMetersPerSecond: undefined, receivedTimestamp: undefined }), scope, null, at)!;
   assert.equal(value.speed, null); assert.equal(value.receivedTimestamp, null); assert.equal(value.occupancy, undefined);
+  assert.equal(normalizeVehicle(raw({ observationTimestamp: null, positionQuality: 'scheduled', receivedTimestamp: null }), scope, at, at)!.receivedTimestamp, null, 'an explicitly unknown static reception must not inherit a GPS feed reception');
 });
 test('normalized catalog references join the same route, trip, shape and stop namespaces', () => {
   const scope = { cityId: city.id, providerId: 'provider' };
@@ -99,4 +103,42 @@ test('registry validates package version and membership, exposes health and swit
   await provider.getSnapshot(new Date(at));
   assert.equal(registry.getProviderHealth(city.id, 'provider')?.state, 'unavailable');
   assert.equal(registry.getProvidersForCity('unknown').length, 0);
+});
+
+test('invalid timestamps are rejected and physical vehicle IDs are scoped independently of feed IDs', async () => {
+  const scope = { cityId: city.id, providerId: 'provider', timezone: city.timezone };
+  for (const observationTimestamp of [NaN, Infinity, -1, 0]) assert.equal(normalizeVehicle(raw({ observationTimestamp }), scope, null, at), null);
+  assert.equal(normalizeVehicle(raw({ receivedTimestamp: NaN }), scope, null, at), null);
+  const vehicle = normalizeVehicle(raw({ vehicleId: '123:physical' }), scope, null, at)!;
+  assert.equal(parseEntityId(vehicle.vehicleId!)?.externalId, '123:physical');
+  assert.equal(vehicle.externalVehicleId, '123:physical');
+  const unknown = normalizeVehicle(raw({ observationTimestamp: null }), scope, null, at)!;
+  assert.equal(unknown.positionQuality, 'predicted');
+  const provider = new RegisteredProvider(city, testDefinition(), { operatorId: 'provider', getSnapshot: async () => ({ operatorId: 'provider', fetchedAt: at, sourceTimestamp: NaN, status: 'ok', vehicles: [] }) });
+  assert.equal((await provider.getSnapshot(new Date(at))).health.state, 'unavailable');
+});
+
+test('cached realtime source and reception times survive polling and expiration without HTTP', async () => {
+  const client = new RealtimeFeedClient('fixture', 'unused:no-network');
+  const sourceTimestamp = at - 30_000, receivedTimestamp = at - 10_000;
+  Object.assign(client, { feed: { header: { timestamp: sourceTimestamp / 1000 } }, receivedTimestamp, expires: at + 1_000_000 });
+  const first = await client.get(at), repeated = await client.get(at + 5000), stale = await client.get(at + 181_000);
+  assert.ok(first.feed); assert.deepEqual(repeated, first);
+  assert.equal(stale.feed, null); assert.equal(stale.sourceTimestamp, sourceTimestamp); assert.equal(stale.receivedTimestamp, receivedTimestamp);
+  assert.ok(stale.error);
+  Object.assign(client, { receivedTimestamp: null });
+  assert.equal((await client.get(at)).receivedTimestamp, null, 'a disk fallback with unknown receipt must not invent one');
+});
+
+test('an expired realtime feed retains stale provider health while falling back to schedule', async () => {
+  const now = Date.now(), client = new RealtimeFeedClient('fixture', 'unused:no-network');
+  Object.assign(client, { feed: { header: { timestamp: (now - 181_000) / 1000 } }, receivedTimestamp: now - 1000, expires: now + 1_000_000 });
+  const gtfs: BizkaibusGtfs = { routes: new Map(), trips: new Map(), stops: new Map(), shapes: new Map(), tripStops: new Map(), routeTripIds: new Map(), calendars: new Map(), calendarDates: new Map() };
+  const base: SourceAdapter = { operatorId: 'provider', getSnapshot: async () => ({ operatorId: 'provider', fetchedAt: now, sourceTimestamp: null, receivedTimestamp: now - 3600_000, status: 'ok', vehicles: [] }) };
+  const adapter = new RealtimeProvider(base, async () => gtfs, client);
+  const provider = new RegisteredProvider(city, testDefinition(), adapter);
+  const snapshot = await provider.getSnapshot(new Date(now));
+  assert.equal(snapshot.health.state, 'stale');
+  assert.equal(snapshot.sourceTimestamp, now - 181_000); assert.equal(snapshot.receivedTimestamp, now - 1000);
+  assert.equal(snapshot.realtimeTripCount, 0); assert.equal(snapshot.vehicles.length, 0);
 });

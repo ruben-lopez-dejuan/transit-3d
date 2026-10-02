@@ -1,7 +1,7 @@
 import type { BizkaibusGtfs } from "../providers/bizkaibus/gtfs";
 import { buildShapeMetric, projectOntoShape, type ShapeMetric } from "./motionEngine";
 import { formatServiceDate, parseGtfsTime } from "./gtfsCalendar";
-import type { MotionAnchor, Shape } from "../../src/transit/networkTypes";
+import type { MotionAnchor, Shape } from '../../shared/transit/network';
 
 type Plan = { metric: ShapeMetric; anchors: { seconds: number; progress: number }[]; stops: { stopId: string; sequence: number; arrival: number; departure: number; progress: number }[] };
 const caches = new WeakMap<BizkaibusGtfs, { metrics: Map<string, ShapeMetric>; plans: Map<string, Plan | null> }>();

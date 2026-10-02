@@ -4,10 +4,11 @@ import bindings from 'gtfs-realtime-bindings';
 import { downloadFile } from '../lib/download';
 import { freshTimestamp, type RealtimeMessage } from '../transit/realtime';
 
-export type RealtimeFeedState = { feed: RealtimeMessage | null; error?: string };
+export type RealtimeFeedState = { feed: RealtimeMessage | null; sourceTimestamp: number | null; receivedTimestamp: number | null; error?: string };
 /** Keep only decodable full datasets; fetching an old file never renews its timestamp. */
 export class RealtimeFeedClient {
   private feed: RealtimeMessage | null = null;
+  private receivedTimestamp: number | null = null;
   private expires = 0;
   private error: string | undefined;
   private pending: Promise<RealtimeFeedState> | null = null;
@@ -23,7 +24,9 @@ export class RealtimeFeedClient {
 
   private state(now: number): RealtimeFeedState {
     const fresh = this.feed && freshTimestamp(this.feed.header?.timestamp, now) !== null;
-    return { feed: fresh ? this.feed : null, ...(this.error ? { error: this.error } : !fresh ? { error: 'Realtime ausente o con más de 180 s de antigüedad; se usa el horario.' } : {}) };
+    const timestamp = this.feed?.header?.timestamp;
+    const sourceTimestamp = typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0 ? timestamp * 1000 : null;
+    return { feed: fresh ? this.feed : null, sourceTimestamp, receivedTimestamp: this.receivedTimestamp, ...(this.error ? { error: this.error } : !fresh ? { error: 'Realtime ausente o con más de 180 s de antigüedad; se usa el horario.' } : {}) };
   }
   private async refresh() {
     const directory = path.resolve('server/cache/realtime');
@@ -37,7 +40,7 @@ export class RealtimeFeedClient {
     try {
       await downloadFile(this.url, candidate);
       const bytes = fs.readFileSync(candidate), feed = decode(bytes);
-      this.feed = feed; this.error = undefined;
+      this.feed = feed; this.receivedTimestamp = Date.now(); this.error = undefined;
       fs.writeFileSync(file, bytes);
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);

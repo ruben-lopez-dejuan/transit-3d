@@ -9,6 +9,10 @@ const key = (scope: Scope, kind: Parameters<typeof entityId>[2], id: string) => 
 export function normalizeVehicle(vehicle: AdapterVehicle, scope: Scope & { timezone: string }, receivedTimestamp: number | null, now: number): NormalizedVehicle | null {
   if (vehicle.operatorId !== scope.providerId || !vehicle.id || !vehicle.tripId || !vehicle.routeId || !vehicle.shapeId || !Number.isFinite(vehicle.latitude) || !Number.isFinite(vehicle.longitude) || Math.abs(vehicle.latitude) > 90 || Math.abs(vehicle.longitude) > 180 || !Number.isFinite(vehicle.progressMetersAlongShape) || vehicle.progressMetersAlongShape < 0) return null;
   const sourceTimestamp = vehicle.observationTimestamp ?? (vehicle.positionQuality === 'scheduled' ? null : vehicle.timetableTimestamp ?? null);
+  // Malformed dates must not become apparently fresh GPS or break date formatting.
+  if (sourceTimestamp !== null && (!Number.isFinite(sourceTimestamp) || sourceTimestamp <= 0)) return null;
+  const receipt = vehicle.receivedTimestamp === undefined ? receivedTimestamp : vehicle.receivedTimestamp;
+  if (receipt !== null && (!Number.isFinite(receipt) || receipt <= 0)) return null;
   const stale = sourceTimestamp !== null && !isFresh(sourceTimestamp, now);
   // Only this adapter boundary understands legacy IDs. Normalized IDs do not encode date positions.
   const legacyDate = /^\d{8}$/.test(vehicle.id.split(':')[1] ?? '') ? vehicle.id.split(':')[1] : undefined;
@@ -19,9 +23,10 @@ export function normalizeVehicle(vehicle: AdapterVehicle, scope: Scope & { timez
     ...vehicle, cityId: scope.cityId, providerId: scope.providerId, id: key(scope, 'vehicle', vehicle.id),
     routeId: key(scope, 'route', vehicle.routeId), tripId: key(scope, 'trip', vehicle.tripId), shapeId: key(scope, 'shape', vehicle.shapeId),
     externalRouteId: vehicle.routeId, externalTripId: vehicle.tripId, externalShapeId: vehicle.shapeId,
+    vehicleId: vehicle.vehicleId ? key(scope, 'vehicle', vehicle.vehicleId) : null, externalVehicleId: vehicle.vehicleId ?? null,
     serviceDate, routeShortName: '', destination: '', lat: vehicle.latitude, lon: vehicle.longitude, bearing,
-    speed, speedMetersPerSecond: speed, sourceTimestamp, receivedTimestamp: vehicle.receivedTimestamp ?? receivedTimestamp,
-    positionQuality: vehicle.observationTimestamp !== null && !isFresh(vehicle.observationTimestamp, now, GPS_LIVE_MAX_AGE_MS) ? 'predicted' : vehicle.positionQuality,
+    speed, speedMetersPerSecond: speed, sourceTimestamp, receivedTimestamp: receipt,
+    positionQuality: vehicle.positionQuality === 'live' && !isFresh(vehicle.observationTimestamp, now, GPS_LIVE_MAX_AGE_MS) ? 'predicted' : vehicle.positionQuality,
     positionSource: stale ? 'STALE' : vehicle.observationTimestamp !== null ? 'GPS' : vehicle.positionQuality === 'scheduled' ? 'SCHEDULE_SIMULATION' : 'PROVIDER_ESTIMATED',
     status: stale ? 'STALE' : vehicle.stoppedAtStop ? 'STOPPED' : 'IN_SERVICE',
   };

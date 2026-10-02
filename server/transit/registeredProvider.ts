@@ -15,6 +15,8 @@ export class RegisteredProvider implements TransitProvider {
       if (!this.enabled) throw new Error('Provider disabled');
       const raw = await this.adapter.getSnapshot(now);
       if (raw.operatorId !== this.operatorId) throw new Error('Adapter returned another provider identity');
+      if (raw.sourceTimestamp !== null && (!Number.isFinite(raw.sourceTimestamp) || raw.sourceTimestamp <= 0)) throw new Error('Invalid provider source timestamp');
+      if (raw.receivedTimestamp != null && (!Number.isFinite(raw.receivedTimestamp) || raw.receivedTimestamp <= 0)) throw new Error('Invalid provider receipt timestamp');
       const sourceTimestamp = raw.sourceTimestamp === null ? null : raw.sourceTimestamp < 1e12 ? raw.sourceTimestamp * 1000 : raw.sourceTimestamp;
       const receivedTimestamp = raw.receivedTimestamp ?? null;
       const vehicles = raw.vehicles.flatMap((v) => { const normalized = normalizeVehicle(v, { cityId: this.cityId, providerId: this.operatorId, timezone: this.city.timezone }, receivedTimestamp, at); return normalized ? [normalized] : []; });

@@ -8,7 +8,7 @@ import { serviceEpoch, tripPlan } from '../transit/plans';
 import { positionAtProgress, projectOntoShape } from '../transit/motionEngine';
 import { ObservationTracker } from '../transit/observations';
 import type { ProviderSnapshot, TransitVehicle } from '../transit/types';
-import type { Departure } from '../../src/transit/networkTypes';
+import type { Departure } from '../../shared/transit/network';
 import { passengerHeadsign } from '../transit/labels';
 
 export const BILBOBUS_POSITIONS = 'https://api.bilbao.eus/bilbobus/Ultimas_posiciones';
@@ -53,6 +53,7 @@ export function parseSiriArrivals(xml: string, stopCode: string, now = Date.now(
 
 export class BilbobusProvider extends StaticGtfsProvider {
   private rows: BilbobusPosition[] = [];
+  private positionsReceivedTimestamp: number | null = null;
   private nextPoll = 0;
   private pending: Promise<void> | null = null;
   private failures = 0;
@@ -80,7 +81,7 @@ export class BilbobusProvider extends StaticGtfsProvider {
         } catch { failures++; }
       } }));
       this.failures = failures;
-      if (rows.length) this.rows = rows;
+      if (rows.length) { this.rows = rows; this.positionsReceivedTimestamp = Date.now(); }
     })().finally(() => { this.pending = null; });
     return this.pending;
   }
@@ -147,7 +148,7 @@ export class BilbobusProvider extends StaticGtfsProvider {
     const real = [...vehicles.values()].filter((v) => v.vehicleId);
     const observedDirections = new Set(real.map((v) => `${v.routeId}:${v.directionId}`));
     for (const [id, vehicle] of vehicles) if (!vehicle.vehicleId && observedDirections.has(`${vehicle.routeId}:${vehicle.directionId}`)) vehicles.delete(id);
-    return { ...base, vehicles: [...vehicles.values()], sourceTimestamp: real.length ? Math.max(...real.map((v) => v.observationTimestamp!)) : null, status: real.length ? this.failures ? 'degraded' : 'ok' : 'degraded', ...(!real.length ? { error: 'No hay posiciones municipales recientes; se muestra el horario.' } : {}) };
+    return { ...base, vehicles: [...vehicles.values()].map((v) => ({ ...v, receivedTimestamp: v.observationTimestamp !== null ? this.positionsReceivedTimestamp : base.receivedTimestamp ?? null })), receivedTimestamp: real.length ? this.positionsReceivedTimestamp : base.receivedTimestamp, sourceTimestamp: real.length ? Math.max(...real.map((v) => v.observationTimestamp!)) : null, status: real.length ? this.failures ? 'degraded' : 'ok' : 'degraded', ...(!real.length ? { error: 'No hay posiciones municipales recientes; se muestra el horario.' } : {}) };
   }
 }
 export const bilbobusProvider = new BilbobusProvider();

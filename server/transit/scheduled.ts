@@ -4,9 +4,9 @@ import { tripPlan, modeFor, serviceEpoch } from "./plans";
 import { formatServiceDate, getActiveTrips, parseGtfsTime, previousServiceDate } from "./gtfsCalendar";
 import type { TransitVehicle } from "./types";
 
-export function generateScheduledVehicles(gtfs: BizkaibusGtfs, now = new Date(), operatorId = "bizkaibus"): TransitVehicle[] {
-  const today = formatServiceDate(now);
-  const candidates = [today, previousServiceDate(today.date)].map((day) => ({ ...day, seconds: (now.getTime() - serviceEpoch(day.date, 0)) / 1000 }));
+export function generateScheduledVehicles(gtfs: BizkaibusGtfs, now = new Date(), operatorId = 'bizkaibus', timezone = 'Europe/Madrid'): TransitVehicle[] {
+  const today = formatServiceDate(now, timezone);
+  const candidates = [today, previousServiceDate(today.date)].map((day) => ({ ...day, seconds: (now.getTime() - serviceEpoch(day.date, 0, timezone)) / 1000 }));
   const generated = new Map<string, TransitVehicle>();
 
   for (const serviceDay of candidates) {
@@ -33,6 +33,7 @@ export function generateScheduledVehicles(gtfs: BizkaibusGtfs, now = new Date(),
       if (!position) continue;
       generated.set(trip.tripId, {
         id: `${operatorId}:${serviceDay.date}:${trip.tripId}`,
+        serviceDate: serviceDay.date,
         operatorId,
         mode: modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1),
         tripId: trip.tripId,

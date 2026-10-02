@@ -26,6 +26,7 @@ export type RawRealtimeVehicle = {
 export type RawRealtimeSnapshot = {
   feedTimestamp: number | null;
   fetchedAtMs: number;
+  receivedTimestamp?: number | null;
   entityCount: number;
   vehicles: RawRealtimeVehicle[];
 };
@@ -49,11 +50,13 @@ async function refreshRealtime(): Promise<RawRealtimeSnapshot> {
     return cache;
   }
 
+  let receivedTimestamp = cache?.receivedTimestamp ?? null;
   try {
     await downloadFile(
       BIZKAIBUS_REALTIME_URL,
       BIZKAIBUS_REALTIME_FILE,
     );
+    receivedTimestamp = Date.now();
   } catch (error) {
     if (
       !fs.existsSync(BIZKAIBUS_REALTIME_FILE) ||
@@ -113,6 +116,7 @@ async function refreshRealtime(): Promise<RawRealtimeSnapshot> {
   cache = {
     feedTimestamp: toNumber(feed.header.timestamp),
     fetchedAtMs: Date.now(),
+    receivedTimestamp,
     entityCount: feed.entity.length,
     vehicles,
   };

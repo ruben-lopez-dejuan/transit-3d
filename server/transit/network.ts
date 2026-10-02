@@ -46,8 +46,14 @@ let networkCache: Promise<Network> | null = null;
 let networkExpires = 0;
 let snapshotCache: Promise<Snapshot> | null = null;
 let snapshotExpires = 0;
+let enabledState = providers.map((p) => p.enabled).join(',');
+function checkProviderState() {
+  const current = providers.map((p) => p.enabled).join(',');
+  if (current !== enabledState) { enabledState = current; networkCache = null; snapshotCache = null; }
+}
 
 function getNetwork(): Promise<Network> {
+  checkProviderState();
   if (networkCache && Date.now() < networkExpires) return networkCache;
   networkExpires = Date.now() + 6 * 3600_000;
   networkCache = loadNetwork().catch((error) => { networkCache = null; throw error; });
@@ -147,7 +153,7 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
   const next = plan?.stops.find((s) => s.progress >= vehicle.progressMetersAlongShape + 10 && !update?.stops.get(s.sequence)?.skipped);
   const nextStop = next ? stopMap.get(key(vehicle.operatorId, 'stop', next.stopId)) : null;
   const nextUpdate = next ? update?.stops.get(next.sequence) : null;
-  const siri = next ? providerFor(vehicle.operatorId)?.arrivals?.peek(gtfs, next.stopId, vehicle.vehicleId) : null;
+  const siri = next ? providerFor(vehicle.operatorId)?.arrivals?.peek(gtfs, next.stopId, vehicle.externalVehicleId) : null;
   if (nextUpdate) { delaySeconds = nextUpdate.arrivalRealtime ? (nextUpdate.arrival - nextUpdate.scheduledArrival) / 1000 : null; delayEstimated = false; }
   const destination = passengerHeadsign(trip.headsign || route.longName, route.longName);
   return { ...vehicle, delaySeconds, delayEstimated, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop ? { key: nextStop.key, name: nextStop.name, at: siri?.arrival ?? nextUpdate?.arrival ?? serviceEpoch(serviceDate, next.arrival + shiftSeconds, city.manifest.timezone) } : null };
@@ -161,6 +167,7 @@ async function getPresentationSnapshot(): Promise<Snapshot> {
 }
 
 async function departures(operatorId: string, references: StopReference[], now: Date, max = 12): Promise<Departure[]> {
+  if (!providerFor(operatorId)?.enabled) return [];
   const gtfs = feeds.get(operatorId)!;
   const snapshot = await getPresentationSnapshot();
   const vehicles = new Map(snapshot.vehicles.map((v) => [`${v.operatorId}:${v.serviceDate}:${v.externalTripId}`, v]));
@@ -233,11 +240,11 @@ async function getTrip(operatorId: string, tripId: string, serviceDate: string, 
   const update = updateFor(operatorId, serviceDate, tripId);
   const shape = trip.shapeId ? shapeMetric(gtfs, trip.shapeId) : null;
   const arrivals = providerFor(operatorId)?.enabled ? providerFor(operatorId)?.arrivals : undefined;
-  if (arrivals && vehicle?.vehicleId && plan) {
+  if (arrivals && vehicle?.externalVehicleId && plan) {
     const upcoming = plan.stops.filter((s) => s.progress > vehicle.progressMetersAlongShape).slice(0, 3);
     await arrivals.warm(gtfs, upcoming.map((s) => s.stopId));
   }
-  return { vehicleId: vehicle?.id ?? key(operatorId, 'vehicle', `${operatorId}:${serviceDate}:${tripId}`), trip: normalizeTrip(trip, scope(operatorId)), shape: shape && trip.shapeId ? packet(operatorId, trip.shapeId) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(key(operatorId, 'stop', s.stopId)), changed = update?.stops.get(s.sequence); const siri = arrivals?.peek(gtfs, s.stopId, vehicle?.vehicleId); return stop ? [{ ...stop, at: siri?.arrival ?? changed?.arrival ?? serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0), city.manifest.timezone), progress: s.progress, skipped: changed?.skipped ?? false, realtime: !!siri || (changed?.arrivalRealtime ?? false) }] : []; }) };
+  return { vehicleId: vehicle?.id ?? key(operatorId, 'vehicle', `${operatorId}:${serviceDate}:${tripId}`), trip: normalizeTrip(trip, scope(operatorId)), shape: shape && trip.shapeId ? packet(operatorId, trip.shapeId) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(key(operatorId, 'stop', s.stopId)), changed = update?.stops.get(s.sequence); const siri = arrivals?.peek(gtfs, s.stopId, vehicle?.externalVehicleId); return stop ? [{ ...stop, at: siri?.arrival ?? changed?.arrival ?? serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0), city.manifest.timezone), progress: s.progress, skipped: changed?.skipped ?? false, realtime: !!siri || (changed?.arrivalRealtime ?? false) }] : []; }) };
 }
 async function getGeometries(keys: string[]): Promise<Shape[]> {
   await getNetwork();

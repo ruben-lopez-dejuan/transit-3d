@@ -39,6 +39,7 @@ export type LiveVehicle = {
 export type BizkaibusSnapshot = {
   feedTimestamp: number | null;
   fetchedAtMs: number;
+  receivedTimestamp?: number | null;
   entityCount: number;
   rawVehicleCount: number;
   validVehicleCount: number;
@@ -209,6 +210,7 @@ export async function getBizkaibusSnapshot(): Promise<BizkaibusSnapshot> {
   const snapshot: BizkaibusSnapshot = {
     feedTimestamp: realtime.feedTimestamp,
     fetchedAtMs: realtime.fetchedAtMs,
+    receivedTimestamp: realtime.receivedTimestamp ?? null,
     entityCount: realtime.entityCount,
     rawVehicleCount: realtime.vehicles.length,
     validVehicleCount: vehicles.length,
@@ -228,15 +230,17 @@ export async function getBizkaibusSnapshot(): Promise<BizkaibusSnapshot> {
 
 export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<ProviderSnapshot> {
   const gtfs = await getBizkaibusGtfs();
-  const scheduled = generateScheduledVehicles(gtfs, now);
+  const scheduled = generateScheduledVehicles(gtfs, now).map((vehicle) => ({ ...vehicle, receivedTimestamp: null }));
   const byTrip = new Map<string, TransitVehicle>(scheduled.map((vehicle) => [vehicle.tripId, vehicle]));
   let status: ProviderSnapshot["status"] = "ok";
   let error: string | undefined;
   let sourceTimestamp: number | null = null;
+  let receivedTimestamp: number | null = null;
 
   try {
     const snapshot = await getBizkaibusSnapshot();
     sourceTimestamp = snapshot.feedTimestamp;
+    receivedTimestamp = snapshot.receivedTimestamp ?? null;
     if (sourceTimestamp !== null && now.getTime() - sourceTimestamp * 1000 > 180_000) {
       status = "degraded";
       error = "Realtime feed timestamp is stale; showing scheduled service when available.";
@@ -269,6 +273,8 @@ export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<Pr
         bearing: acceptedPosition?.bearing ?? bearing,
         positionQuality: now.getTime() - acceptedAt <= 45_000 ? 'live' : 'predicted',
         observationTimestamp: acceptedAt,
+        receivedTimestamp,
+        serviceDate: date,
         predictionTimestamp: now.getTime(),
         delaySeconds: null,
         vehicleId: vehicle.vehicleId,
@@ -284,7 +290,7 @@ export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<Pr
     status = scheduled.length ? "degraded" : "unavailable";
     error = [error, caught instanceof Error ? caught.message : String(caught)].filter(Boolean).join("; ");
   }
-  return { operatorId: "bizkaibus", fetchedAt: now.getTime(), sourceTimestamp, vehicles: [...byTrip.values()], status, ...(error ? { error } : {}) };
+  return { operatorId: 'bizkaibus', fetchedAt: now.getTime(), sourceTimestamp, receivedTimestamp, vehicles: [...byTrip.values()], status, ...(error ? { error } : {}) };
 }
 
 function formatServiceId(date: Date) {

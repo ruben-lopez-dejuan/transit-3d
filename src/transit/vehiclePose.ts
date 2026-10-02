@@ -1,4 +1,4 @@
-import type { Shape, Vehicle } from './networkTypes';
+import type { Shape } from './networkTypes';
 import { positionAlong } from './motion';
 import { compositionFor, type StyledVehicle } from '../../shared/transit/appearance';
 

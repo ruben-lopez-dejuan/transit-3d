@@ -7,6 +7,8 @@ import type { Network, Vehicle } from './networkTypes';
 import { estimatedBusDwell } from './stopMotion';
 import { composition, vehiclePose } from './vehiclePose';
 import { bilbaoManifest } from '../../server/cities/es-bilbao/city.manifest';
+import { migrateFavorites } from './favorites';
+import { entityId } from '../../shared/transit/ids';
 
 test('client movement preserves station dwell and clamps the timeline', () => {
   const anchors = [{ at: 0, progress: 0 }, { at: 10000, progress: 1000 }, { at: 20000, progress: 1000 }, { at: 30000, progress: 2000 }];
@@ -95,4 +97,13 @@ test('A position predicted from TripUpdates does not claim to have a GPS signal'
   const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000 } as Vehicle;
   assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
   assert.ok(!positionExplanation(v, 16000).includes('Último GPS'));
+});
+
+test('favorite migration preserves saved lines/stops, unknown references and existing namespaced IDs', () => {
+  const catalog = { routes: network.routes.map((route) => ({ ...route, key: entityId(route.cityId, route.providerId, 'route', route.externalId) })), stops: network.stops.map((stop) => ({ ...stop, key: entityId(stop.cityId, stop.providerId, 'stop', stop.externalId) })) };
+  const saved = new Set(['route:bus:A3', 'stop:rail:s', 'route:unavailable:r', `route:${catalog.routes[0].key}`]);
+  const migrated = migrateFavorites(saved, catalog);
+  assert.deepEqual([...migrated], [`route:${catalog.routes[0].key}`, `stop:${catalog.stops[0].key}`, 'route:unavailable:r']);
+  assert.deepEqual(migrateFavorites(migrated, catalog), migrated);
+  assert.equal(saved.size, 4);
 });

@@ -40,7 +40,7 @@ export interface SourceAdapter { readonly operatorId: string; getSnapshot(now?: 
 /** IDs and references here are city/provider namespaced; external IDs are explicitly separate. */
 export type NormalizedVehicle = Omit<AdapterVehicle, 'routeId' | 'tripId' | 'shapeId' | 'positionSource' | 'serviceDate' | 'receivedTimestamp'> & {
   cityId: string; providerId: string; routeId: string; tripId: string; shapeId: string;
-  externalRouteId: string; externalTripId: string; externalShapeId: string; serviceDate: string;
+  externalRouteId: string; externalTripId: string; externalShapeId: string; externalVehicleId?: string | null; serviceDate: string;
   routeShortName: string; destination: string; lat: number; lon: number; speed?: number | null;
   sourceTimestamp: number | null; receivedTimestamp: number | null; nextStopId?: string | null; occupancy?: string | number | null;
   status: 'IN_SERVICE' | 'STOPPED' | 'STALE'; positionSource: PositionSource; appearance?: VehicleAppearance;

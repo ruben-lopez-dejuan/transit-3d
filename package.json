@@ -8,11 +8,12 @@
     "dev:web": "vite",
     "dev:api": "tsx watch server/index.ts",
     "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
     "start": "tsx server/index.ts",
     "preview": "vite preview",
     "test:bizkaibus-gtfs": "tsx server/test-bizkaibus-gtfs.ts",
     "test:bizkaibus-realtime": "tsx server/test-bizkaibus-realtime.ts",
-    "test:core": "tsx --test server/transit/core.test.ts server/transit/plans.test.ts server/transit/parser.test.ts server/transit/renfe.test.ts server/transit/realtime.test.ts server/transit/bilbobus.test.ts",
+    "test:core": "tsx --test server/transit/core.test.ts server/transit/plans.test.ts server/transit/parser.test.ts server/transit/renfe.test.ts server/transit/realtime.test.ts server/transit/bilbobus.test.ts server/transit/modular.test.ts server/transit/cityNetwork.test.ts",
     "test:frontend": "tsx --test src/transit/frontend.test.ts src/transit/gpsMotion.test.ts src/map/vehicleLod.test.ts",
     "test:network": "tsx server/test-network.ts",
     "test": "npm run test:core && npm run test:frontend"

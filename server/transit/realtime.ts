@@ -1,7 +1,7 @@
 import type { BizkaibusGtfs, GtfsTripStop } from '../providers/bizkaibus/gtfs';
 import { formatServiceDate, isServiceActive, parseGtfsTime } from './gtfsCalendar';
 import { serviceEpoch, shiftDate, tripPlan } from './plans';
-import type { MotionAnchor } from '../../src/transit/networkTypes';
+import type { MotionAnchor } from '../../shared/transit/network';
 
 export type RealtimeEvent = { time?: number; delay?: number };
 export type TripDescriptor = { tripId?: string; routeId?: string; startDate?: string; startTime?: string; scheduleRelationship?: string };
@@ -11,7 +11,8 @@ export type VehicleObservation = { trip?: TripDescriptor; timestamp?: number; ve
 export type RealtimeMessage = { header?: { timestamp?: number; incrementality?: string; gtfsRealtimeVersion?: string }; entity?: { isDeleted?: boolean; tripUpdate?: TripUpdate; vehicle?: VehicleObservation }[] };
 export type UpdatedStop = { stopId: string; sequence: number; arrival: number; departure: number; scheduledArrival: number; scheduledDeparture: number; arrivalRealtime: boolean; departureRealtime: boolean; skipped: boolean };
 export type UpdatedTrip = { tripId: string; serviceDate: string; updatedAt: number; canceled: boolean; stops: Map<number, UpdatedStop> };
-export const REALTIME_MAX_AGE_MS = 180_000;
+export { REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
+import { REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 export const tripInstanceKey = (date: string, tripId: string) => `${date}:${tripId}`;
 
 export function freshTimestamp(seconds: number | undefined, now: number): number | null {
@@ -31,7 +32,7 @@ function matchStop(stops: GtfsTripStop[], update: StopUpdate): GtfsTripStop | nu
 }
 
 /** Resolve an actual service instance, including yesterday's extended-hour trips. */
-export function resolveServiceDate(gtfs: BizkaibusGtfs, descriptor: TripDescriptor, now: Date, updates: StopUpdate[] = [], delay = 0): string | null {
+export function resolveServiceDate(gtfs: BizkaibusGtfs, descriptor: TripDescriptor, now: Date, updates: StopUpdate[] = [], delay = 0, timezone = 'Europe/Madrid'): string | null {
   const trip = descriptor.tripId ? gtfs.trips.get(descriptor.tripId) : null;
   if (!trip || (descriptor.routeId && descriptor.routeId !== trip.routeId)) return null;
   const stops = gtfs.tripStops.get(trip.tripId) ?? [];
@@ -41,7 +42,7 @@ export function resolveServiceDate(gtfs: BizkaibusGtfs, descriptor: TripDescript
     if (parseGtfsTime(descriptor.startTime) !== scheduled) return null;
   }
   if (descriptor.startDate && !/^\d{8}$/.test(descriptor.startDate)) return null;
-  const today = formatServiceDate(now).date;
+  const today = formatServiceDate(now, timezone).date;
   const candidates = descriptor.startDate ? [shiftDate(descriptor.startDate, 0)] : [-1, 0, 1].map((d) => shiftDate(today, d));
   const absolute = updates.find((u) => Number.isFinite(u.arrival?.time) || Number.isFinite(u.departure?.time));
   let best: { date: string; score: number } | null = null;
@@ -54,13 +55,13 @@ export function resolveServiceDate(gtfs: BizkaibusGtfs, descriptor: TripDescript
       const event = Number.isFinite(absolute.arrival?.time) ? absolute.arrival! : absolute.departure!;
       const seconds = parseGtfsTime(event === absolute.arrival ? stop.arrivalTime : stop.departureTime);
       if (seconds === null) continue;
-      score = Math.abs(event.time! * 1000 - serviceEpoch(day.date, seconds + (event.delay ?? delay)));
+      score = Math.abs(event.time! * 1000 - serviceEpoch(day.date, seconds + (event.delay ?? delay), timezone));
       if (score > 6 * 3600_000) continue;
     } else {
       const first = parseGtfsTime(stops[0].departureTime) ?? parseGtfsTime(stops[0].arrivalTime);
       const last = parseGtfsTime(stops.at(-1)!.arrivalTime) ?? parseGtfsTime(stops.at(-1)!.departureTime);
       if (first === null || last === null) continue;
-      const start = serviceEpoch(day.date, first + delay), end = serviceEpoch(day.date, last + delay);
+      const start = serviceEpoch(day.date, first + delay, timezone), end = serviceEpoch(day.date, last + delay, timezone);
       score = Math.max(start - now.getTime(), now.getTime() - end, 0);
     }
     if (!best || score < best.score) best = { date: day.date, score };
@@ -74,7 +75,7 @@ function eventDelay(event: RealtimeEvent | undefined, scheduled: number): number
   return Number.isFinite(event?.delay) ? event!.delay! : null;
 }
 
-export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage | null, now = new Date()): Map<string, UpdatedTrip> {
+export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage | null, now = new Date(), timezone = 'Europe/Madrid'): Map<string, UpdatedTrip> {
   const result = new Map<string, UpdatedTrip>();
   if (!feed || feed.header?.incrementality === 'DIFFERENTIAL' || freshTimestamp(feed.header?.timestamp, now.getTime()) === null) return result;
   for (const entity of feed.entity ?? []) {
@@ -85,7 +86,7 @@ export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage 
     const relationship = update.trip.scheduleRelationship ?? 'SCHEDULED';
     if (!['SCHEDULED', 'CANCELED', 'DELETED'].includes(relationship)) continue;
     const rawStops = update.stopTimeUpdate ?? [];
-    const date = resolveServiceDate(gtfs, update.trip, now, rawStops, update.delay ?? 0);
+    const date = resolveServiceDate(gtfs, update.trip, now, rawStops, update.delay ?? 0, timezone);
     if (!date || !update.trip.tripId) continue;
     const tripId = update.trip.tripId, key = tripInstanceKey(date, tripId);
     const canceled = relationship === 'CANCELED' || relationship === 'DELETED';
@@ -106,7 +107,7 @@ export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage 
       const arrivalSeconds = parseGtfsTime(stop.arrivalTime) ?? parseGtfsTime(stop.departureTime);
       const departureSeconds = parseGtfsTime(stop.departureTime) ?? arrivalSeconds;
       if (arrivalSeconds === null || departureSeconds === null) continue;
-      const scheduledArrival = serviceEpoch(date, arrivalSeconds), scheduledDeparture = serviceEpoch(date, departureSeconds);
+      const scheduledArrival = serviceEpoch(date, arrivalSeconds, timezone), scheduledDeparture = serviceEpoch(date, departureSeconds, timezone);
       const changed = matched.get(stop.sequence), skipped = changed?.scheduleRelationship === 'SKIPPED';
       if (changed?.scheduleRelationship === 'NO_DATA') propagated = null;
       const arrivalDelay = !skipped && changed?.scheduleRelationship !== 'NO_DATA' ? eventDelay(changed?.arrival, scheduledArrival) : null;

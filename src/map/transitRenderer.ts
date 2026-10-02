@@ -7,6 +7,7 @@ import { composition, vehiclePose } from '../transit/vehiclePose';
 import { estimatedBusDwell } from '../transit/stopMotion';
 import type { VehicleModels, ModelItem } from './vehicleModels';
 import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
+import { renderedPositionSource } from '../../shared/transit/freshness';
 
 type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion };
 export class TransitRenderer {
@@ -88,6 +89,7 @@ export class TransitRenderer {
   }
   stop() { cancelAnimationFrame(this.animation); this.animation = 0; }
   dataQuality(id: string) { return this.states.get(id)?.motion?.quality ?? 'estimated' as const; }
+  positionSource(id: string) { const state = this.states.get(id); return state ? renderedPositionSource(state.vehicle, this.dataQuality(id), Date.now() + this.clockOffset) : null; }
   renderedTimestamp(id: string) { return this.states.get(id)?.motion?.diagnostics.motionTimestamp ?? Date.now() + this.clockOffset; }
   diagnostics(id: string) { return this.states.get(id)?.motion?.diagnostics ?? null; }
   private render() {
