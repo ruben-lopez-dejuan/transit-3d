@@ -9,9 +9,11 @@ import { positionQuality } from './transit/motion';
 import { TransitRenderer } from './map/transitRenderer';
 import { empty, styleUrl, setData, installLayers, stopsData, routeData, fitShapes } from './map/networkMap';
 import { shell, esc, badge, quality, eta, time, departures } from './ui';
+import { setupPwa } from './pwa';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 $('#app').innerHTML = shell;
+setupPwa();
 const read = (key: string, fallback: string) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const write = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing can deny persistence. */ } };
 let favorites = new Set<string>();

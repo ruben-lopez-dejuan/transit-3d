@@ -1,0 +1,10 @@
+{
+  "id": "/", "name": "Bilbao Transit", "short_name": "Bilbao Transit",
+  "description": "Explora el transporte de Bilbao y Bizkaia. Líneas, paradas y vehículos en movimiento.",
+  "lang": "es", "start_url": "/", "scope": "/", "display": "standalone",
+  "background_color": "#f4f6f3", "theme_color": "#246b57",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
