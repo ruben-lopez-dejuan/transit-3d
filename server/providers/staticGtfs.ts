@@ -28,6 +28,7 @@ export class StaticGtfsProvider implements TransitProvider {
     for (const table of ["routes", "trips", "stops", "stop_times", "shapes", "calendar", "calendar_dates"]) {
       const entry = zip.getEntry(`${table}.txt`);
       if (entry) fs.writeFileSync(path.join(directory, `${table}.txt`), entry.getData());
+      else if (["calendar", "calendar_dates"].includes(table)) fs.rmSync(path.join(directory, `${table}.txt`), { force: true });
     }
     const gtfs = parseGtfsDirectory(directory);
     if (!gtfs.routes.size || !gtfs.trips.size || !gtfs.shapes.size) throw new Error(`Incomplete GTFS for ${this.operatorId}`);

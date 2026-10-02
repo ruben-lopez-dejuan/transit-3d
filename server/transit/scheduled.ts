@@ -1,16 +1,12 @@
 import type { BizkaibusGtfs } from "../providers/bizkaibus/gtfs";
 import { positionAtProgress } from "./motionEngine";
-import { tripPlan, modeFor } from "./plans";
-import { formatServiceDate, getActiveTrips, parseGtfsTime, previousServiceDate, serviceSecondsAt } from "./gtfsCalendar";
+import { tripPlan, modeFor, serviceEpoch } from "./plans";
+import { formatServiceDate, getActiveTrips, parseGtfsTime, previousServiceDate } from "./gtfsCalendar";
 import type { TransitVehicle } from "./types";
 
 export function generateScheduledVehicles(gtfs: BizkaibusGtfs, now = new Date(), operatorId = "bizkaibus"): TransitVehicle[] {
   const today = formatServiceDate(now);
-  const currentSeconds = serviceSecondsAt(now);
-  const candidates = [
-    { ...today, seconds: currentSeconds },
-    { ...previousServiceDate(today.date), seconds: currentSeconds + 86_400 },
-  ];
+  const candidates = [today, previousServiceDate(today.date)].map((day) => ({ ...day, seconds: (now.getTime() - serviceEpoch(day.date, 0)) / 1000 }));
   const generated = new Map<string, TransitVehicle>();
 
   for (const serviceDay of candidates) {

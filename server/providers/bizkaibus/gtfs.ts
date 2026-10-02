@@ -199,10 +199,7 @@ export function parseGtfsDirectory(directory: string): BizkaibusGtfs {
       serviceId: row.service_id,
       shapeId: row.shape_id || null,
       headsign: row.trip_headsign || "",
-      directionId:
-        row.direction_id === ""
-          ? null
-          : Number(row.direction_id),
+      directionId: ["0", "1"].includes(row.direction_id) ? Number(row.direction_id) : null,
     };
 
     trips.set(trip.tripId, trip);
