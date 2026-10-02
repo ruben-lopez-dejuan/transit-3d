@@ -22,7 +22,7 @@ export async function downloadFile(
     const script = [
       "$ErrorActionPreference='Stop'",
       "$ProgressPreference='SilentlyContinue'",
-      `Invoke-WebRequest -UseBasicParsing -Uri '${escapePowerShell(url)}' -OutFile '${escapePowerShell(temporary)}'`,
+      `Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri '${escapePowerShell(url)}' -OutFile '${escapePowerShell(temporary)}'`,
     ].join("; ");
 
     await execFileAsync(
@@ -37,11 +37,13 @@ export async function downloadFile(
       ],
       {
         windowsHide: true,
+        timeout: 45_000,
         maxBuffer: 1024 * 1024,
       },
     );
   } else {
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(30_000),
       headers: {
         "User-Agent": "bilbao-transit-3d/0.2",
       },

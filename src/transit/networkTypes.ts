@@ -1,0 +1,15 @@
+import type { TransitVehicle, TransitMode, PositionQuality } from "../../server/transit/types";
+export type { TransitMode, PositionQuality };
+export type Operator = { id: string; name: string; color: string; status: "ok" | "degraded" | "unavailable"; realtime: boolean };
+export type Route = { key: string; operatorId: string; routeId: string; shortName: string; longName: string; color: string; textColor: string; mode: TransitMode; directions: { id: string; name: string }[] };
+export type Stop = { key: string; operatorId: string; stopId: string; name: string; longitude: number; latitude: number; modes: TransitMode[] };
+export type Place = { id: string; name: string; longitude: number; latitude: number };
+export type Network = { operators: Operator[]; routes: Route[]; stops: Stop[]; places: Place[] };
+export type MotionAnchor = { at: number; progress: number };
+export type Vehicle = TransitVehicle & { routeKey: string; shapeKey: string; serviceDate: string; label: string; headsign: string; color: string; operatorName: string; timeline: MotionAnchor[]; nextStop: { key: string; name: string; at: number } | null; delayEstimated: boolean };
+export type Snapshot = { fetchedAt: number; vehicles: Vehicle[]; providers: { operatorId: string; status: Operator["status"]; sourceTimestamp: number | null; error?: string }[] };
+export type Shape = { key: string; coordinates: [number, number][]; cumulative: number[]; total: number };
+export type Departure = { routeKey: string; tripId: string; label: string; headsign: string; operatorId: string; at: number; quality: PositionQuality; delaySeconds: number | null };
+export type LineDetail = { route: Route; shapes: Shape[]; stops: Stop[]; departures: Departure[] };
+export type StopDetail = { stop: Stop; nearbyStops: Stop[]; departures: Departure[] };
+export type TripDetail = { vehicleId: string; stops: (Stop & { at: number; progress: number })[]; shape: Shape | null };

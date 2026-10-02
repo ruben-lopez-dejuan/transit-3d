@@ -79,9 +79,11 @@ function isFresh(file: string, maxAgeMs: number) {
   }
 }
 
-function readCsv(filename: string) {
+function readCsv(directory: string, filename: string) {
+  const file = path.join(directory, filename);
+  if (!fs.existsSync(file) && ["calendar.txt", "calendar_dates.txt"].includes(filename)) return [];
   return parse(
-    fs.readFileSync(path.join(BIZKAIBUS_GTFS_DIR, filename), "utf8"),
+    fs.readFileSync(file, "utf8"),
     {
       columns: true,
       skip_empty_lines: true,
@@ -143,7 +145,12 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
   if (memoryCache) return memoryCache;
 
   await ensureGtfsFiles();
+  memoryCache = parseGtfsDirectory(BIZKAIBUS_GTFS_DIR);
+  console.log(`[Bizkaibus] GTFS ready: ${memoryCache.routes.size} routes, ${memoryCache.trips.size} trips.`);
+  return memoryCache;
+}
 
+export function parseGtfsDirectory(directory: string): BizkaibusGtfs {
   const routes = new Map<string, GtfsRoute>();
   const trips = new Map<string, GtfsTrip>();
   const shapes = new Map<string, GtfsShapePoint[]>();
@@ -153,7 +160,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
   const calendars = new Map<string, GtfsCalendar>();
   const calendarDates = new Map<string, Map<string, 1 | 2>>();
 
-  for (const row of readCsv("calendar.txt")) {
+  for (const row of readCsv(directory, "calendar.txt")) {
     calendars.set(row.service_id, {
       serviceId: row.service_id,
       weekdays: [
@@ -165,7 +172,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     });
   }
 
-  for (const row of readCsv("calendar_dates.txt")) {
+  for (const row of readCsv(directory, "calendar_dates.txt")) {
     const exceptionType = Number(row.exception_type);
     if (exceptionType !== 1 && exceptionType !== 2) continue;
     if (!calendarDates.has(row.service_id)) {
@@ -174,7 +181,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     calendarDates.get(row.service_id)!.set(row.date, exceptionType);
   }
 
-  for (const row of readCsv("routes.txt")) {
+  for (const row of readCsv(directory, "routes.txt")) {
     routes.set(row.route_id, {
       routeId: row.route_id,
       shortName: row.route_short_name || row.route_id,
@@ -185,7 +192,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     });
   }
 
-  for (const row of readCsv("trips.txt")) {
+  for (const row of readCsv(directory, "trips.txt")) {
     const trip: GtfsTrip = {
       tripId: row.trip_id,
       routeId: row.route_id,
@@ -207,7 +214,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     routeTripIds.get(trip.routeId)!.push(trip.tripId);
   }
 
-  for (const row of readCsv("stops.txt")) {
+  for (const row of readCsv(directory, "stops.txt")) {
     const latitude = Number(row.stop_lat);
     const longitude = Number(row.stop_lon);
 
@@ -224,7 +231,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     });
   }
 
-  for (const row of readCsv("stop_times.txt")) {
+  for (const row of readCsv(directory, "stop_times.txt")) {
     if (!trips.has(row.trip_id)) continue;
 
     if (!tripStops.has(row.trip_id)) {
@@ -243,7 +250,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     stopTimes.sort((a, b) => a.sequence - b.sequence);
   }
 
-  for (const row of readCsv("shapes.txt")) {
+  for (const row of readCsv(directory, "shapes.txt")) {
     const longitude = Number(row.shape_pt_lon);
     const latitude = Number(row.shape_pt_lat);
     const sequence = Number(row.shape_pt_sequence);
@@ -271,7 +278,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     points.sort((a, b) => a.sequence - b.sequence);
   }
 
-  memoryCache = {
+  return {
     routes,
     trips,
     shapes,
@@ -282,10 +289,4 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     calendarDates,
   };
 
-  console.log(
-    `[Bizkaibus] GTFS ready: ${routes.size} routes, ` +
-    `${trips.size} trips, ${stops.size} stops, ${shapes.size} shapes.`,
-  );
-
-  return memoryCache;
 }
