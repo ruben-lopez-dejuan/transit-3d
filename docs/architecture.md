@@ -52,7 +52,7 @@ zona horaria, centro, bounds, modos, providers, capacidades y presentación.
 - `sources.ts`: fuentes actuales y catálogo regional.
 - `providers.ts`: composición de adaptadores, TU, llegadas SIRI y aspecto.
 - `places.ts`: lugares de Bilbao mediante paradas oficiales.
-- `infrastructure.ts`: túneles aproximados de Metro conservados.
+- `infrastructure.ts`: túneles aproximados de Metro y Euskotren.
 - `index.ts`: une manifest, providers y hooks.
 - `server/cities/index.ts`: registro y ciudad por defecto.
 
@@ -130,3 +130,9 @@ aspecto, capas y capacidades. Migra favoritos identificados en el catálogo
 y conserva referencias desconocidas.
 
 Pruebas, archivos y deuda: [modular-core.md](modular-core.md).
+
+La infraestructura Euskotren usa el dataset OSM local `euskotren-tunnels.json`
+del paquete de Bilbao. El matcher compartido `server/transit/tunnelGeometry.ts`
+calcula rangos por metros sobre GTFS, con índice espacial y caché por shape.
+No añade consultas de red ni trabajo al animation frame.
+Detalle: [euskotren-tunnels.md](euskotren-tunnels.md).

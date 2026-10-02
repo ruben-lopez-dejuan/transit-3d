@@ -1,5 +1,21 @@
 # Validación de la entrega
 
+## Túneles Euskotren
+
+**3 de octubre de 2026.** `npm test`: **88 tests pasando**, 63 core y 25 frontend.
+`npm run build`: tipos y compilación correctos; assets frontend idénticos al
+paquete anterior. Siete tests nuevos de infraestructura cubren sentidos,
+continuidad, curvas, exclusión de cruces/vías ajenas, superficie y tranvías.
+Se corrigió una fixture del paquete modular que fallaba de madrugada porque
+su parada final fija a las 24:00 quedaba fuera de la ventana de próximas salidas.
+
+`npx tsx server/test-euskotren-tunnels.ts` comprueba el GTFS cacheado real:
+32 shapes E1, 20 E2, 4 E3, 8 E4 y 2 L3 con coincidencias; ambos sentidos en
+las líneas principales. L3 tiene un rango continuo por sentido. Hay cobertura
+adicional E3a/FCC. No se anotan túneles en tranvías/funicular.
+No se abrió la aplicación ni se observaron ciclos realtime.
+Fuentes y límites: [euskotren-tunnels.md](euskotren-tunnels.md).
+
 ## Paquete posterior: núcleo modular de ciudades
 
 **2 de octubre de 2026.** `npm test`: 81 tests pasando (56 core + 25 frontend).

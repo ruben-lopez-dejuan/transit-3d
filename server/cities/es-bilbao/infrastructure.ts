@@ -1,6 +1,12 @@
 import type { BizkaibusGtfs } from '../../providers/bizkaibus/gtfs';
-import { tripPlan } from '../../transit/plans';
+import { tripPlan, shapeMetric, modeFor } from '../../transit/plans';
 import type { Shape } from '../../../shared/transit/network';
+import type { Coordinate } from '../../transit/motionEngine';
+import { TunnelGeometryIndex } from '../../transit/tunnelGeometry';
+import euskotrenTunnels from './euskotren-tunnels.json';
+
+// Reviewed OSM tunnel geometry belongs to the city package; matching is shared.
+const euskotrenTunnelIndex = new TunnelGeometryIndex(euskotrenTunnels.ways.map((way) => way.coordinates as Coordinate[]));
 
 // Metro Bilbao infrastructure maintenance specification, annex 2, pp. 78–79:
 // common section + L2 in tunnel, except Etxebarri–Bolueta and Urbinaga viaduct.
@@ -9,6 +15,12 @@ const tunnels = new Set(['bolueta', 'basarrate', 'santutxu', 'casco viejo', 'aba
 const normalize = (name: string) => name.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 const matches = (name: string, names: Set<string>) => [...names].some((item) => normalize(name).includes(item));
 export function infrastructureFor(gtfs: BizkaibusGtfs, operatorId: string, shapeId: string): Shape['underground'] {
+  if (operatorId === 'euskotren') {
+    const trip = [...gtfs.trips.values()].find((item) => item.shapeId === shapeId);
+    if (!trip || modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1) !== 'rail') return [];
+    const metric = shapeMetric(gtfs, shapeId);
+    return metric ? euskotrenTunnelIndex.rangesFor(metric) : [];
+  }
   if (operatorId !== 'metro-bilbao') return [];
   const trip = [...gtfs.trips.values()].find((t) => t.shapeId === shapeId);
   const stops = trip ? tripPlan(gtfs, trip.tripId)?.stops ?? [] : [];

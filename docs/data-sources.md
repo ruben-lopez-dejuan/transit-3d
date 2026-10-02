@@ -112,7 +112,11 @@ Puente Colgante publica frequencies.txt: sus 8 plantillas se expanden en **615 e
 - Lurraldebus y varias redes locales: ficheros de 15 bytes con 0 entidades; algunos timestamps de junio de 2025. No aportan realtime utilizable pese a las fechas actuales del índice.
 - AlavaBus VP/TU: entidades y uniones reales (19/22 GPS y 25/25 TU en la auditoría), pero timestamp de entidad **dos horas por delante** de cabecera/UTC. No se habilita ni se aplica una corrección global sin verificar todos sus tiempos de parada; alternativa disponible: GTFS estático.
 - SIRI GetVehicleMonitoring municipal sin VehicleRef: aviso de identificador desconocido; no se usa como endpoint agregado.
-- Overpass público para infraestructura: overpass-api.de devolvió HTTP 406 y overpass.kumi.systems HTTP 429. Se utilizó documentación oficial de Metro, sin inventar respuestas OSM.
+- En la auditoría anterior, Overpass devolvió HTTP 406 (overpass-api.de) y 429
+  (overpass.kumi.systems). Para Euskotren, el 3 de octubre se obtuvo una respuesta
+  válida de la instancia principal mediante POST; private.coffee agotó el timeout.
+  El primer filtro solo railway=rail no incluía narrow_gauge de Euskotren;
+  se amplió antes de seleccionar infraestructura ETS. Detalle en la sección siguiente.
 - La descarga nativa Node de algunos dominios del Gobierno Vasco falló por confianza TLS del entorno. Se usa el almacén de certificados de Windows mediante el descargador existente; no se desactiva TLS.
 
 ## Infraestructura ferroviaria y representación
@@ -120,6 +124,35 @@ Puente Colgante publica frequencies.txt: sus 8 plantillas se expanden en **615 e
 [Pliego oficial de mantenimiento Metro Bilbao, anexo 2, pp. 78–79](https://www.contratacion.euskadi.eus/webkpe00-kpeperfi/es/contenidos/anuncio_contratacion/expjaso37360/es_doc/adjuntos/lugar_descarga_3_1.pdf): tramo común y L2 en túnel, salvo Etxebarri–Bolueta y viaducto de Urbinaga; Basauri–Ariz en túnel. Se traduce a intervalos sobre shapes y estaciones reales. Profundidad visual **aproximada de 12 m**, transiciones aproximadas cerca de límites. Los coches se representan transparentes bajo el mapa y se pueden ocultar en Capas. No se afirma que exista un levantamiento exacto de cotas/portales; soterramientos aislados de L1 quedan pendientes.
 
 Separación lateral de 1,7 m por sentido a escala física para distinguir trenes/tranvías en los shapes compartidos. En el LOD lejano se amplía con el ancho mínimo de representación. Es diagramática; no es un inventario exacto de vías. C4/C5 de Renfe conservan la vía sin offset. Composiciones estilizadas por modo/operador, longitud aproximada; cada coche obtiene posición y tangente independientes sobre la curva.
+
+### Túneles de Euskotren — 3 de octubre de 2026
+
+Geometría descargada realmente de [Overpass](https://overpass-api.de/api/interpreter),
+con datos [OpenStreetMap, ODbL](https://www.openstreetmap.org/copyright).
+Snapshot de origen: **2026-10-02 22:36:47 UTC**. Se seleccionan 201 ways y
+2.426 puntos de vías activas ETS: narrow_gauge, gauge=1000 y tunnel=yes.
+Se excluyen vías en construcción/abandonadas, Metro L1/L2, otros operadores
+y las vías no electrificadas. Los IDs OSM y la consulta se guardan en el dataset.
+
+Se cruza esta infraestructura con los shapes GTFS existentes, sin cambiar sus
+coordenadas. L3, E1, E2, E3 y E4 tienen tramos identificados en ambos sentidos;
+también hay coincidencias en E3a y los servicios FCC. Tranvías y funicular no
+heredan túneles ferroviarios. L3 queda continua después del portal de Kukullaga;
+E3 incluye Artxanda y el tramo común con L3.
+
+La continuidad se verifica con nodos compartidos entre ways. Los desajustes
+locales GTFS/OSM no se rellenan por simple proximidad: requieren el mismo túnel
+conectado, un entorno geométrico acotado y ausencia de retorno al mismo portal.
+Profundidad visual aproximada de 12 m y transiciones existentes, sin afirmar
+cotas medidas ni inventario completo. Portales y posiciones pueden diferir
+entre fuentes; infraestructura no mapeada/con correspondencia insuficiente
+permanece en superficie.
+
+Contraste oficial: [ETS, L3 y conexión Artxanda](https://www.irekia.euskadi.eus/es/news/44884-una-exposicion-recuerda-primer-aniversario-linea-del-metro-bilbao)
+y [ETS, trazado del Topo](https://www.topo.eus/proyecto).
+No se consultan feeds realtime ni Overpass al arrancar para obtener esta
+infraestructura. Dataset local, índice espacial y caché por shape.
+Reproducción y pruebas: [euskotren-tunnels.md](euskotren-tunnels.md).
 
 ## Frescura, movimiento y arquitectura
 

@@ -5,6 +5,9 @@ import { generateScheduledVehicles } from './scheduled';
 import { passengerHeadsign, placeShortcuts } from './labels';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
 import { infrastructureFor } from './infrastructure';
+import { TunnelGeometryIndex } from './tunnelGeometry';
+import { buildShapeMetric, type Coordinate } from './motionEngine';
+import tunnelDataset from '../cities/es-bilbao/euskotren-tunnels.json';
 
 function fixture(longitude = 0): BizkaibusGtfs {
   return {
@@ -61,6 +64,64 @@ test('Metro tunnel metadata includes the GTFS Eliptikoa name and excludes Urbina
   const viaduct = fixture();
   ['Bagatza', 'Urbinaga', 'Sestao'].forEach((name, i) => { viaduct.stops.get(String(i))!.name = name; });
   assert.deepEqual(infrastructureFor(viaduct, 'metro-bilbao', 's'), []);
+});
+
+const tunnelMetric = (coordinates: Coordinate[]) => buildShapeMetric(coordinates.map(([longitude, latitude], sequence) => ({ longitude, latitude, sequence })));
+test('tunnel geometry matches both directions, merging duplicate parallel tracks without changing GTFS', () => {
+  const coordinates: Coordinate[] = [[0, 0], [.01, 0]];
+  const metric = tunnelMetric(coordinates);
+  const index = new TunnelGeometryIndex([coordinates, coordinates]);
+  const ranges = index.rangesFor(metric), reverse = index.rangesFor(tunnelMetric([...coordinates].reverse()));
+  assert.equal(ranges.length, 1); assert.deepEqual(reverse, ranges);
+  assert.deepEqual(ranges[0], { from: 0, to: metric.totalMeters, depthMeters: 12, approximate: true });
+  assert.equal(index.rangesFor(metric), ranges, 'matching is cached, never recomputed per frame');
+  assert.deepEqual(metric.coordinates, coordinates);
+});
+test('tunnel geometry keeps surface gaps, including tunnels between surface stations', () => {
+  const index = new TunnelGeometryIndex([[[.001, 0], [.003, 0]], [[.007, 0], [.009, 0]]]);
+  const metric = tunnelMetric([[0, 0], [.01, 0]]);
+  const ranges = index.rangesFor(metric);
+  assert.equal(ranges.length, 2);
+  assert.ok(ranges[0].from > 0 && ranges[1].to < metric.totalMeters);
+  assert.ok(ranges[1].from - ranges[0].to > 350);
+});
+test('unrelated crossings, nearby surface tracks and malformed zero-length geometry are not tunnels', () => {
+  const index = new TunnelGeometryIndex([[[.005, -.01], [.005, .01]], [[0, .001], [.01, .001]], [[0, 0], [0, 0]]]);
+  assert.deepEqual(index.rangesFor(tunnelMetric([[0, 0], [.01, 0]])), []);
+  assert.deepEqual(index.rangesFor(tunnelMetric([[0, 0], [0, 0]])), []);
+});
+test('tunnel matching follows curves and local cumulative progress in every sense', () => {
+  const coordinates: Coordinate[] = [[0, 0], [.001, 0], [.001, .001], [.002, .001]];
+  const index = new TunnelGeometryIndex([coordinates]);
+  const metric = tunnelMetric(coordinates);
+  assert.deepEqual(index.rangesFor(metric), [{ from: 0, to: metric.totalMeters, depthMeters: 12, approximate: true }]);
+});
+test('connected source ways bridge GTFS axis deviations while unrelated surface gaps remain separate', () => {
+  const index = new TunnelGeometryIndex([[[0, 0], [.005, 0]], [[.005, 0], [.01, 0]]]);
+  const offset = tunnelMetric([[0, 0], [.003, 0], [.004, .001], [.006, .001], [.007, 0], [.01, 0]]);
+  assert.equal(index.rangesFor(offset).length, 1);
+  const distant = tunnelMetric([[0, 0], [.003, 0], [.004, .004], [.006, .004], [.007, 0], [.01, 0]]);
+  assert.equal(index.rangesFor(distant).length, 2, 'a path far outside the mapped tunnel must stay above ground');
+});
+test('a surface excursion returning to the same tunnel portal is not filled in as underground', () => {
+  const index = new TunnelGeometryIndex([[[0, 0], [.003, 0]]]);
+  const metric = tunnelMetric([[.001, 0], [.003, 0], [.003, .001], [.004, .001], [.004, 0], [.003, 0], [.001, 0]]);
+  const ranges = index.rangesFor(metric);
+  assert.equal(ranges.length, 2);
+  assert.ok(ranges[1].from - ranges[0].to > 300);
+});
+test('Euskotren rail shapes receive real tunnel geometry and tram shapes stay on the surface', () => {
+  // An actual downloaded source way in Bilbao, exercised independently of local GTFS caches.
+  const way = tunnelDataset.ways.find((item) => item.coordinates.length > 5 && item.coordinates[0][0] < -2.9)!;
+  assert.ok(way);
+  const gtfs = fixture();
+  gtfs.shapes.set('s', way.coordinates.map(([longitude, latitude], sequence) => ({ longitude, latitude, sequence })));
+  gtfs.routes.get('r')!.routeType = 2;
+  const ranges = infrastructureFor(gtfs, 'euskotren', 's')!;
+  assert.ok(ranges.length > 0); assert.ok(ranges.every((range) => range.approximate && range.depthMeters === 12));
+  gtfs.routes.get('r')!.routeType = 0;
+  assert.deepEqual(infrastructureFor(gtfs, 'euskotren', 's'), []);
+  assert.deepEqual(infrastructureFor(gtfs, 'bilbobus', 's'), []);
 });
 test('trip timelines retain dwell, and delay shifts every stop without changing progress', () => {
   const plan = tripPlan(fixture(), 't')!;
