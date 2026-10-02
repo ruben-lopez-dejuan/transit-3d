@@ -20,11 +20,11 @@ Se validó la estructura ZIP y se leyeron estas tablas requeridas por el core:
 | Feed | routes | trips | calendar | calendar_dates | stop_times | shapes |
 |---|---:|---:|---:|---:|---:|---:|
 | Bizkaibus | 100 | 23.332 | 44 | 442 | 542.489 | 565.781 |
-| Bilbobus | 56 | 15.224 | 11 | 24 | 251.400 | 73.534 |
+| Bilbobus | 56 | 15.222 | 11 | 24 | 251.370 | 73.178 |
 | Metro Bilbao | 1 | 7.747 | 5 | 34 | 199.700 | 12.616 |
-| Euskotren | 12 | 5.894 | 18 | 20 | 87.371 | 56.126 |
+| Euskotren | 12 | 8.057 | 22 | 22 | 119.514 | 66.905 |
 
-La auditoría confirma que los tres operadores adicionales tienen los elementos estáticos necesarios para crear vehículos programados. Los conteos son las filas leídas, excluida la cabecera.
+La auditoría confirma que los tres operadores adicionales tienen los elementos estáticos necesarios para crear vehículos programados. Los conteos son las filas leídas, excluida la cabecera, de los ZIP utilizados por la interfaz el 2 de octubre por la mañana. Bilbobus/Euskotren cambiaron respecto a la captura inicial nocturna; se han vuelto a leer sus tablas. El catálogo común contiene 169 rutas y 3.137 paradas con servicios referenciados.
 
 ## Detalle, protocolos y fallback
 
@@ -34,7 +34,7 @@ La auditoría confirma que los tres operadores adicionales tienen los elementos 
 - VehiclePositions disponible y actualmente poblado; TripUpdates y Alerts se anuncian y el feed de TripUpdates también se decodificó con entidades.
 - El pipeline legado conserva cache en disco, resuelve `trip_id` con GTFS y rechaza posiciones que no puedan proyectarse razonablemente sobre el shape.
 - El refresco configurado de posiciones es de 5 s; el timestamp del feed puede cambiar con menor frecuencia. Mantener el último fichero válido si falla una actualización.
-- En la prueba, el feed mapeó 10 buses pero su observación era unas 3 h 35 min más antigua que la descarga. El core los descarta después de 180 s y marca el provider `degraded`; el frontend legado todavía consume directamente el endpoint histórico y no comparte ese control de frescura.
+- En la prueba nocturna, el feed mapeó 10 buses pero su observación era unas 3 h 35 min más antigua que la descarga. El core los descarta después de 180 s y marca el provider `degraded`; el frontend nuevo consume el snapshot común y comparte ese control de frescura. En la revisión diurna el feed volvió a contener observaciones recientes, alternando PREDICTED y fallback SCHEDULED según su edad.
 - El índice indicaba actualización a las 03:18:30 UTC en su captura, pero el timestamp del protobuf era de la noche anterior. La cadencia real de publicación no se pudo confirmar.
 - Fallback: horario GTFS cuando no se obtiene una observación usable; la calidad del dato no debe seguir etiquetándose como LIVE al envejecer.
 
@@ -52,7 +52,7 @@ La auditoría confirma que los tres operadores adicionales tienen los elementos 
 - Se anuncian VehiclePositions y TripUpdates en protobuf GTFS-RT. Los dos endpoints respondieron con FeedMessage válido, pero cero entidades en la descarga auditada.
 - El índice marcaba 03:18:27 para VehiclePositions y 03:18:30 para TripUpdates. No puede inferirse un intervalo periódico solo de esta captura.
 - Sin posiciones pobladas no se debe comunicar LIVE. Las TripUpdates deberían elevar la calidad a PREDICTED cuando se asocien de forma verificable a un trip y parada.
-- Fallback actual: posiciones SCHEDULED calculadas sobre shape y tiempos GTFS; respetar paradas y esperas. No hay modelo ferroviario específico de aceleración/parada implementado aún.
+- Fallback actual: posiciones SCHEDULED calculadas sobre shape y tiempos GTFS; el renderer aplica una curva suave ferroviaria y conserva las esperas en estación. No son observaciones GPS.
 
 ### Euskotren
 
@@ -68,3 +68,20 @@ La auditoría confirma que los tres operadores adicionales tienen los elementos 
 - El catálogo publica también formatos SIRI y NeTEx para la red de Euskadi, pero no se descargaron ni analizaron en esta fase. No se afirma que los ficheros específicos de estos cuatro operadores aporten más información que GTFS.
 - La nota oficial de Moveuskadi describe datos estáticos y en tiempo real y enumera GTFS, GTFS-RT, SIRI y NeTEx: [datos Moveuskadi](https://www.euskadi.eus/contenidos/ds_movilidad/md_ideeu_moveuskadi/es_def/index.shtml) y [anuncio del Gobierno Vasco sobre realtime](https://www.euskadi.eus/gobierno-vasco/-/noticia/2025/moveuskadi-datos-en-tiempo-real-sobre-el-transporte-publico/).
 - Los recursos enlazados pertenecen a sus publicadores. Comprobar los términos de reutilización vigentes al distribuir una versión pública.
+
+## Fuentes realtime exactas del índice
+
+El índice se volvió a descargar a las 11:18 hora local del 2 de octubre. Estas URLs son las publicadas; únicamente VehiclePositions de Bizkaibus está conectado a producción:
+
+| Operador | VehiclePositions | TripUpdates | Alerts |
+|---|---|---|---|
+| Bizkaibus | [posiciones](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_Bizkaibus_vehicle_positions.pb) | [viajes](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb) | [avisos](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_Bizkaibus_alerts.pb) |
+| Bilbobus | [posiciones](https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfsrt_bilbobus_vehicle_positions.pb) | No publicado en su entrada | No publicado en su entrada |
+| Metro Bilbao | [posiciones](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb) | [viajes](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_trip_updates.pb) | No publicado en su entrada |
+| Euskotren | [posiciones](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_vehicle_positions.pb) | [viajes](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_trip_updates.pb) | [avisos](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_alerts.pb) |
+
+## Integración en la interfaz
+
+Los cuatro providers están registrados y visibles. Bilbobus, Metro Bilbao y Euskotren utilizan su GTFS descargado, con calidad SCHEDULED. Sus recursos realtime pendientes no se presentan como GPS. Los paneles de paradas muestran horarios o estimaciones basadas en el desfase inferido de Bizkaibus, identificadas en texto. El número de vehículos depende del día de servicio y la hora, y no es un conteo de GPS reales.
+
+El browser refresca snapshots cada 15 s. El backend conserva un snapshot enriquecido 5 s y shapes/planes por feed. Los descargadores estáticos usan seis horas de frescura en disco; los feeds parseados se mantienen en memoria durante la vida del proceso. Reiniciar el backend diariamente hasta implementar la recarga de catálogos sin reinicio.
