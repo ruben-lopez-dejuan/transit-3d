@@ -27,7 +27,7 @@ for (const operator of network.operators) {
   if (stop) { const detail = await get<StopDetail>(`/api/stops/${operator.id}/${encodeURIComponent(stop.stopId)}`); assert.equal(detail.stop.key, stop.key); assert.ok(detail.departures.every((d, i, a) => i === 0 || d.at >= a[i - 1].at)); }
   const vehicle = snapshot.vehicles.find((v) => v.operatorId === operator.id);
   if (vehicle) {
-    const trip = await get<TripDetail>(`/api/trips/${operator.id}/${encodeURIComponent(vehicle.tripId)}?date=${vehicle.serviceDate}`);
+    const trip = await get<TripDetail>(`/api/trips/${operator.id}/${encodeURIComponent(vehicle.tripId)}?date=${vehicle.serviceDate}&vehicleId=${encodeURIComponent(vehicle.id)}`);
     assert.equal(trip.vehicleId, vehicle.id);
     const shapes = await get<Shape[]>('/api/geometries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: [vehicle.shapeKey] }) });
     assert.equal(shapes[0]?.key, vehicle.shapeKey);

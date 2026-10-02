@@ -43,15 +43,16 @@ export function getNetwork(): Promise<Network> {
 }
 async function loadNetwork(): Promise<Network> {
   const operators: Operator[] = [];
-  const loaded = await Promise.allSettled(definitions.map((definition) => feeds.has(definition.id)
-    ? Promise.resolve(feeds.get(definition.id)!)
-    : gtfsLoaders.get(definition.id)!()));
+  const loaded = await Promise.allSettled(definitions.map((definition) => gtfsLoaders.get(definition.id)!()));
   for (const [index, definition] of definitions.entries()) {
     try {
-      if (feeds.has(definition.id)) { operators.push({ ...definition, status: "ok" }); continue; }
       const result = loaded[index];
       if (result.status === 'rejected') throw result.reason;
       const gtfs = result.value;
+      if (feeds.get(definition.id) === gtfs) { operators.push({ ...definition, status: 'ok' }); continue; }
+      const prefix = `${definition.id}:`;
+      for (const store of [routeMap, stopMap, stopReferences, packets, lineGeometry]) for (const key of store.keys()) if (key.startsWith(prefix)) store.delete(key);
+      snapshotCache = null;
       feeds.set(definition.id, gtfs);
       operators.push({ ...definition, status: "ok" });
       for (const route of gtfs.routes.values()) {

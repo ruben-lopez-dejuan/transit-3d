@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { randomUUID } from 'node:crypto';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,9 +16,10 @@ export async function downloadFile(
 ): Promise<number> {
   fs.mkdirSync(path.dirname(destination), { recursive: true });
 
-  const temporary = `${destination}.tmp`;
+  const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   fs.rmSync(temporary, { force: true });
 
+  try {
   if (process.platform === "win32") {
     const script = [
       "$ErrorActionPreference='Stop'",
@@ -70,4 +72,5 @@ export async function downloadFile(
 
   fs.renameSync(temporary, destination);
   return size;
+  } finally { fs.rmSync(temporary, { force: true }); }
 }

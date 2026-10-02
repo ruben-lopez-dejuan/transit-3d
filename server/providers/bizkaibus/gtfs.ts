@@ -72,6 +72,8 @@ export type BizkaibusGtfs = {
 };
 
 let memoryCache: BizkaibusGtfs | null = null;
+let memoryExpires = 0;
+let loading: Promise<BizkaibusGtfs> | null = null;
 
 function isFresh(file: string, maxAgeMs: number) {
   try {
@@ -145,12 +147,18 @@ async function ensureGtfsFiles() {
 }
 
 export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
-  if (memoryCache) return memoryCache;
+  if (memoryCache && Date.now() < memoryExpires) return memoryCache;
+  if (loading) return loading;
+  loading = loadBizkaibusGtfs().finally(() => { loading = null; });
+  return loading;
+}
+async function loadBizkaibusGtfs(): Promise<BizkaibusGtfs> {
 
   await ensureGtfsFiles();
   const parsedPath = path.join(BIZKAIBUS_GTFS_DIR, 'parsed.v8');
   memoryCache = readParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP) ?? parseGtfsDirectory(BIZKAIBUS_GTFS_DIR);
   writeParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP, memoryCache);
+  memoryExpires = Date.now() + STATIC_GTFS_MAX_AGE_MS;
   console.log(`[Bizkaibus] GTFS ready: ${memoryCache.routes.size} routes, ${memoryCache.trips.size} trips.`);
   return memoryCache;
 }

@@ -96,3 +96,20 @@ test('Recent GPS replaces one scheduled identity; malformed or distant positions
   gps.entity![0].vehicle!.position!.latitude = 0;
   assert.equal(applyRealtime(data, base, 'renfe', new Map(), gps, now)[0].positionQuality, 'scheduled');
 });
+
+test('a provider speed limit rejects an impossible GPS hop without renewing the last valid timestamp', () => {
+  const data = fixture();
+  const gps: RealtimeMessage = { header: feed().header, entity: [{ vehicle: { trip: { tripId: 't', startDate: date }, timestamp: now.getTime() / 1000, position: { latitude: 43.26, longitude: -2.939 } } }] };
+  const first = applyRealtime(data, [], 'bounded', new Map(), gps, now, 40)[0];
+  const later = new Date(now.getTime() + 1000);
+  gps.entity![0].vehicle!.timestamp = later.getTime() / 1000;
+  gps.entity![0].vehicle!.position!.longitude = -2.931;
+  const invalid = applyRealtime(data, [], 'bounded', new Map(), gps, later, 40)[0];
+  assert.equal(invalid.observationTimestamp, first.observationTimestamp);
+  assert.equal(invalid.progressMetersAlongShape, first.progressMetersAlongShape);
+  const recoveredAt = new Date(now.getTime() + 40_000);
+  gps.entity![0].vehicle!.timestamp = recoveredAt.getTime() / 1000;
+  const recovered = applyRealtime(data, [], 'bounded', new Map(), gps, recoveredAt, 40)[0];
+  assert.equal(recovered.observationTimestamp, recoveredAt.getTime());
+  assert.ok(recovered.speedMetersPerSecond! < 40);
+});

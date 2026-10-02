@@ -20,11 +20,20 @@ export function ed50ToWgs84(x: number, y: number): [number, number] | null {
   const coordinate = proj4(ED50, 'EPSG:4326', [x, y]) as [number, number];
   return coordinate[0] > -3.2 && coordinate[0] < -2.7 && coordinate[1] > 43.1 && coordinate[1] < 43.5 ? coordinate : null;
 }
-export function bilbobusPositionTimestamp(value: string): number | null {
+const wallFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+export function bilbobusPositionTimestamp(value: string, receivedAt = Date.now()): number | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(value);
   if (!match) return null;
   // Audited against HTTP Date: Instante is Madrid wall time, despite its misleading Z suffix.
-  return serviceEpoch(`${match[1]}${match[2]}${match[3]}`, Number(match[4]) * 3600 + Number(match[5]) * 60 + Number(match[6]));
+  const approximate = serviceEpoch(`${match[1]}${match[2]}${match[3]}`, Number(match[4]) * 3600 + Number(match[5]) * 60 + Number(match[6]));
+  const expected = match.slice(1).join('');
+  const candidates = [-3600_000, 0, 3600_000].map((offset) => approximate + offset).filter((at) => {
+    const parts = wallFormatter.formatToParts(at);
+    return ['year', 'month', 'day', 'hour', 'minute', 'second'].map((type) => parts.find((p) => p.type === type)!.value).join('') === expected;
+  });
+  // In the repeated autumn hour choose the most recent possible observation before receipt.
+  candidates.sort((a, b) => (a > receivedAt ? 1 : 0) - (b > receivedAt ? 1 : 0) || Math.abs(a - receivedAt) - Math.abs(b - receivedAt));
+  return candidates[0] ?? null;
 }
 
 export type SiriArrival = { vehicleId: string; journeyId: string; line: string; directionId: number | null; stopCode: string; destination: string; arrival: number; departure: number; recordedAt: number };

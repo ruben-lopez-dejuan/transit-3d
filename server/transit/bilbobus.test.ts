@@ -12,6 +12,13 @@ test('Bilbobus Instante uses Madrid wall time despite its Z suffix, including wi
   assert.equal(bilbobusPositionTimestamp('2026-10-02T15:51:10.000Z'), Date.parse('2026-10-02T13:51:10Z'));
   assert.equal(bilbobusPositionTimestamp('2026-12-02T15:51:10.000Z'), Date.parse('2026-12-02T14:51:10Z'));
 });
+
+test('municipal wall-clock timestamps resolve repeated DST hours and reject nonexistent times', () => {
+  assert.equal(bilbobusPositionTimestamp('2026-10-25T02:15:00Z', Date.parse('2026-10-25T00:20:00Z')), Date.parse('2026-10-25T00:15:00Z'));
+  assert.equal(bilbobusPositionTimestamp('2026-10-25T02:15:00Z', Date.parse('2026-10-25T01:20:00Z')), Date.parse('2026-10-25T01:15:00Z'));
+  assert.equal(bilbobusPositionTimestamp('2026-03-29T02:15:00Z'), null);
+  assert.equal(bilbobusPositionTimestamp('2026-03-29T01:15:00Z'), Date.parse('2026-03-29T00:15:00Z'));
+});
 test('SIRI arrivals preserve the official UTC record time and ignore stale predictions', () => {
   const xml = '<Envelope><Body><GetStopMonitoringResponse><GetStopMonitoringResult><MonitoredStopVisits><MonitoredStopVisit><RecordedAtTime>2026-10-02T13:52:21Z</RecordedAtTime><MonitoredVehicleJourney><VehicleRef>VEH_767</VehicleRef><LineRef>L18</LineRef><DirectionRef>Ida</DirectionRef><DestinationName>ZORROTZA</DestinationName><FramedVehicleJourneyRef><DatedVehicleJourneyRef>V011804_12</DatedVehicleJourneyRef></FramedVehicleJourneyRef><MonitoredCall><StopPointRef>1101</StopPointRef><ExpectedArrivalTime>2026-10-02T14:06:51Z</ExpectedArrivalTime></MonitoredCall></MonitoredVehicleJourney></MonitoredStopVisit></MonitoredStopVisits></GetStopMonitoringResult></GetStopMonitoringResponse></Body></Envelope>';
   const now = Date.parse('2026-10-02T13:52:30Z');
@@ -27,4 +34,5 @@ test('Observation speed uses meters and source milliseconds, rejecting actual an
   assert.equal(tracker.accept('bus', { at: 26000, progress: 250 }, 'bus', 30000)?.previous?.at, 1000);
   assert.equal(tracker.accept('bus', { at: 27000, progress: 2250 }, 'bus', 27000), null);
   assert.equal(tracker.accept('bus', { at: 51000, progress: 500 }, 'bus', 51000)?.speed, 10);
+  assert.equal(tracker.accept('bus', { at: 250000, progress: 1500 }, 'bus', 250000)?.previous, null);
 });

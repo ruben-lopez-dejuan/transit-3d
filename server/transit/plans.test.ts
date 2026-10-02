@@ -4,6 +4,7 @@ import { shapeMetric, tripPlan, timelineFor, serviceEpoch, shapePacket, modeFor 
 import { generateScheduledVehicles } from './scheduled';
 import { passengerHeadsign, placeShortcuts } from './labels';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
+import { infrastructureFor } from './infrastructure';
 
 function fixture(longitude = 0): BizkaibusGtfs {
   return {
@@ -41,6 +42,25 @@ test('identical shape/trip IDs from different feeds do not share cached geometry
   assert.notEqual(tripPlan(one, 't'), tripPlan(two, 't'));
   assert.equal(tripPlan(one, 't'), tripPlan(one, 't'));
   assert.equal(shapePacket(shapeMetric(two, 's')!, 'two:s').key, 'two:s');
+});
+
+test('shape packets preserve short corners before long segments', () => {
+  const points = [[0, 0], [.00005, 0], [.00005, .01]].map(([longitude, latitude], sequence) => ({ longitude, latitude, sequence }));
+  const gtfs = fixture(); gtfs.shapes.set('corner', points);
+  assert.equal(shapePacket(shapeMetric(gtfs, 'corner')!, 'corner').coordinates.length, 3);
+});
+
+test('Metro tunnel metadata includes the GTFS Eliptikoa name and excludes Urbinaga viaduct', () => {
+  const metro = fixture();
+  ['Abando', 'Eliptikoa', 'Indautxu'].forEach((name, i) => { metro.stops.get(String(i))!.name = name; });
+  const ranges = infrastructureFor(metro, 'metro-bilbao', 's')!;
+  assert.equal(ranges.length, 1);
+  assert.ok(ranges[0].to > ranges[0].from);
+  assert.equal(ranges[0].approximate, true);
+  assert.deepEqual(infrastructureFor(metro, 'euskotren', 's'), []);
+  const viaduct = fixture();
+  ['Bagatza', 'Urbinaga', 'Sestao'].forEach((name, i) => { viaduct.stops.get(String(i))!.name = name; });
+  assert.deepEqual(infrastructureFor(viaduct, 'metro-bilbao', 's'), []);
 });
 test('trip timelines retain dwell, and delay shifts every stop without changing progress', () => {
   const plan = tripPlan(fixture(), 't')!;

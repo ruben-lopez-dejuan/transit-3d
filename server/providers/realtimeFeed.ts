@@ -28,7 +28,7 @@ export class RealtimeFeedClient {
   private async refresh() {
     const directory = path.resolve('server/cache/realtime');
     fs.mkdirSync(directory, { recursive: true });
-    const file = path.join(directory, `${this.name}.pb`), candidate = `${file}.candidate`;
+    const file = path.join(directory, `${this.name}.pb`), candidate = `${file}.${process.pid}.candidate`;
     const decode = (bytes: Buffer) => {
       const feed = bindings.transit_realtime.FeedMessage.toObject(bindings.transit_realtime.FeedMessage.decode(bytes), { longs: Number, enums: String }) as RealtimeMessage;
       if (!feed.header?.gtfsRealtimeVersion || feed.header.incrementality === 'DIFFERENTIAL') throw new Error('Unsupported realtime dataset');

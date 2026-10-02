@@ -65,7 +65,15 @@ export function timelineFor(plan: Plan, date: string, delaySeconds = 0): MotionA
 export function shapePacket(metric: ShapeMetric, key: string): Shape {
   const coordinates: Shape["coordinates"] = []; const cumulative: number[] = [];
   for (let i = 0; i < metric.coordinates.length; i++) {
-    if (i !== 0 && i !== metric.coordinates.length - 1 && metric.cumulativeMeters[i] - cumulative.at(-1)! < 12) continue;
+    if (i !== 0 && i !== metric.coordinates.length - 1 && metric.cumulativeMeters[i] - cumulative.at(-1)! < 12) {
+      const a = coordinates.at(-1)!, b = metric.coordinates[i + 1], p = metric.coordinates[i];
+      const sx = Math.cos(p[1] * Math.PI / 180) * 111320, sy = 110540;
+      const x = (b[0] - a[0]) * sx, y = (b[1] - a[1]) * sy;
+      const px = (p[0] - a[0]) * sx, py = (p[1] - a[1]) * sy;
+      const t = Math.max(0, Math.min(1, (px * x + py * y) / Math.max(.001, x * x + y * y)));
+      // Keep corners even at short spacing: distance-only thinning cut across bends.
+      if (Math.hypot(px - x * t, py - y * t) < .5) continue;
+    }
     coordinates.push(metric.coordinates[i]); cumulative.push(metric.cumulativeMeters[i]);
   }
   return { key, coordinates, cumulative, total: metric.totalMeters };

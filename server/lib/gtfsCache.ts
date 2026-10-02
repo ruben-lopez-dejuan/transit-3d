@@ -11,7 +11,7 @@ export function readParsedFeed(file: string, zip: string): BizkaibusGtfs | null 
   } catch { return null; }
 }
 export function writeParsedFeed(file: string, zip: string, feed: BizkaibusGtfs) {
-  const temporary = file + '.candidate';
+  const temporary = file + '.' + process.pid + '.candidate';
   fs.writeFileSync(temporary, serialize({ version, source: fs.statSync(zip).mtimeMs, feed }));
   fs.renameSync(temporary, file);
 }

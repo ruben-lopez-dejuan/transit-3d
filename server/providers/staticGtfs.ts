@@ -9,10 +9,14 @@ import type { TransitProvider, ProviderSnapshot } from "../transit/types";
 
 export class StaticGtfsProvider implements TransitProvider {
   private data: Promise<BizkaibusGtfs> | null = null;
+  private expires = 0;
   private stale = false;
   constructor(readonly operatorId: string, private readonly url: string, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void } = {}) {}
   getGtfs(): Promise<BizkaibusGtfs> {
-    if (!this.data) this.data = this.load().catch((error) => { this.data = null; throw error; });
+    if (!this.data || Date.now() >= this.expires) {
+      this.expires = Infinity;
+      this.data = this.load().then((feed) => { this.expires = Date.now() + 6 * 3600_000; return feed; }).catch((error) => { this.data = null; throw error; });
+    }
     return this.data;
   }
   private async load() {
@@ -21,7 +25,7 @@ export class StaticGtfsProvider implements TransitProvider {
     fs.mkdirSync(directory, { recursive: true });
     const fresh = fs.existsSync(zipPath) && Date.now() - fs.statSync(zipPath).mtimeMs < 6 * 3600_000;
     if (!fresh) {
-      try { await downloadFile(this.url, zipPath); }
+      try { await downloadFile(this.url, zipPath); this.stale = false; }
       catch (error) { if (!fs.existsSync(zipPath)) throw error; this.stale = true; }
     }
     const parsedPath = path.join(directory, 'parsed.v8');
