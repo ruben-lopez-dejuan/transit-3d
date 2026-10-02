@@ -42,7 +42,7 @@ test('render preparation hides icons before enabling models and selection keeps 
   const map = {
     getSource: (name: string) => ({ setData: (data: unknown) => sources.set(name, data) }),
     isStyleLoaded: () => true, getLayer: () => ({}), getZoom: () => zoom,
-    getBounds: () => ({ contains: () => true }),
+    getBounds: () => ({ contains: (coordinate: [number, number]) => coordinate[0] >= 0 }),
     getLayoutProperty: (id: string) => layouts.get(id),
     setLayoutProperty: (id: string, _property: string, value: unknown) => { layouts.set(id, value); events.push('icons:' + value); },
     triggerRepaint: () => {},
@@ -63,6 +63,30 @@ test('render preparation hides icons before enabling models and selection keeps 
   const other = items.filter((item) => item.kind === 'metro').map((item) => item.scale);
   renderer.selectedId = 'b'; render();
   assert.deepEqual(items.filter((item) => item.kind === 'metro').map((item) => item.scale), other);
+  assert.equal(items.length, 5);
+  // A large regional fleet must not turn the few cars in a close view into icons.
+  const outside = Array.from({ length: MODEL_CAPACITY / 4 + 1 }, (_, index) => ({
+    ...vehicle('outside-' + index, 'rail', 'metro-bilbao'),
+    shapeKey: 'outside', longitude: -10,
+  }));
+  zoom = 18;
+  renderer.update([vehicle('b', 'bus', 'bilbobus'), vehicle('m', 'rail', 'metro-bilbao'), ...outside], now, now);
+  render();
+  assert.equal(enabled, true, 'offscreen cars must not disable close 3D');
+  assert.equal(items.length, 5);
+  assert.equal(renderer.lod, 'detailed');
+  assert.equal(renderer.modelFallbackReason, 'none');
+  assert.equal(layouts.get('vehicle-icon'), 'none');
+  // The safety limit still applies to cars actually in view and is reversible.
+  renderer.update(outside.map((v) => ({ ...v, shapeKey: 's', longitude: .01 })), now, now);
+  render();
+  assert.equal(enabled, false);
+  assert.equal(renderer.modelFallbackReason, 'visible-capacity');
+  assert.equal(renderer.modelCars, 0);
+  assert.equal(layouts.get('vehicle-icon'), 'visible');
+  renderer.update([vehicle('b', 'bus', 'bilbobus'), vehicle('m', 'rail', 'metro-bilbao')], now, now);
+  render();
+  assert.equal(enabled, true);
   assert.equal(items.length, 5);
   zoom = 10; render();
   assert.equal(enabled, false); assert.equal(items.length, 0); assert.equal(layouts.get('vehicle-icon'), 'visible');

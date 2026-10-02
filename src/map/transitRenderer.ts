@@ -6,7 +6,7 @@ import { GpsMotion } from '../transit/gpsMotion';
 import { composition, vehiclePose } from '../transit/vehiclePose';
 import { estimatedBusDwell } from '../transit/stopMotion';
 import type { VehicleModels, ModelItem } from './vehicleModels';
-import { MODEL_MIN_ZOOM, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
+import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
 
 type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion };
 export class TransitRenderer {
@@ -27,6 +27,7 @@ export class TransitRenderer {
   private modelsLoading = false;
   private modelsFailed = false;
   lod = 'cluster';
+  modelFallbackReason = 'low-zoom';
   modelCars = 0;
   modelVehicles = 0;
   renderMilliseconds = 0;
@@ -103,14 +104,8 @@ export class TransitRenderer {
       }).catch((error) => { this.modelsFailed = true; console.warn('[transit-models] Model loading failed; using mode silhouettes.', error); }).finally(() => { this.modelsLoading = false; });
     }
     const vehicles = this.getVehicles();
-    const cars = vehicles.reduce((total, vehicle) => total + composition(vehicle).count, 0);
-    const owner = representation(zoom, !!this.models?.ready && !!this.map.getLayer('transit-models'), cars);
-    const useModels = owner === 'model';
-    const visibility = useModels ? 'none' : 'visible';
-    // Hide symbols synchronously before enabling models. GeoJSON worker latency
-    // cannot leave old icons over the 3D bodies during the switch.
-    if (this.map.getLayoutProperty('vehicle-icon', 'visibility') !== visibility) this.map.setLayoutProperty('vehicle-icon', 'visibility', visibility);
-    this.lod = useModels ? modelLevel(zoom) : zoom < MODEL_MIN_ZOOM ? 'cluster / silhouette' : 'silhouette fallback';
+    const modelsReady = !!this.models?.ready && !!this.map.getLayer('transit-models');
+    const prepareModels = zoom >= MODEL_MIN_ZOOM && modelsReady;
     if (now - this.snapshotAt > 180_000) {
       for (const id of ["vehicles", "selected-vehicle", "vehicle-bodies"]) (this.map.getSource(id) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [] });
       this.models?.update([], false); this.modelCars = 0; this.modelVehicles = 0;
@@ -134,7 +129,7 @@ export class TransitRenderer {
       const properties = { id: vehicle.id, label: vehicle.label, destination: vehicle.headsign.length > 27 ? vehicle.headsign.slice(0, 26) + '…' : vehicle.headsign, mode: vehicle.mode, kind: vehicleKind(vehicle), color: vehicle.color, bearing, quality: this.dataQuality(vehicle.id), underground, focused, selected: this.selectedId === vehicle.id };
       features.push({ type: "Feature" as const, properties, geometry: { type: "Point" as const, coordinates: coordinate } });
       if (this.selectedId === vehicle.id) { selected.push(features.at(-1)!); this.onSelectedPosition?.(coordinate); }
-      if (useModels && bounds.contains(coordinate)) {
+      if (prepareModels && bounds.contains(coordinate)) {
         modelVehicles++;
         const consist = composition(vehicle);
         for (let car = 0; car < consist.count; car++) {
@@ -146,10 +141,19 @@ export class TransitRenderer {
         }
       }
     }
+    // Apply the GPU budget to actual visible cars, after stale/hidden/offscreen
+    // filtering and shape-end handling. Regional traffic must not disable close 3D.
+    const useModels = representation(zoom, modelsReady, models.length) === 'model';
+    this.modelFallbackReason = useModels ? 'none' : zoom < MODEL_MIN_ZOOM ? 'low-zoom' : this.modelsFailed ? 'load-error' : !modelsReady ? 'loading' : models.length > MODEL_CAPACITY ? 'visible-capacity' : 'unknown';
+    const visibility = useModels ? 'none' : 'visible';
+    // Hide symbols synchronously before enabling models. GeoJSON worker latency
+    // cannot leave old icons over the 3D bodies during the switch.
+    if (this.map.getLayoutProperty('vehicle-icon', 'visibility') !== visibility) this.map.setLayoutProperty('vehicle-icon', 'visibility', visibility);
+    this.lod = useModels ? modelLevel(zoom) : zoom < MODEL_MIN_ZOOM ? 'cluster / silhouette' : 'silhouette fallback';
     source.setData({ type: "FeatureCollection", features });
     (this.map.getSource("selected-vehicle") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: selected });
-    this.models?.update(models, useModels); if (useModels) this.map.triggerRepaint();
-    this.modelCars = models.length; this.modelVehicles = modelVehicles;
+    this.models?.update(useModels ? models : [], useModels); if (useModels) this.map.triggerRepaint();
+    this.modelCars = useModels ? models.length : 0; this.modelVehicles = useModels ? modelVehicles : 0;
     this.renderedVehicles = features.length; this.renderMilliseconds = performance.now() - started;
   }
 }

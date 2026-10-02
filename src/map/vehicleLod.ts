@@ -16,9 +16,9 @@ export function modelLevel(zoom: number) {
   return zoom < MODEL_MIN_ZOOM ? 'cluster' : zoom < MODEL_DETAIL_ZOOM ? 'silhouette' : zoom < MODEL_FULL_ZOOM ? 'simplified' : 'detailed';
 }
 
-/** One owner for the entire fleet, including loading/capacity fallbacks. No crossfade. */
-export function representation(zoom: number, ready: boolean, cars: number): 'model' | 'icon' {
-  return zoom >= MODEL_MIN_ZOOM && ready && cars <= MODEL_CAPACITY ? 'model' : 'icon';
+/** One owner for the visible fleet. Capacity concerns prepared, visible cars only. */
+export function representation(zoom: number, ready: boolean, visibleCars: number): 'model' | 'icon' {
+  return zoom >= MODEL_MIN_ZOOM && ready && visibleCars <= MODEL_CAPACITY ? 'model' : 'icon';
 }
 
 export function vehicleScale(vehicle: { mode: TransitMode; operatorId: string }, zoom: number, latitude: number) {

@@ -68,9 +68,25 @@ shape no se inventa geometría para coches fuera del recorrido disponible.
 Un único selector decide entre iconos y modelos para toda la flota. Los iconos
 se ocultan antes de habilitar los modelos; no hay crossfade ni dependencia de
 la selección. Al cambiar el estilo se repite esa elección. Mientras carga el
-módulo, falla su carga, o se supera la capacidad de 4.096 coches, se utilizan
+módulo, falla su carga, o se supera la capacidad de 4.096 coches visibles, se utilizan
 siluetas de modo para toda la flota. El hitbox es invisible; selección con aro
 pequeño y tinte del vehículo, sin puntos rellenos enormes.
+
+### Corrección tras reporte de iconos planos al acercar
+
+El límite se aplicaba inicialmente a todos los coches de la red filtrada,
+incluidos los situados fuera de pantalla. Eso podía deshabilitar el 3D incluso
+al acercar hasta una calle con pocos vehículos. Ahora la elección se realiza
+después de preparar los coches visibles: excluye vehículos fuera de pantalla,
+caducados, ocultos y coches sin geometría disponible. Mantiene la exclusión
+entre iconos y modelos y el límite de seguridad para la escena real.
+
+La prueba del renderer reproduce una red con más de 4.096 coches y solo cinco
+en pantalla: fallaba antes de la corrección y conserva `detailed` después.
+También comprueba el fallback con más de 4.096 coches realmente visibles y su
+recuperación al reducirlos. En `?debug=1`, `3D fallback` muestra `none`, `loading`,
+`load-error`, `visible-capacity` o `low-zoom`, para identificar la causa si persiste.
+Comprobación estática y unitaria; sin abrir la aplicación ni validación visual.
 
 ## Rendimiento y límites
 
