@@ -22,6 +22,6 @@ export class GpsPlayback {
     const fraction = (this.cursor - a.at) / Math.max(1, b.at - a.at);
     return a.progress + (b.progress - a.progress) * fraction;
   }
-  get interpolated() { return this.observations.length > 1; }
+  get interpolated() { return this.observations.length > 1 && this.cursor !== null && this.cursor < this.observations.at(-1)!.at; }
   get renderedAt() { return this.cursor; }
 }

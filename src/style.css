@@ -16,3 +16,7 @@
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation: none !important; transition: none !important; } }
 .line-badge { color: var(--line-text, #fff); }
 .departure.realtime .departure-source { color: var(--accent); font-weight: 600; } .departure .departure-freshness { font-size: 9px; opacity: .8; } .departure.canceled .arrival strong { color: #bd3b48; } .arrival s { opacity: .65; }
+
+#layers { max-height: calc(100dvh - 120px); overflow-y: auto; }
+#operator-list summary { padding: 14px 0; cursor: pointer; font-size: 13px; font-weight: 650; }
+.mode-nav { flex-wrap: wrap; }

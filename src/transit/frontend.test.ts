@@ -5,6 +5,8 @@ import { searchNetwork } from './search';
 import { esc, badge, departures, positionExplanation } from '../ui';
 import type { Network, Vehicle } from './networkTypes';
 import { GpsPlayback } from './gpsPlayback';
+import { estimatedBusDwell } from './stopMotion';
+import { composition, vehiclePose } from './vehiclePose';
 
 test('client movement preserves station dwell and clamps the timeline', () => {
   const anchors = [{ at: 0, progress: 0 }, { at: 10000, progress: 1000 }, { at: 20000, progress: 1000 }, { at: 30000, progress: 2000 }];
@@ -42,6 +44,44 @@ const network: Network = {
   ],
   stops: [{ key: 'rail:s', operatorId: 'rail', stopId: 's', name: 'San Mamés', modes: ['rail'], longitude: -2.95, latitude: 43.26 }],
 };
+
+test('estimated bus stops preserve published arrival times and existing explicit dwell', () => {
+  const anchors = [{ at: 0, progress: 0 }, { at: 120000, progress: 1000 }, { at: 240000, progress: 2000 }];
+  const dwell = estimatedBusDwell(anchors);
+  assert.equal(progressAt(dwell, 123000, true), 1000);
+  assert.equal(progressAt(dwell, 240000, true), 2000);
+  assert.deepEqual(estimatedBusDwell(dwell), dwell);
+});
+
+test('rail cars follow different tangents around curves, with opposite directions separated', () => {
+  const shape = { key: 's', coordinates: [[0, 0], [.001, 0], [.001, .001]] as [number, number][], cumulative: [0, 100, 200], total: 200, underground: [{ from: 0, to: 200, depthMeters: 12, approximate: true }] };
+  const vehicle = { mode: 'rail', operatorId: 'metro-bilbao', label: 'L1' } as const;
+  assert.equal(vehiclePose(shape, 120, vehicle)?.bearing, 0);
+  assert.equal(vehiclePose(shape, 80, vehicle)?.bearing, 90);
+  assert.equal(vehiclePose(shape, 100, vehicle)?.altitude, -12);
+  assert.equal(composition(vehicle).count, 4);
+  const reverse = { ...shape, coordinates: [...shape.coordinates].reverse() };
+  assert.notDeepEqual(vehiclePose(shape, 50, vehicle)?.coordinate, vehiclePose(reverse, 150, vehicle)?.coordinate);
+});
+
+test('repeated GPS HTTP responses do not restart observation playback', () => {
+  const playback = new GpsPlayback();
+  playback.append({ at: 25000, progress: 250 }, { at: 0, progress: 0 });
+  playback.position(100000); const before = playback.position(110000);
+  playback.append({ at: 25000, progress: 250 });
+  assert.equal(playback.position(110000), before);
+  assert.ok(playback.position(120000)! > before!);
+  assert.equal(playback.position(140000), 250);
+});
+
+test('hidden vehicles advance the source clock on snapshots rather than replaying old queues when shown', () => {
+  const playback = new GpsPlayback();
+  playback.append({ at: 25000, progress: 250 }, { at: 0, progress: 0 });
+  playback.position(100000);
+  for (let i = 1; i <= 8; i++) { playback.append({ at: 25000 * (i + 1), progress: 250 * (i + 1) }); playback.position(100000 + i * 25000); }
+  assert.equal(playback.renderedAt, 200000);
+  assert.equal(playback.position(310000), 2100);
+});
 test('search ranks exact route codes, handles accents, and respects mode/operator filters', () => {
   const first = searchNetwork(network, 'a3', 'bus', new Set(['bus', 'rail']))[0];
   assert.equal(first.type, 'route');

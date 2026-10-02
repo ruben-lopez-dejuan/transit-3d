@@ -7,7 +7,7 @@ import type { Network, Snapshot, Route, Stop, Vehicle, LineDetail, StopDetail, T
 import { searchNetwork, type SearchResult } from './transit/search';
 import { positionQuality } from './transit/motion';
 import { TransitRenderer } from './map/transitRenderer';
-import { empty, styleUrl, setData, installLayers, stopsData, routeData, fitShapes } from './map/networkMap';
+import { empty, styleUrl, setData, installLayers, installVehicleIcons, stopsData, routeData, fitShapes } from './map/networkMap';
 import { shell, esc, badge, quality, eta, time, departures, positionExplanation, delayLabel } from './ui';
 import { setupPwa } from './pwa';
 
@@ -42,7 +42,7 @@ function filters() {
   renderer.mode = mode;
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mode]')) { const active = button.dataset.mode === mode; button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); }
   if (map.getLayer('stations')) {
-    const enabled = ['in', ['get', 'operator'], ['literal', [...renderer.operators]]];
+    const enabled = ['any', ...[...renderer.operators].map((id) => ['all', ['==', ['get', 'operator'], id], ['any', ...['bus', 'rail', 'tram', 'funicular', 'unknown'].filter((m) => !renderer.disabledLayers.has(id + ':' + m)).map((m) => ['in', m, ['get', 'modes']])]])];
     const transport = mode === 'all' ? true : ['in', mode, ['get', 'modes']];
     map.setFilter('stations', ['all', ['==', ['get', 'station'], true], enabled, transport] as never);
     map.setFilter('bus-stops', ['all', ['==', ['get', 'station'], false], enabled, transport] as never);
@@ -62,10 +62,24 @@ function updateStatus() {
 }
 function renderOperators() {
   if (!network) return;
-  $('#operator-list').innerHTML = network.operators.map((o) => { const provider = snapshot?.providers.find((p) => p.operatorId === o.id); const state = provider?.status ?? o.status; const vehicles = snapshot?.vehicles.filter((v) => v.operatorId === o.id) ?? []; const gps = vehicles.some((v) => v.observationTimestamp !== null); const timings = (provider?.realtimeTripCount ?? 0) > 0; const label = state === 'unavailable' ? 'Fuente no disponible' : gps && timings ? 'GPS + llegadas realtime' : timings ? 'Llegadas realtime · posición estimada' : gps ? 'GPS + horarios' : 'Según horario'; return `<label class="operator-row"><input type="checkbox" data-operator="${esc(o.id)}" ${renderer.operators.has(o.id) ? 'checked' : ''}><span class="operator-dot" style="background:${esc(o.color)}"></span><span><strong>${esc(o.name)}</strong><small>${label}</small></span><span class="operator-count">${vehicles.length}</span></label>`; }).join('');
+  const openGroups = new Set([...document.querySelectorAll<HTMLDetailsElement>('[data-provider-group][open]')].map((d) => d.dataset.providerGroup));
+  const row = (id: string, name?: string, transport?: TransitMode) => {
+    const o = network!.operators.find((o) => o.id === id); if (!o) return '';
+    const provider = snapshot?.providers.find((p) => p.operatorId === id), state = provider?.status ?? o.status;
+    const vehicles = snapshot?.vehicles.filter((v) => v.operatorId === id && (!transport || v.mode === transport)) ?? [];
+    const gps = vehicles.some((v) => v.observationTimestamp !== null), timings = (provider?.realtimeTripCount ?? 0) > 0;
+    const label = state === 'unavailable' ? 'Fuente no disponible' : gps && timings ? 'GPS + llegadas realtime' : timings ? 'Llegadas realtime · posición estimada' : gps ? id === 'bilbobus' ? 'GPS · llegadas por parada' : 'GPS + horarios' : 'Según horario';
+    const checked = renderer.operators.has(id) && (!transport || !renderer.disabledLayers.has(id + ':' + transport));
+    return '<label class="operator-row"><input type="checkbox" data-operator="' + esc(id) + '" ' + (transport ? 'data-transport="' + transport + '" ' : '') + (checked ? 'checked' : '') + '><span class="operator-dot" style="background:' + esc(o.color) + '"></span><span><strong>' + esc(name ?? o.name) + '</strong><small>' + label + '</small></span><span class="operator-count">' + vehicles.length + '</span></label>';
+  };
+  const primary = new Set(['metro-bilbao', 'euskotren', 'renfe', 'bizkaibus', 'bilbobus', 'funicular-artxanda']);
+  const groups = new Map<string, string[]>();
+  network.operators.filter((o) => !primary.has(o.id)).forEach((o) => { const group = o.group ?? 'Otros'; if (!groups.has(group)) groups.set(group, []); groups.get(group)!.push(row(o.id)); });
+  $('#operator-list').innerHTML = row('metro-bilbao') + row('euskotren', 'Euskotren · tren', 'rail') + row('euskotren', 'Tranvía · Bilbao / Vitoria', 'tram') + row('renfe') + row('bizkaibus') + row('bilbobus') + row('funicular-artxanda') + [...groups].map(([name, rows]) => '<details data-provider-group="' + esc(name) + '" ' + (openGroups.has(name) ? 'open' : '') + '><summary>' + esc(name) + ' · ' + rows.length + ' operadores</summary>' + rows.join('') + '</details>').join('');
+
 }
 async function ensureShapes() {
-  const keys = [...new Set(renderer.getVehicles().map((v) => v.shapeKey))].filter((k) => !renderer.shapes.has(k) && !inFlightShapes.has(k));
+  const keys = [...new Set(renderer.getVehicles().filter((v) => map.getBounds().contains([v.longitude, v.latitude]) || v.id === renderer.selectedId).map((v) => v.shapeKey))].filter((k) => !renderer.shapes.has(k) && !inFlightShapes.has(k));
   for (let i = 0; i < keys.length; i += 50) {
     const batch = keys.slice(i, i + 50); batch.forEach((k) => inFlightShapes.add(k));
     try { (await loadShapes(batch)).forEach((s) => renderer.shapes.set(s.key, s)); }
@@ -77,7 +91,7 @@ async function refresh() {
   if (polling || !navigator.onLine) return;
   polling = true; $('#refresh').textContent = 'Actualizando…';
   try {
-    if (!network) { network = await loadNetwork(); network.operators.forEach((o) => renderer.operators.add(o.id)); setData(map, 'stops', stopsData(network.stops)); }
+    if (!network) { network = await loadNetwork(); network.operators.forEach((o) => renderer.operators.add(o.id)); setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network); }
     snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); filters(); renderDetails();
   } catch (error) { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
   finally { polling = false; $('#refresh').textContent = '↻ Actualizar datos'; }
@@ -85,7 +99,7 @@ async function refresh() {
 function search() {
   if (!network) { $('#results').innerHTML = '<p class="empty-copy">La red se está cargando…</p>'; return; }
   const query = $<HTMLInputElement>('#search').value;
-  if (query.trim()) results = searchNetwork(network, query, mode, renderer.operators);
+  if (query.trim()) results = searchNetwork(network, query, mode, renderer.operators, renderer.disabledLayers);
   else { results = [...network.routes.filter((r) => favorites.has(`route:${r.key}`)).map((item): SearchResult => ({ type: 'route', item })), ...network.stops.filter((s) => favorites.has(`stop:${s.key}`)).map((item): SearchResult => ({ type: 'stop', item }))]; if (!results.length) results = network.places.map((item) => ({ type: 'place', item })); }
   resultIndex = -1;
   $('.search-heading').textContent = query ? `${results.length} resultados` : favorites.size ? 'Tus favoritos' : 'Explora Bilbao y Bizkaia';
@@ -98,7 +112,7 @@ function openPanel() { $('#details').hidden = false; $('#details').classList.rem
 function favoriteKey() { return selection?.kind === 'route' ? `route:${selection.route.key}` : selection?.kind === 'stop' ? `stop:${selection.stop.key}` : null; }
 function closeDetails() { selection = null; detail = null; detailVersion++; following = false; renderer.focusRoute = null; renderer.selectedId = null; renderer.direction = 'all'; $('#details').hidden = true; $('#debug').hidden = true; map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 300 }); setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); }
 async function selectRoute(route: Route, direction = 'all', fit = true) {
-  renderer.operators.add(route.operatorId); if (mode !== 'all' && mode !== route.mode) mode = route.mode; filters();
+  renderer.operators.add(route.operatorId); renderer.disabledLayers.delete(route.operatorId + ':' + route.mode); if (mode !== 'all' && mode !== route.mode) mode = route.mode; filters();
   selection = { kind: 'route', route, direction }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = route.key; renderer.direction = direction; openPanel(); renderDetails();
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
   const version = ++detailVersion;
@@ -112,7 +126,7 @@ async function selectStop(stop: Stop) {
   catch (error) { if (version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
 }
 async function selectVehicle(vehicle: Vehicle) {
-  renderer.operators.add(vehicle.operatorId); if (mode !== 'all' && mode !== vehicle.mode) mode = vehicle.mode; filters();
+  renderer.operators.add(vehicle.operatorId); renderer.disabledLayers.delete(vehicle.operatorId + ':' + vehicle.mode); if (mode !== 'all' && mode !== vehicle.mode) mode = vehicle.mode; filters();
   selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; renderer.direction = 'all'; openPanel(); renderDetails();
   const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: 700 });
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
@@ -131,12 +145,12 @@ function renderDetails() {
     const q = positionQuality(v, Date.now() + renderer.clockOffset), trip = detail as TripDetail | null;
     const delay = v.delaySeconds;
     const next = trip?.stops.find((s) => s.progress > v.progressMetersAlongShape + 10);
-    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(v.operatorName)} · ${v.mode === 'rail' ? 'Metro / tren' : v.mode === 'tram' ? 'Tranvía' : 'Bus'}</div><div class="title-row">${badge(v)}<h1>${esc(v.headsign || 'Servicio en circulación')}</h1></div>${quality(q)}<p class="quality-explanation">${esc(positionExplanation(v, Date.now() + renderer.clockOffset))}</p></div><div class="next-stop"><span>Próxima parada</span><strong>${esc(v.nextStop?.name ?? next?.name ?? 'Fin del recorrido')}</strong><div>${v.nextStop ? eta(v.nextStop.at) : next ? eta(next.at) : '—'}${delay !== null ? `<small> · ${v.delayEstimated ? 'Desfase estimado · ' : ''}${delayLabel(delay)}</small>` : ''}</div></div><div class="detail-actions"><button data-follow class="${following ? 'primary' : ''}">${following ? '● Siguiendo' : '⌖ Seguir vehículo'}</button><button data-fit>Ver recorrido</button></div><section class="detail-section"><div class="section-heading"><h2>Paradas del recorrido</h2><button data-full-line class="text-button">Ver línea →</button></div>${trip ? stopRows(trip.stops, v.progressMetersAlongShape) : loading}</section>`;
-    if (new URLSearchParams(location.search).has('debug')) { $('#debug').hidden = false; $('#debug').textContent = `trip: ${v.tripId}\nshape: ${v.shapeKey}\nprogress: ${v.progressMetersAlongShape.toFixed(1)} m\nquality: ${q}\nGPS: ${v.observationTimestamp ? new Date(v.observationTimestamp).toISOString() : 'none'}\nshape cache: ${renderer.shapes.size}\n${following ? 'following' : ''}`; }
+    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(v.operatorName)} · ${v.mode === 'rail' ? 'Metro / tren' : v.mode === 'tram' ? 'Tranvía' : v.mode === 'funicular' ? 'Funicular' : 'Bus'}</div><div class="title-row">${badge(v)}<h1>${esc(v.headsign || 'Servicio en circulación')}</h1></div>${quality(q, renderer.dataQuality(v.id))}<p class="quality-explanation">${esc(positionExplanation(v, Date.now() + renderer.clockOffset))}</p></div><div class="next-stop"><span>Próxima parada</span><strong>${esc(v.nextStop?.name ?? next?.name ?? 'Fin del recorrido')}</strong><div>${next?.realtime ? eta(next.at) : v.nextStop ? eta(v.nextStop.at) : next ? eta(next.at) : '—'}${delay !== null ? `<small> · ${v.delayEstimated ? 'Desfase estimado · ' : ''}${delayLabel(delay)}</small>` : ''}</div></div><div class="detail-actions"><button data-follow class="${following ? 'primary' : ''}">${following ? '● Siguiendo' : '⌖ Seguir vehículo'}</button><button data-fit>Ver recorrido</button></div><section class="detail-section"><div class="section-heading"><h2>Paradas del recorrido</h2><button data-full-line class="text-button">Ver línea →</button></div>${trip ? stopRows(trip.stops, v.progressMetersAlongShape) : loading}</section>`;
+    if (new URLSearchParams(location.search).has('debug')) { $('#debug').hidden = false; $('#debug').textContent = `trip: ${v.tripId}\nshape: ${v.shapeKey}\nprogress: ${v.progressMetersAlongShape.toFixed(1)} m\nrendered coordinate: ${renderer.coordinate(v.id)?.map(n => n.toFixed(6)).join(", ")}\nquality: ${q}\nGPS: ${v.observationTimestamp ? new Date(v.observationTimestamp).toISOString() : 'none'}\nlast query: ${snapshot ? new Date(snapshot.fetchedAt).toISOString() : 'none'}\nrender frame: ${new Date().toISOString()}\nrendered observation: ${new Date(renderer.renderedTimestamp(v.id)).toISOString()}\nrendered: ${renderer.renderedVehicles} / ${renderer.getVehicles().length}\nframe: ${renderer.renderMilliseconds.toFixed(2)} ms\nspeed: ${v.speedMetersPerSecond?.toFixed(1) ?? 'unknown'} m/s\nshape cache: ${renderer.shapes.size}\n${following ? 'following' : ''}`; }
   } else if (selection.kind === 'route') {
     const route = selection.route, line = detail as LineDetail | null;
     const active = renderer.getVehicles().filter((v) => v.routeKey === route.key && (selection?.kind !== 'route' || selection.direction === 'all' || String(v.directionId ?? 'unknown') === selection.direction));
-    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(operatorName(route.operatorId))}</div><div class="title-row">${badge(route)}<h1>${esc(route.longName || route.shortName)}</h1></div><p>${active.length} vehículos activos</p></div><div class="direction-control"><label for="direction">Sentido</label><select id="direction"><option value="all">Todos los sentidos</option>${route.directions.map((d) => `<option value="${esc(d.id)}" ${selection?.kind === 'route' && selection.direction === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div><section class="detail-section"><h2>Ahora en circulación</h2>${active.length ? active.slice(0, 12).map((v) => `<button class="row vehicle-row" data-vehicle="${esc(v.id)}"><span class="result-icon">↗</span><span class="row-copy"><strong>${esc(v.headsign || route.longName)}</strong><small>${esc(v.nextStop?.name ?? 'En recorrido')}</small></span>${quality(positionQuality(v, Date.now() + renderer.clockOffset))}</button>`).join('') : '<p class="empty-copy">No hay vehículos activos con este sentido y estos filtros.</p>'}</section><section class="detail-section"><h2>Próximas salidas desde cabecera</h2>${line ? departures(line.departures, operatorName) : loading}</section><section class="detail-section"><h2>Paradas ${selection.direction === 'all' ? '· recorrido de referencia' : ''}</h2>${line ? stopRows(line.stops) : ''}</section>`;
+    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(operatorName(route.operatorId))}</div><div class="title-row">${badge(route)}<h1>${esc(route.longName || route.shortName)}</h1></div><p>${active.length} vehículos activos</p></div><div class="direction-control"><label for="direction">Sentido</label><select id="direction"><option value="all">Todos los sentidos</option>${route.directions.map((d) => `<option value="${esc(d.id)}" ${selection?.kind === 'route' && selection.direction === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div><section class="detail-section"><h2>Ahora en circulación</h2>${active.length ? active.slice(0, 12).map((v) => `<button class="row vehicle-row" data-vehicle="${esc(v.id)}"><span class="result-icon">↗</span><span class="row-copy"><strong>${esc(v.headsign || route.longName)}</strong><small>${esc(v.nextStop?.name ?? 'En recorrido')}</small></span>${quality(positionQuality(v, Date.now() + renderer.clockOffset), renderer.dataQuality(v.id))}</button>`).join('') : '<p class="empty-copy">No hay vehículos activos con este sentido y estos filtros.</p>'}</section><section class="detail-section"><h2>Próximas salidas desde cabecera</h2>${line ? departures(line.departures, operatorName) : loading}</section><section class="detail-section"><h2>Paradas ${selection.direction === 'all' ? '· recorrido de referencia' : ''}</h2>${line ? stopRows(line.stops) : ''}</section>`;
   } else {
     const stop = selection.stop, data = detail as StopDetail | null;
     $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">Parada / estación</div><h1>${esc(stop.name)}</h1><p>${data ? [...new Set(data.nearbyStops.map((s) => operatorName(s.operatorId)))].map(esc).join(' · ') : esc(operatorName(stop.operatorId))}</p></div><section class="detail-section"><div class="section-heading"><h2>Próximos servicios</h2><small>Hora local</small></div>${data ? departures(data.departures, operatorName) : loading}<p class="section-note">Incluye paradas a menos de 80 m. Las llegadas marcadas como horario pueden variar.</p></section>`;
@@ -173,10 +187,12 @@ $('#results').onclick = (event) => { const item = (event.target as HTMLElement).
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.onclick = () => { mode = button.dataset.mode as typeof mode; filters(); if (!$('#search-results').hidden) search(); renderDetails(); });
 $('#layers-button').onclick = () => { $('#layers').hidden = !$('#layers').hidden; $('#layers-button').setAttribute('aria-expanded', String(!$('#layers').hidden)); closeSearch(); };
 $('[data-close-layers]').onclick = () => { $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); };
-$('#operator-list').addEventListener('change', (event) => { const input = event.target as HTMLInputElement; if (input.dataset.operator) { if (input.checked) renderer.operators.add(input.dataset.operator); else renderer.operators.delete(input.dataset.operator); filters(); renderDetails(); } });
+$('#operator-list').addEventListener('change', (event) => { const input = event.target as HTMLInputElement; if (input.dataset.operator) { if (input.dataset.transport) { const key = input.dataset.operator + ':' + input.dataset.transport; renderer.operators.add(input.dataset.operator); if (input.checked) renderer.disabledLayers.delete(key); else renderer.disabledLayers.add(key); } else if (input.checked) renderer.operators.add(input.dataset.operator); else renderer.operators.delete(input.dataset.operator); filters(); renderDetails(); } });
 function changeTheme() { document.documentElement.dataset.theme = isDark() ? 'dark' : 'light'; map.setStyle(styleUrl(isDark())); }
 $('#theme').addEventListener('change', () => { theme = $<HTMLSelectElement>('#theme').value; write('transit:theme', theme); changeTheme(); });
 media.addEventListener('change', () => { if (theme === 'system') changeTheme(); });
+$('#underground').onchange = () => { renderer.showUnderground = $<HTMLInputElement>('#underground').checked; };
+map.on('moveend', () => { void ensureShapes(); });
 $('#refresh').onclick = () => { void refresh(); };
 $('#close-details').onclick = closeDetails;
 $('#sheet-handle').onclick = () => $('#details').classList.toggle('collapsed');

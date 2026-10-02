@@ -4,7 +4,7 @@ import type { Network, Shape, Stop } from '../transit/networkTypes';
 export const empty = { type: 'FeatureCollection' as const, features: [] };
 export const styleUrl = (dark: boolean) => `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'positron'}`;
 export function setData(map: Map, id: string, data: unknown) { (map.getSource(id) as GeoJSONSource | undefined)?.setData(data as never); }
-export function stopsData(stops: Stop[]) { return { type: 'FeatureCollection' as const, features: stops.map((s) => ({ type: 'Feature' as const, properties: { key: s.key, name: s.name, station: s.modes.some((m) => m === 'rail' || m === 'tram'), operator: s.operatorId, modes: s.modes.join(',') }, geometry: { type: 'Point' as const, coordinates: [s.longitude, s.latitude] } })) }; }
+export function stopsData(stops: Stop[]) { return { type: 'FeatureCollection' as const, features: stops.map((s) => ({ type: 'Feature' as const, properties: { key: s.key, name: s.name, station: s.modes.some((m) => m === 'rail' || m === 'tram' || m === 'funicular'), operator: s.operatorId, modes: s.modes.join(',') }, geometry: { type: 'Point' as const, coordinates: [s.longitude, s.latitude] } })) }; }
 export function routeData(shapes: Shape[], color: string) { return { type: 'FeatureCollection' as const, features: shapes.map((s) => ({ type: 'Feature' as const, properties: { color }, geometry: { type: 'LineString' as const, coordinates: s.coordinates } })) }; }
 export function installLayers(map: Map, network: Network | null, dark: boolean) {
   if (map.getSource('vehicles')) return;
@@ -24,12 +24,11 @@ export function installLayers(map: Map, network: Network | null, dark: boolean) 
   map.addLayer({ id: 'selected-stops-label', type: 'symbol', source: 'selected-stops', minzoom: 13, layout: { 'text-field': ['get', 'name'], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-offset': [0, 1.2], 'text-anchor': 'top' }, paint: { 'text-color': dark ? '#eff5f7' : '#253b43', 'text-halo-color': white, 'text-halo-width': 2 } });
   map.addLayer({ id: 'clusters', type: 'circle', source: 'vehicles', filter: ['has', 'point_count'], paint: { 'circle-color': '#226b59', 'circle-radius': ['step', ['get', 'point_count'], 19, 20, 24, 100, 29], 'circle-stroke-color': white, 'circle-stroke-width': 3 } });
   map.addLayer({ id: 'cluster-count', type: 'symbol', source: 'vehicles', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': '#ffffff' } });
-  const opacity = ['case', ['==', ['get', 'focused'], false], .2, 1] as never;
-  map.addLayer({ id: 'selected-halo', type: 'circle', source: 'selected-vehicle', paint: { 'circle-radius': 21, 'circle-color': ['get', 'color'], 'circle-opacity': .15, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 2 } });
-  map.addLayer({ id: 'vehicle-dot', type: 'circle', source: 'vehicles', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 6, 13, 10, 17, 13], 'circle-color': ['case', ['==', ['get', 'quality'], 'scheduled'], white, ['get', 'color']], 'circle-stroke-color': ['case', ['==', ['get', 'quality'], 'scheduled'], ['get', 'color'], ['==', ['get', 'quality'], 'predicted'], '#d5a84c', white], 'circle-stroke-width': 2.5, 'circle-opacity': opacity, 'circle-stroke-opacity': opacity } });
-  map.addLayer({ id: 'vehicle-label', type: 'symbol', source: 'vehicles', minzoom: 12.5, filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['get', 'label'], 'text-size': 10, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': false }, paint: { 'text-color': ['case', ['==', ['get', 'quality'], 'scheduled'], dark ? '#eff5f7' : '#243c3b', '#ffffff'], 'text-halo-color': ['case', ['==', ['get', 'quality'], 'scheduled'], white, ['get', 'color']], 'text-halo-width': 1, 'text-opacity': opacity } });
-  map.addLayer({ id: 'vehicle-heading', type: 'symbol', source: 'vehicles', minzoom: 14.5, filter: ['!', ['has', 'point_count']], layout: { 'text-field': '▲', 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0, -1.6], 'text-rotate': ['get', 'bearing'], 'text-rotation-alignment': 'map', 'text-allow-overlap': true }, paint: { 'text-color': ['get', 'color'], 'text-halo-color': white, 'text-halo-width': 1, 'text-opacity': opacity } });
-  map.addLayer({ id: 'vehicle-body', type: 'fill-extrusion', source: 'vehicle-bodies', minzoom: 17, paint: { 'fill-extrusion-color': ['get', 'color'], 'fill-extrusion-height': 3, 'fill-extrusion-opacity': .96 } });
+  installVehicleIcons(map, network);
+  map.addLayer({ id: 'selected-halo', type: 'circle', source: 'selected-vehicle', paint: { 'circle-radius': 19, 'circle-color': ['get', 'color'], 'circle-opacity': .13, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 2 } });
+  map.addLayer({ id: 'vehicle-dot', type: 'circle', source: 'vehicles', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': 12, 'circle-opacity': 0 } });
+  map.addLayer({ id: 'vehicle-icon', type: 'symbol', source: 'vehicles', filter: ['!', ['has', 'point_count']], layout: { 'icon-image': ['concat', ['case', ['==', ['get', 'mode'], 'bus'], 'bus-', 'rail-'], ['get', 'color']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .25, 13, .38, 16, .52, 18, .7], 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-opacity': ['interpolate', ['linear'], ['zoom'], 15.8, ['case', ['get', 'underground'], .45, 1], 18, .1] } });
+  map.addLayer({ id: 'vehicle-label', type: 'symbol', source: 'vehicles', minzoom: 12.5, filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['step', ['zoom'], ['get', 'label'], 14.5, ['concat', ['get', 'label'], ' · ', ['get', 'destination']], 16, ['concat', ['get', 'label'], ' · ', ['get', 'destination'], ['case', ['get', 'underground'], ' · túnel', '']]], 'text-size': 11, 'text-font': ['Noto Sans Bold'], 'text-offset': [0, 2], 'text-anchor': 'top', 'text-max-width': 22, 'text-allow-overlap': false, 'symbol-sort-key': ['case', ['get', 'selected'], 0, 1] }, paint: { 'text-color': dark ? '#eff5f7' : '#243c3b', 'text-halo-color': white, 'text-halo-width': 2 } });
   map.addLayer({ id: 'location-halo', type: 'circle', source: 'user-location', paint: { 'circle-radius': 18, 'circle-color': '#3185e6', 'circle-opacity': .15 } });
   map.addLayer({ id: 'location-dot', type: 'circle', source: 'user-location', paint: { 'circle-radius': 6, 'circle-color': '#3185e6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
 }
@@ -41,4 +40,19 @@ export function fitShapes(map: Map, shapes: Shape[], padding: { top: number; bot
   padding = { left: padding.left * x, right: padding.right * x, top: padding.top * y, bottom: padding.bottom * y };
   const bounds = new LngLatBounds(); shapes.forEach((s) => s.coordinates.forEach((c) => bounds.extend(c)));
   if (!bounds.isEmpty()) map.fitBounds(bounds, { padding, maxZoom: 15, duration: 850 });
+}
+
+export function installVehicleIcons(map: Map, network: Network | null) {
+  for (const color of new Set(network?.routes.map((r) => r.color) ?? [])) for (const type of ['bus', 'rail']) {
+    const id = type + '-' + color; if (map.hasImage(id)) continue;
+    const canvas = document.createElement('canvas'); canvas.width = 48; canvas.height = 80;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#17252d'; for (const x of [3, 36]) for (const y of [14, 55]) ctx.fillRect(x, y, 9, 12);
+    ctx.fillStyle = color; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(9, 3, 30, 74, type === 'bus' ? [9, 9, 4, 4] : 8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#203b49'; ctx.beginPath(); ctx.roundRect(13, 10, 22, 13, 3); ctx.fill(); ctx.fillRect(12, 31, 4, 23); ctx.fillRect(32, 31, 4, 23);
+    ctx.fillStyle = '#eef4f2'; ctx.fillRect(18, 30, 12, type === 'bus' ? 31 : 25);
+    ctx.fillStyle = '#fff5c5'; ctx.fillRect(12, 5, 6, 3); ctx.fillRect(30, 5, 6, 3);
+    ctx.fillStyle = '#e73939'; ctx.fillRect(12, 70, 5, 3); ctx.fillRect(31, 70, 5, 3);
+    map.addImage(id, ctx.getImageData(0, 0, 48, 80), { pixelRatio: 1 });
+  }
 }
