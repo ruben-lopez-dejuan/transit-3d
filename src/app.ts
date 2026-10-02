@@ -2,7 +2,8 @@ import { Map as TransitMap, setWorkerUrl } from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
-import { loadCity, loadNetwork, loadSnapshot, loadShapes, loadLine, loadStop, loadTrip } from './transit/client';
+import { loadCity, loadCities, loadNetwork, loadSnapshot, loadShapes, loadLine, loadStop, loadTrip } from './transit/client';
+import { CITY_STORAGE_KEY, chooseCityId, cityUrl } from './transit/cities';
 import type { Network, Snapshot, Route, Stop, Vehicle, LineDetail, StopDetail, TripDetail, TransitMode } from './transit/networkTypes';
 import { searchNetwork, type SearchResult } from './transit/search';
 import { positionQuality } from './transit/motion';
@@ -14,12 +15,29 @@ import { migrateFavorites } from './transit/favorites';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 $('#app').textContent = 'Cargando la red de transporte…';
-const city = await loadCity().catch((error) => { $('#app').textContent = error instanceof Error ? error.message : 'No se pudo cargar la ciudad.'; throw error; });
-$('#app').innerHTML = createShell(city);
-configureTimezone(city.timezone);
-setupPwa(city.presentation.title);
 const read = (key: string, fallback: string) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const write = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing can deny persistence. */ } };
+const { city, cities } = await (async () => {
+  const [cities, defaultCity] = await Promise.all([loadCities(), loadCity()]);
+  const id = chooseCityId(cities, new URLSearchParams(location.search).get('city'), read(CITY_STORAGE_KEY, ''), defaultCity.id);
+  // Loading the chosen city also sets the scope for every subsequent API request.
+  const city = id === defaultCity.id ? defaultCity : await loadCity(id);
+  return { city, cities };
+})().catch((error) => { $('#app').textContent = error instanceof Error ? error.message : 'No se pudo cargar la ciudad.'; throw error; });
+write(CITY_STORAGE_KEY, city.id);
+history.replaceState(history.state, '', cityUrl(location.href, city.id));
+document.title = city.presentation.title;
+$('#app').innerHTML = createShell(city, cities);
+configureTimezone(city.timezone);
+setupPwa(city.presentation.title);
+$<HTMLSelectElement>('#city-picker').addEventListener('change', (event) => {
+  const id = (event.currentTarget as HTMLSelectElement).value;
+  if (id === city.id || !cities.some((candidate) => candidate.id === id)) return;
+  write(CITY_STORAGE_KEY, id);
+  // A document navigation isolates pending responses, geometry, motion history and selections.
+  location.assign(cityUrl(location.href, id));
+});
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-mode]')) button.hidden = button.dataset.mode !== 'all' && !city.modes.includes(button.dataset.mode as TransitMode);
 let favorites = new Set<string>();
 try { const saved = JSON.parse(read('transit:favorites', '[]')); if (Array.isArray(saved)) favorites = new Set(saved.filter((s) => typeof s === 'string')); } catch { /* Recover malformed storage. */ }
 let theme = read('transit:theme', 'system');

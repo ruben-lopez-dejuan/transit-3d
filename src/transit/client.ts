@@ -2,8 +2,9 @@ import type { Network, Snapshot, Shape, LineDetail, StopDetail, TripDetail, Vehi
 import { CITY_PACKAGE_API_VERSION, type CityManifest } from '../../shared/transit/contracts';
 let cityId: string | null = null;
 const inCity = (url: string) => cityId ? url + (url.includes('?') ? '&' : '?') + 'cityId=' + encodeURIComponent(cityId) : url;
-export async function loadCity() {
-  const city = await request<CityManifest>('/api/cities/default');
+export const loadCities = () => request<CityManifest[]>('/api/cities');
+export async function loadCity(id?: string) {
+  const city = await request<CityManifest>(id ? '/api/cities/' + encodeURIComponent(id) : '/api/cities/default');
   if (city.apiVersion !== CITY_PACKAGE_API_VERSION) throw new Error('Versión de la ciudad incompatible. Recarga la aplicación.');
   cityId = city.id;
   return city;

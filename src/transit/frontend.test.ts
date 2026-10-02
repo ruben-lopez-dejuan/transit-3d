@@ -2,13 +2,59 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { progressAt, positionAlong, correctionOffset, positionQuality } from './motion';
 import { searchNetwork } from './search';
-import { esc, badge, departures, positionExplanation } from '../ui';
+import { esc, badge, departures, positionExplanation, createShell } from '../ui';
+import { chooseCityId, cityUrl } from './cities';
+import { loadCities, loadCity, loadNetwork, loadSnapshot, loadShapes } from './client';
 import type { Network, Vehicle } from './networkTypes';
 import { estimatedBusDwell } from './stopMotion';
 import { composition, vehiclePose } from './vehiclePose';
 import { bilbaoManifest } from '../../server/cities/es-bilbao/city.manifest';
 import { migrateFavorites } from './favorites';
 import { entityId } from '../../shared/transit/ids';
+
+test('city selection uses URL, persistence and safe fallback for removed packages', () => {
+  const cities = [{ id: 'es-bilbao' }, { id: 'es-test' }];
+  assert.equal(chooseCityId(cities, 'es-test', 'es-bilbao', 'es-bilbao'), 'es-test');
+  assert.equal(chooseCityId(cities, null, 'es-test', 'es-bilbao'), 'es-test');
+  assert.equal(chooseCityId(cities, 'removed', 'removed', 'es-bilbao'), 'es-bilbao');
+  assert.equal(chooseCityId(cities, null, null, 'removed'), 'es-bilbao');
+  assert.throws(() => chooseCityId([], null, null, 'es-bilbao'));
+});
+test('city navigation preserves debug flags, origin and hash without duplicating the selection', () => {
+  const url = new URL(cityUrl('http://localhost:3001/?debug&city=es-bilbao#map', 'es-test'));
+  assert.equal(url.origin, 'http://localhost:3001');
+  assert.equal(url.searchParams.has('debug'), true);
+  assert.deepEqual(url.searchParams.getAll('city'), ['es-test']);
+  assert.equal(url.hash, '#map');
+});
+test('shell renders an accessible selector, escapes city labels and selects only the active city', () => {
+  const other = { ...bilbaoManifest, id: 'es-test', name: '<script>Test</script>' };
+  const html = createShell(other, [bilbaoManifest, other]);
+  assert.match(html, /aria-label="Ciudad o núcleo urbano"/);
+  assert.match(html, /value="es-test" selected/);
+  assert.match(html, /&lt;script&gt;Test&lt;\/script&gt;/);
+  assert.equal((html.match(/ selected/g) ?? []).length, 1);
+  assert.match(createShell(bilbaoManifest), /id="city-picker"/);
+});
+test('API requests remain scoped to the selected city and reject incompatible packages', async () => {
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input) => {
+    const url = String(input); calls.push(url);
+    const body = url === '/api/cities' ? [bilbaoManifest] : url === '/api/cities/es-bad' ? { ...bilbaoManifest, apiVersion: 2 } : { ...bilbaoManifest, id: url === '/api/cities/es-test' ? 'es-test' : 'es-bilbao' };
+    return new Response(JSON.stringify(body));
+  }) as typeof fetch;
+  try {
+    assert.equal((await loadCities())[0].id, 'es-bilbao');
+    await loadCity(); await loadNetwork();
+    assert.equal(calls.at(-1), '/api/network?cityId=es-bilbao');
+    await loadCity('es-test'); await loadSnapshot(); await loadShapes(['shape']);
+    assert.equal(calls.at(-2), '/api/transit?cityId=es-test');
+    assert.equal(calls.at(-1), '/api/geometries?cityId=es-test');
+    await assert.rejects(loadCity('es-bad'), /incompatible/);
+    await loadNetwork(); assert.equal(calls.at(-1), '/api/network?cityId=es-test');
+  } finally { globalThis.fetch = original; }
+});
 
 test('client movement preserves station dwell and clamps the timeline', () => {
   const anchors = [{ at: 0, progress: 0 }, { at: 10000, progress: 1000 }, { at: 20000, progress: 1000 }, { at: 30000, progress: 2000 }];
