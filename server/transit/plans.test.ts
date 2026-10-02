@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { shapeMetric, tripPlan, timelineFor, serviceEpoch, shapePacket, modeFor } from './plans';
 import { generateScheduledVehicles } from './scheduled';
+import { passengerHeadsign, placeShortcuts } from './labels';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
 
 function fixture(longitude = 0): BizkaibusGtfs {
@@ -18,6 +19,21 @@ function fixture(longitude = 0): BizkaibusGtfs {
     calendars: new Map([['daily', { serviceId: 'daily', startDate: '20260101', endDate: '20261231', weekdays: Array(7).fill(true) }]]), calendarDates: new Map(),
   };
 }
+test('passenger labels remove timetable metadata while retaining the actual destination', () => {
+  assert.equal(passengerHeadsign('PT-Semana/(PLAZA ELÍPTICA) - IDA - X'), 'PLAZA ELÍPTICA');
+  assert.equal(passengerHeadsign('PT-Semana / (TXURDINAGA)'), 'TXURDINAGA');
+  assert.equal(passengerHeadsign('Zazpikaleak/Casco Viejo'), 'Zazpikaleak/Casco Viejo');
+  assert.equal(passengerHeadsign('PT-BT-SEM-IDA', 'Intermodal'), 'Intermodal');
+});
+test('landmark shortcuts prefer the exact Bilbao station over similarly named suburban stops', () => {
+  const fields = { key: '', operatorId: '', stopId: '' };
+  const places = placeShortcuts([
+    { ...fields, name: 'SAN MAMÉS (1060)', longitude: -3.096, latitude: 43.35, modes: ['bus'] },
+    { ...fields, name: 'ALAMEDA SAN MAMÉS 8', longitude: -2.935, latitude: 43.257, modes: ['bus'] },
+    { ...fields, name: 'San Mamés', longitude: -2.94751, latitude: 43.26252, modes: ['rail'] },
+  ]);
+  assert.equal(places.find((p) => p.name === 'San Mamés')?.longitude, -2.94751);
+});
 test('identical shape/trip IDs from different feeds do not share cached geometry', () => {
   const one = fixture(0), two = fixture(1);
   assert.equal(shapeMetric(one, 's')!.coordinates[0][0], 0);

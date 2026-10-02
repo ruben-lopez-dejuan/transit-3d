@@ -14,6 +14,7 @@
     "test:bizkaibus-realtime": "tsx server/test-bizkaibus-realtime.ts",
     "test:core": "tsx --test server/transit/core.test.ts server/transit/plans.test.ts server/transit/parser.test.ts",
     "test:frontend": "tsx --test src/transit/frontend.test.ts",
+    "test:network": "tsx server/test-network.ts",
     "test": "npm run test:core && npm run test:frontend"
   },
   "dependencies": {

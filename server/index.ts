@@ -139,7 +139,8 @@ app.get("/api/vehicles", async (request, response) => {
 
 app.get("/api/transit", async (_request, response) => {
   try {
-    response.json(await getPresentationSnapshot());
+    const snapshot = await getPresentationSnapshot();
+    response.json({ ...snapshot, serverTime: Date.now() });
   } catch (error) {
     response.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }

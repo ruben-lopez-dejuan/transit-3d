@@ -5,7 +5,12 @@ export const time = (at: number) => new Date(at).toLocaleTimeString('es-ES', { h
 export const eta = (at: number) => { const minutes = Math.ceil((at - Date.now()) / 60000); return minutes <= 0 ? 'Ahora' : minutes < 60 ? `${minutes} min` : time(at); };
 export const qualityName = { live: 'GPS reciente', predicted: 'Estimada', scheduled: 'Horario' };
 export const quality = (q: keyof typeof qualityName) => `<span class="quality ${q}"><i></i>${qualityName[q]}</span>`;
-export const badge = (route: Pick<Route, 'color' | 'shortName'> | Pick<Vehicle, 'color' | 'label'>) => `<span class="line-badge" style="--line:${/^#[0-9a-f]{6}$/i.test(route.color) ? route.color : '#176955'}">${esc('label' in route ? route.label : route.shortName)}</span>`;
+export const badge = (route: Pick<Route, 'color' | 'shortName'> | Pick<Vehicle, 'color' | 'label'>) => {
+  const color = /^#[0-9a-f]{6}$/i.test(route.color) ? route.color : '#176955';
+  const channels = [1, 3, 5].map((start) => parseInt(color.slice(start, start + 2), 16) / 255).map((c) => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4);
+  const luminance = channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+  return `<span class="line-badge" style="--line:${color};--line-text:${luminance > .179 ? '#152c26' : '#ffffff'}">${esc('label' in route ? route.label : route.shortName)}</span>`;
+};
 export const departures = (items: Departure[], operatorName: (id: string) => string) => items.length ? `<div class="departures">${items.map((d) => `<button class="departure row" data-route="${esc(d.routeKey)}"><span class="departure-line">${esc(d.label)}</span><span class="row-copy"><strong>${esc(d.headsign || 'Servicio programado')}</strong><small>${esc(operatorName(d.operatorId))} · ${d.quality === 'scheduled' ? 'Horario' : 'Estimación'}</small></span><span class="arrival"><strong>${eta(d.at)}</strong><small>${time(d.at)}</small></span></button>`).join('')}</div>` : '<p class="empty-copy">Sin próximos servicios en las siguientes seis horas.</p>';
 export const shell = `<div id="map" aria-label="Mapa del transporte de Bilbao y Bizkaia"></div>
 <header class="brand"><span class="brand-mark">b.</span><div><strong>Bilbao Transit</strong><span>La ciudad en movimiento</span></div></header>

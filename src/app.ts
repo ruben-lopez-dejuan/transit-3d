@@ -78,7 +78,7 @@ async function refresh() {
   polling = true; $('#refresh').textContent = 'Actualizando…';
   try {
     if (!network) { network = await loadNetwork(); network.operators.forEach((o) => renderer.operators.add(o.id)); setData(map, 'stops', stopsData(network.stops)); }
-    snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt); filters(); renderDetails();
+    snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); filters(); renderDetails();
   } catch (error) { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
   finally { polling = false; $('#refresh').textContent = '↻ Actualizar datos'; }
 }
@@ -98,6 +98,7 @@ function openPanel() { $('#details').hidden = false; $('#details').classList.rem
 function favoriteKey() { return selection?.kind === 'route' ? `route:${selection.route.key}` : selection?.kind === 'stop' ? `stop:${selection.stop.key}` : null; }
 function closeDetails() { selection = null; detail = null; detailVersion++; following = false; renderer.focusRoute = null; renderer.selectedId = null; renderer.direction = 'all'; $('#details').hidden = true; $('#debug').hidden = true; map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 300 }); setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); }
 async function selectRoute(route: Route, direction = 'all', fit = true) {
+  renderer.operators.add(route.operatorId); if (mode !== 'all' && mode !== route.mode) mode = route.mode; filters();
   selection = { kind: 'route', route, direction }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = route.key; renderer.direction = direction; openPanel(); renderDetails();
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
   const version = ++detailVersion;
@@ -111,6 +112,7 @@ async function selectStop(stop: Stop) {
   catch (error) { if (version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
 }
 async function selectVehicle(vehicle: Vehicle) {
+  renderer.operators.add(vehicle.operatorId); if (mode !== 'all' && mode !== vehicle.mode) mode = vehicle.mode; filters();
   selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; renderer.direction = 'all'; openPanel(); renderDetails();
   const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: 700 });
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;

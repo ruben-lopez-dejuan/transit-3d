@@ -4,6 +4,7 @@ import { StaticGtfsProvider } from "../providers/staticGtfs";
 import { TransitEngine } from "./engine";
 import { formatServiceDate, isServiceActive, parseGtfsTime } from "./gtfsCalendar";
 import { distanceMeters } from "./motionEngine";
+import { passengerHeadsign, placeShortcuts } from './labels';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape } from "../../src/transit/networkTypes";
 
@@ -37,10 +38,15 @@ export function getNetwork(): Promise<Network> {
 }
 async function loadNetwork(): Promise<Network> {
   const operators: Operator[] = [];
-  for (const definition of definitions) {
+  const loaded = await Promise.allSettled(definitions.map((definition) => feeds.has(definition.id)
+    ? Promise.resolve(feeds.get(definition.id)!)
+    : definition.id === "bizkaibus" ? getBizkaibusGtfs() : staticProviders.find((p) => p.operatorId === definition.id)!.getGtfs()));
+  for (const [index, definition] of definitions.entries()) {
     try {
       if (feeds.has(definition.id)) { operators.push({ ...definition, status: "ok" }); continue; }
-      const gtfs = definition.id === "bizkaibus" ? await getBizkaibusGtfs() : await staticProviders.find((p) => p.operatorId === definition.id)!.getGtfs();
+      const result = loaded[index];
+      if (result.status === 'rejected') throw result.reason;
+      const gtfs = result.value;
       feeds.set(definition.id, gtfs);
       operators.push({ ...definition, status: "ok" });
       for (const route of gtfs.routes.values()) {
@@ -52,7 +58,7 @@ async function loadNetwork(): Promise<Network> {
           const headsigns = counts.get(direction)!;
           headsigns.set(trip.headsign, (headsigns.get(trip.headsign) ?? 0) + 1);
         }
-        const directions = [...counts].map(([id, names]) => ({ id, name: [...names].sort((a, b) => b[1] - a[1])[0]?.[0] || "Recorrido" }));
+        const directions = [...counts].map(([id, names]) => ({ id, name: passengerHeadsign([...names].sort((a, b) => b[1] - a[1])[0]?.[0] || "Recorrido", route.longName) }));
         const item: Route = { ...route, key: `${definition.id}:${route.routeId}`, operatorId: definition.id, mode: modeFor(route.routeType), color: /^#?[a-f\d]{6}$/i.test(route.color) ? `#${route.color.replace("#", "")}` : definition.color, textColor: `#${route.textColor.replace("#", "")}`, directions };
         routeMap.set(item.key, item);
       }
@@ -83,12 +89,7 @@ async function loadNetwork(): Promise<Network> {
   }
   const stops = [...stopMap.values()];
   // Place shortcuts use coordinates supplied by the official transport network.
-  const landmarks = ["Moyua", "San Mamés", "Plentzia", "Aeropuerto", "Guggenheim", "Abando", "Casco Viejo"];
-  const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const places = landmarks.flatMap((name) => {
-    const stop = stops.find((s) => fold(s.name).includes(fold(name))) ?? (name === "Aeropuerto" ? stops.find((s) => /aireportu/i.test(s.name)) : undefined);
-    return stop ? [{ id: name, name, longitude: stop.longitude, latitude: stop.latitude }] : [];
-  });
+  const places = placeShortcuts(stops);
   return { operators, routes: [...routeMap.values()].sort((a, b) => a.shortName.localeCompare(b.shortName, "es", { numeric: true })), stops, places };
 }
 
@@ -120,7 +121,7 @@ function enrich(vehicle: import("./types").TransitVehicle, now: Date): Vehicle |
   const timeline = fullTimeline.slice(Math.max(0, nextAnchor - 1), nextAnchor + 5);
   const next = plan?.stops.find((s) => s.progress >= vehicle.progressMetersAlongShape + 10);
   const nextStop = next ? stopMap.get(`${vehicle.operatorId}:${next.stopId}`) : null;
-  return { ...vehicle, delaySeconds, delayEstimated, serviceDate, timeline, routeKey: route.key, shapeKey: `${vehicle.operatorId}:${vehicle.shapeId}`, label: route.shortName, headsign: trip.headsign || route.longName, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop ? { key: nextStop.key, name: nextStop.name, at: serviceEpoch(serviceDate, next.arrival + shiftSeconds) } : null };
+  return { ...vehicle, delaySeconds, delayEstimated, serviceDate, timeline, routeKey: route.key, shapeKey: `${vehicle.operatorId}:${vehicle.shapeId}`, label: route.shortName, headsign: passengerHeadsign(trip.headsign || route.longName, route.longName), color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop ? { key: nextStop.key, name: nextStop.name, at: serviceEpoch(serviceDate, next.arrival + shiftSeconds) } : null };
 }
 export async function getPresentationSnapshot(): Promise<Snapshot> {
   await getNetwork();
@@ -147,7 +148,7 @@ async function departures(operatorId: string, references: StopReference[], now: 
       const at = origin + (reference.seconds + (vehicle?.delaySeconds ?? 0)) * 1000;
       if (at < now.getTime() - 30_000 || at > now.getTime() + 6 * 3600_000) continue;
       const key = `${date.date}:${trip.tripId}`;
-      const row: Departure = { routeKey: route.key, tripId: trip.tripId, label: route.shortName, headsign: trip.headsign || route.longName, operatorId, at, quality: vehicle && vehicle.positionQuality !== "scheduled" && vehicle.delaySeconds !== null ? "predicted" : "scheduled", delaySeconds: vehicle?.delaySeconds ?? null };
+      const row: Departure = { routeKey: route.key, tripId: trip.tripId, label: route.shortName, headsign: passengerHeadsign(trip.headsign || route.longName, route.longName), operatorId, at, quality: vehicle && vehicle.positionQuality !== "scheduled" && vehicle.delaySeconds !== null ? "predicted" : "scheduled", delaySeconds: vehicle?.delaySeconds ?? null };
       if (!result.has(key) || at < result.get(key)!.at) result.set(key, row);
     }
   }

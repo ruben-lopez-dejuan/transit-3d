@@ -20,8 +20,8 @@ export class TransitRenderer {
   private progress(state: State, now: number) {
     return (progressAt(state.vehicle.timeline, now, state.vehicle.mode !== "bus") ?? state.vehicle.progressMetersAlongShape) + correctionOffset(state.offset, state.startedAt, state.duration, now);
   }
-  update(vehicles: Vehicle[], fetchedAt: number) {
-    this.clockOffset = fetchedAt - Date.now(); this.snapshotAt = fetchedAt;
+  update(vehicles: Vehicle[], fetchedAt: number, serverTime = Date.now()) {
+    this.clockOffset = serverTime - Date.now(); this.snapshotAt = fetchedAt;
     const now = Date.now() + this.clockOffset;
     const next = new Map<string, State>();
     for (const vehicle of vehicles) {
