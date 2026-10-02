@@ -18,11 +18,13 @@ export type GtfsRoute = {
   longName: string;
   color: string;
   textColor: string;
+  routeType: number;
 };
 
 export type GtfsTrip = {
   tripId: string;
   routeId: string;
+  serviceId: string;
   shapeId: string | null;
   headsign: string;
   directionId: number | null;
@@ -45,6 +47,15 @@ export type GtfsStop = {
 export type GtfsTripStop = {
   stopId: string;
   sequence: number;
+  arrivalTime: string | null;
+  departureTime: string | null;
+};
+
+export type GtfsCalendar = {
+  serviceId: string;
+  weekdays: boolean[];
+  startDate: string;
+  endDate: string;
 };
 
 export type BizkaibusGtfs = {
@@ -54,6 +65,8 @@ export type BizkaibusGtfs = {
   stops: Map<string, GtfsStop>;
   tripStops: Map<string, GtfsTripStop[]>;
   routeTripIds: Map<string, string[]>;
+  calendars: Map<string, GtfsCalendar>;
+  calendarDates: Map<string, Map<string, 1 | 2>>;
 };
 
 let memoryCache: BizkaibusGtfs | null = null;
@@ -137,6 +150,29 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
   const stops = new Map<string, GtfsStop>();
   const tripStops = new Map<string, GtfsTripStop[]>();
   const routeTripIds = new Map<string, string[]>();
+  const calendars = new Map<string, GtfsCalendar>();
+  const calendarDates = new Map<string, Map<string, 1 | 2>>();
+
+  for (const row of readCsv("calendar.txt")) {
+    calendars.set(row.service_id, {
+      serviceId: row.service_id,
+      weekdays: [
+        row.monday, row.tuesday, row.wednesday, row.thursday,
+        row.friday, row.saturday, row.sunday,
+      ].map((value) => value === "1"),
+      startDate: row.start_date,
+      endDate: row.end_date,
+    });
+  }
+
+  for (const row of readCsv("calendar_dates.txt")) {
+    const exceptionType = Number(row.exception_type);
+    if (exceptionType !== 1 && exceptionType !== 2) continue;
+    if (!calendarDates.has(row.service_id)) {
+      calendarDates.set(row.service_id, new Map());
+    }
+    calendarDates.get(row.service_id)!.set(row.date, exceptionType);
+  }
 
   for (const row of readCsv("routes.txt")) {
     routes.set(row.route_id, {
@@ -145,6 +181,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
       longName: row.route_long_name || "",
       color: row.route_color || "0067A8",
       textColor: row.route_text_color || "FFFFFF",
+      routeType: Number(row.route_type || 3),
     });
   }
 
@@ -152,6 +189,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     const trip: GtfsTrip = {
       tripId: row.trip_id,
       routeId: row.route_id,
+      serviceId: row.service_id,
       shapeId: row.shape_id || null,
       headsign: row.trip_headsign || "",
       directionId:
@@ -196,6 +234,8 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     tripStops.get(row.trip_id)!.push({
       stopId: row.stop_id,
       sequence: Number(row.stop_sequence),
+      arrivalTime: row.arrival_time || null,
+      departureTime: row.departure_time || null,
     });
   }
 
@@ -238,6 +278,8 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
     stops,
     tripStops,
     routeTripIds,
+    calendars,
+    calendarDates,
   };
 
   console.log(

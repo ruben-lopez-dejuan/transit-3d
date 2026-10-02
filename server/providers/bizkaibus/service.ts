@@ -6,6 +6,9 @@ import type {
 import { getBizkaibusGtfs } from "./gtfs";
 import { matchVehicleToTrip } from "./mapMatching";
 import { getBizkaibusRealtime } from "./realtime";
+import { generateScheduledVehicles } from "../../transit/scheduled";
+import type { ProviderSnapshot, TransitVehicle } from "../../transit/types";
+import { buildShapeMetric, positionAtProgress } from "../../transit/motionEngine";
 
 export type LiveVehicle = {
   entityId: string;
@@ -26,6 +29,7 @@ export type LiveVehicle = {
   bearing: number;
   distanceToShapeMeters: number;
   timestamp: number | null;
+  progressMetersAlongShape: number;
 };
 
 export type BizkaibusSnapshot = {
@@ -192,6 +196,7 @@ export async function getBizkaibusSnapshot(): Promise<BizkaibusSnapshot> {
       bearing: matched.bearing,
       distanceToShapeMeters: matched.distanceMeters,
       timestamp: raw.timestamp,
+      progressMetersAlongShape: matched.progressMeters,
     });
   }
 
@@ -213,6 +218,72 @@ export async function getBizkaibusSnapshot(): Promise<BizkaibusSnapshot> {
   };
 
   return snapshot;
+}
+
+export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<ProviderSnapshot> {
+  const gtfs = await getBizkaibusGtfs();
+  const scheduled = generateScheduledVehicles(gtfs, now);
+  const byTrip = new Map<string, TransitVehicle>(scheduled.map((vehicle) => [vehicle.tripId, vehicle]));
+  let status: ProviderSnapshot["status"] = "ok";
+  let error: string | undefined;
+  let sourceTimestamp: number | null = null;
+
+  try {
+    const snapshot = await getBizkaibusSnapshot();
+    sourceTimestamp = snapshot.feedTimestamp;
+    if (sourceTimestamp !== null && now.getTime() - sourceTimestamp * 1000 > 180_000) {
+      status = "degraded";
+      error = "Realtime feed timestamp is stale; showing scheduled service when available.";
+    }
+    for (const vehicle of snapshot.vehicles) {
+      const observedAt = vehicle.timestamp ? vehicle.timestamp * 1000 : snapshot.fetchedAtMs;
+      const ageMs = Math.max(0, now.getTime() - observedAt);
+      if (ageMs > 180_000) continue;
+      const quality = ageMs <= 45_000 ? "live" : "predicted";
+      let longitude = vehicle.longitude;
+      let latitude = vehicle.latitude;
+      let bearing = vehicle.bearing;
+      let progressMetersAlongShape = vehicle.progressMetersAlongShape;
+      if (quality === "predicted") {
+        const shape = gtfs.shapes.get(vehicle.shapeId);
+        if (shape) {
+          const metric = buildShapeMetric(shape);
+          progressMetersAlongShape = Math.min(metric.totalMeters, progressMetersAlongShape + ((ageMs - 45_000) / 1000) * 7.5);
+          const predicted = positionAtProgress(metric, progressMetersAlongShape);
+          if (predicted) {
+            [longitude, latitude] = predicted.coordinate;
+            bearing = predicted.bearing;
+          }
+        }
+      }
+      const matched: TransitVehicle = {
+        id: byTrip.get(vehicle.tripId)?.id ?? `bizkaibus:${formatServiceId(now)}:${vehicle.tripId}`,
+        operatorId: "bizkaibus",
+        mode: "bus",
+        tripId: vehicle.tripId,
+        routeId: vehicle.routeId,
+        directionId: vehicle.directionId,
+        shapeId: vehicle.shapeId,
+        progressMetersAlongShape,
+        latitude,
+        longitude,
+        bearing,
+        positionQuality: quality,
+        observationTimestamp: observedAt,
+        predictionTimestamp: now.getTime(),
+        delaySeconds: null,
+      };
+      byTrip.set(vehicle.tripId, matched);
+    }
+  } catch (caught) {
+    status = scheduled.length ? "degraded" : "unavailable";
+    error = [error, caught instanceof Error ? caught.message : String(caught)].filter(Boolean).join("; ");
+  }
+  return { operatorId: "bizkaibus", fetchedAt: now.getTime(), sourceTimestamp, vehicles: [...byTrip.values()], status, ...(error ? { error } : {}) };
+}
+
+function formatServiceId(date: Date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date).replaceAll("-", "");
 }
 
 export async function getActiveRoutes() {

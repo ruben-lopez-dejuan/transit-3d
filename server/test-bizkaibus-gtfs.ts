@@ -11,6 +11,11 @@ async function main() {
     "Trips with stop data:",
     gtfs.tripStops.size,
   );
+  console.log("Calendars:", gtfs.calendars.size);
+  console.log(
+    "Calendar date exceptions:",
+    [...gtfs.calendarDates.values()].reduce((total, dates) => total + dates.size, 0),
+  );
 }
 
 main().catch((error) => {

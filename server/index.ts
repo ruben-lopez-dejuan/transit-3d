@@ -8,6 +8,10 @@ import {
   getActiveRoutes,
   getBizkaibusSnapshot,
 } from "./providers/bizkaibus/service";
+import { BizkaibusProvider } from "./providers/bizkaibus/provider";
+import { TransitEngine } from "./transit/engine";
+
+const transitEngine = new TransitEngine([new BizkaibusProvider()]);
 
 const app = express();
 
@@ -131,6 +135,14 @@ app.get("/api/vehicles", async (request, response) => {
           ? error.message
           : String(error),
     });
+  }
+});
+
+app.get("/api/transit", async (_request, response) => {
+  try {
+    response.json(await transitEngine.getSnapshot());
+  } catch (error) {
+    response.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 });
 

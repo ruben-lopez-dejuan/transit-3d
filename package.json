@@ -11,7 +11,9 @@
     "start": "tsx server/index.ts",
     "preview": "vite preview",
     "test:bizkaibus-gtfs": "tsx server/test-bizkaibus-gtfs.ts",
-    "test:bizkaibus-realtime": "tsx server/test-bizkaibus-realtime.ts"
+    "test:bizkaibus-realtime": "tsx server/test-bizkaibus-realtime.ts",
+    "test:core": "tsx --test server/transit/core.test.ts",
+    "test": "npm run test:core"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
