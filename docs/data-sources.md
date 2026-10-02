@@ -4,6 +4,27 @@ Auditoría del **2 de octubre de 2026**. Se descargaron ZIP, se leyeron las tabl
 
 ## Fuentes utilizadas y calidad
 
+### Migración al núcleo modular
+
+Esta fase conserva las fuentes de la auditoría anterior; no se han realizado
+nuevas descargas ni observaciones de feeds. Configuración:
+`server/cities/es-bilbao`. Los adapters mantienen las consultas existentes.
+Solo se registra Bilbao, con la cobertura regional que ya existía.
+
+El manifest declara capacidades conectadas: Bizkaibus VP/TU; Bilbobus posiciones
+municipales y llegadas por parada (no GTFS-RT TripUpdates); Metro/Euskotren TU
+sin GPS; Renfe VP/TU. Alertas, ocupación y rumbo reportado permanecen desactivados.
+La velocidad municipal Bilbobus es una capacidad del feed; velocidad/rumbo
+derivados de shapes/historial no se anuncian como campos reportados.
+Capacidad no equivale a feed fresco: `ProviderHealth` indica estado independiente.
+
+La API separa timestamp de origen, recepción y consulta/evaluación. Realtime
+caducado retiene su hora para diagnosticar `stale` mientras usa fallback;
+recepción desconocida es null. En estáticos, mtime local del ZIP es recepción
+de cache, no generación del GTFS. La posición dibujada tiene su propio diagnóstico.
+IDs externos se conservan para joins oficiales; internos usan ciudad/provider/tipo.
+Detalle: [modular-core.md](modular-core.md).
+
 | Operador | Fuente/protocolo | Información realmente disponible | Posición y fallback |
 |---|---|---|---|
 | Bizkaibus | Moveuskadi, GTFS + GTFS-RT VP/TU HTTPS | GPS con trip_id y stop_id; predicciones por parada | B: GPS e interpolación entre timestamps reales. Si supera 180 s, horario/estimado |

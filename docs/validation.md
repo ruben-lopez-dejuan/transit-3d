@@ -1,5 +1,18 @@
 # Validación de la entrega
 
+## Paquete posterior: núcleo modular de ciudades
+
+**2 de octubre de 2026.** `npm test`: 81 tests pasando (56 core + 25 frontend).
+`npm run typecheck` y `npm run build` correctos; aviso existente de chunks
+grandes. Nuevos tests: normalización, capacidades, IDs, fechas, recepción/frescura,
+fallos, desactivación, cachés, pipeline de red en memoria y favoritos.
+Las comprobaciones anteriores de LOD y GPS espaciado siguen pasando.
+
+No se abrió la aplicación, no se ejecutaron pruebas visuales/manuales ni se
+esperaron ciclos reales. Los resultados de red y visuales siguientes pertenecen
+a fases anteriores. Alcance, límites y lista manual del usuario:
+[modular-core.md](modular-core.md).
+
 ## Paquete posterior: pulido visual y movimiento
 
 Validado exclusivamente por código: **40 tests core y 24 frontend pasando** y

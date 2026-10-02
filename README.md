@@ -62,7 +62,12 @@ resuelve calendario, viajes activos, geometría, snapping, predicciones y posici
 por distancia sobre el shape. El navegador consume `/api/*` y comparte
 interpolación, pose y renderizado para todos los operadores.
 
-`server/providers/catalog.ts` y `moveuskadi-sources.json` registran los proveedores.
+`shared/transit` contiene los contratos normalizados. El paquete
+`server/cities/es-bilbao` declara manifest API 1, fuentes, proveedores y aspecto;
+`server/cities/index.ts` registra Bilbao. El frontend recibe esa configuración.
+Registry y cachés por ciudad aíslan identidades, desactivación y fallos.
+Detalle: [docs/architecture.md](docs/architecture.md) y
+[docs/modular-core.md](docs/modular-core.md).
 Los refrescos realtime son independientes. GTFS y catálogo se renuevan cada seis
 horas, con caché de ZIP validado y estructuras preparadas en disco. Se reutilizan
 planes y geometrías por feed. Three.js se carga al acercarse; los modelos utilizan
@@ -72,6 +77,7 @@ instancias y se filtran por área visible.
 
 ```powershell
 npm test                     # core + frontend, sin red externa
+npm run typecheck            # comprobación de tipos
 npm run build                # tipos + compilación
 npm run test:network         # API real, requiere servidor activo
 npm run test:bizkaibus-gtfs   # descarga y análisis del feed
@@ -89,6 +95,11 @@ físico.
 El paquete de pulido visual se valida con código, unit tests y build;
 las comprobaciones visuales quedan a cargo del usuario. Causas, LOD, cambios y
 lista manual: [docs/visual-motion.md](docs/visual-motion.md).
+
+El núcleo modular pasa 81 tests y conserva las comprobaciones de movimiento/LOD.
+Después de actualizar, reinicia el servidor para cargar los endpoints de ciudad
+y recarga la web con Ctrl+F5. Lista manual de esta fase:
+[docs/modular-core.md](docs/modular-core.md#pruebas-manuales-para-el-usuario).
 
 ## Instalación web existente
 
