@@ -123,3 +123,48 @@ feat: add Metro Bilbao provider
 feat: add Euskotren provider
 feat: add operator selector
 ```
+
+## Core phase implemented
+
+The backend now has a shared provider contract (`TransitProvider`), a
+`TransitEngine`, and normalized `TransitVehicle` snapshots exposed at
+`/api/transit`. Bizkaibus is the first registered provider. Existing
+Bizkaibus-specific routes remain available so the current map keeps working
+while the frontend is migrated later.
+
+GTFS service calendars and date exceptions are loaded for Bizkaibus. Scheduled
+vehicle positions are generated on the trip shape from stop times, and the
+normalized model distinguishes `live`, `predicted`, and `scheduled` positions.
+Reusable MotionEngine primitives operate on distance along a shape. Their tests
+are run with:
+
+```powershell
+npm test
+```
+
+`docs/architecture.md`, `docs/motion-engine.md`, and `docs/data-sources.md`
+describe the current design, engine boundaries, and the actual feed audit.
+GTFS is verified for all four target operators, but only Bizkaibus is wired
+into the provider registry in this phase. Metro/Euskotren realtime URLs are
+published but were empty or not yet connected to the parser at audit time;
+Bilbobus's published VehiclePositions URL returned an empty file.
+
+The current renderer still consumes the legacy Bizkaibus API. The normalized
+endpoint is groundwork for the later multi-operator frontend; search, mode
+filters, debug overlay, PWA, and Capacitor are not part of this core phase.
+There is no `?debug=1` view yet. Android setup is not configured.
+
+## Local commands
+
+```powershell
+npm install
+npm run dev       # Vite frontend + Express API
+npm test          # unit tests for calendar and motion core
+npm run build     # typecheck and production frontend build
+npm start         # serve API and built frontend from dist/
+```
+
+The existing download-and-parse smoke checks remain available as
+`npm run test:bizkaibus-gtfs` and `npm run test:bizkaibus-realtime`; they need
+network access. Source URLs and the audit limits are in
+[`docs/data-sources.md`](docs/data-sources.md).
