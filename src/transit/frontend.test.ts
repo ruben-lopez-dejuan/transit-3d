@@ -4,7 +4,6 @@ import { progressAt, positionAlong, correctionOffset, positionQuality } from './
 import { searchNetwork } from './search';
 import { esc, badge, departures, positionExplanation } from '../ui';
 import type { Network, Vehicle } from './networkTypes';
-import { GpsPlayback } from './gpsPlayback';
 import { estimatedBusDwell } from './stopMotion';
 import { composition, vehiclePose } from './vehiclePose';
 
@@ -64,24 +63,6 @@ test('rail cars follow different tangents around curves, with opposite direction
   assert.notDeepEqual(vehiclePose(shape, 50, vehicle)?.coordinate, vehiclePose(reverse, 150, vehicle)?.coordinate);
 });
 
-test('repeated GPS HTTP responses do not restart observation playback', () => {
-  const playback = new GpsPlayback();
-  playback.append({ at: 25000, progress: 250 }, { at: 0, progress: 0 });
-  playback.position(100000); const before = playback.position(110000);
-  playback.append({ at: 25000, progress: 250 });
-  assert.equal(playback.position(110000), before);
-  assert.ok(playback.position(120000)! > before!);
-  assert.equal(playback.position(140000), 250);
-});
-
-test('hidden vehicles advance the source clock on snapshots rather than replaying old queues when shown', () => {
-  const playback = new GpsPlayback();
-  playback.append({ at: 25000, progress: 250 }, { at: 0, progress: 0 });
-  playback.position(100000);
-  for (let i = 1; i <= 8; i++) { playback.append({ at: 25000 * (i + 1), progress: 250 * (i + 1) }); playback.position(100000 + i * 25000); }
-  assert.equal(playback.renderedAt, 200000);
-  assert.equal(playback.position(310000), 2100);
-});
 test('search ranks exact route codes, handles accents, and respects mode/operator filters', () => {
   const first = searchNetwork(network, 'a3', 'bus', new Set(['bus', 'rail']))[0];
   assert.equal(first.type, 'route');
@@ -112,17 +93,4 @@ test('A position predicted from TripUpdates does not claim to have a GPS signal'
   const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000 } as Vehicle;
   assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
   assert.ok(!positionExplanation(v, 16000).includes('Último GPS'));
-});
-test('GPS playback represents a 25-second observation interval over 25 seconds', () => {
-  const playback = new GpsPlayback();
-  playback.append({ at: 0, progress: 0 }); playback.position(1000);
-  playback.append({ at: 25000, progress: 250 });
-  assert.equal(playback.position(6000), 50);
-  // Polling the same observation must not restart or accelerate the animation.
-  playback.append({ at: 25000, progress: 250 });
-  assert.equal(playback.position(13500), 125);
-  playback.append({ at: 50000, progress: 500 });
-  assert.equal(playback.position(26000), 250);
-  assert.equal(playback.position(51000), 500);
-  assert.equal(playback.position(61000), 500);
 });

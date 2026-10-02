@@ -1,5 +1,6 @@
 import { Map, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 import type { Network, Shape, Stop } from '../transit/networkTypes';
+import { vehicleKind } from './vehicleLod';
 
 export const empty = { type: 'FeatureCollection' as const, features: [] };
 export const styleUrl = (dark: boolean) => `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'positron'}`;
@@ -22,12 +23,12 @@ export function installLayers(map: Map, network: Network | null, dark: boolean) 
   map.addLayer({ id: 'stop-labels', type: 'symbol', source: 'stops', minzoom: 16, layout: { 'text-field': ['get', 'name'], 'text-size': 11, 'text-font': ['Noto Sans Regular'], 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-max-width': 15 }, paint: { 'text-color': dark ? '#d2dce1' : '#43545b', 'text-halo-color': white, 'text-halo-width': 2 } });
   map.addLayer({ id: 'selected-stops-dot', type: 'circle', source: 'selected-stops', paint: { 'circle-radius': 5, 'circle-color': white, 'circle-stroke-color': '#197861', 'circle-stroke-width': 2.5 } });
   map.addLayer({ id: 'selected-stops-label', type: 'symbol', source: 'selected-stops', minzoom: 13, layout: { 'text-field': ['get', 'name'], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-offset': [0, 1.2], 'text-anchor': 'top' }, paint: { 'text-color': dark ? '#eff5f7' : '#253b43', 'text-halo-color': white, 'text-halo-width': 2 } });
-  map.addLayer({ id: 'clusters', type: 'circle', source: 'vehicles', filter: ['has', 'point_count'], paint: { 'circle-color': '#226b59', 'circle-radius': ['step', ['get', 'point_count'], 19, 20, 24, 100, 29], 'circle-stroke-color': white, 'circle-stroke-width': 3 } });
-  map.addLayer({ id: 'cluster-count', type: 'symbol', source: 'vehicles', filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': '#ffffff' } });
+  map.addLayer({ id: 'clusters', type: 'circle', source: 'vehicles', maxzoom: 11, filter: ['has', 'point_count'], paint: { 'circle-color': '#226b59', 'circle-radius': ['step', ['get', 'point_count'], 19, 20, 24, 100, 29], 'circle-stroke-color': white, 'circle-stroke-width': 3 } });
+  map.addLayer({ id: 'cluster-count', type: 'symbol', source: 'vehicles', maxzoom: 11, filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': '#ffffff' } });
   installVehicleIcons(map, network);
-  map.addLayer({ id: 'selected-halo', type: 'circle', source: 'selected-vehicle', paint: { 'circle-radius': 19, 'circle-color': ['get', 'color'], 'circle-opacity': .13, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 2 } });
+  map.addLayer({ id: 'selected-halo', type: 'circle', source: 'selected-vehicle', paint: { 'circle-radius': 8, 'circle-opacity': 0, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 1.2, 'circle-stroke-opacity': .6 } });
   map.addLayer({ id: 'vehicle-dot', type: 'circle', source: 'vehicles', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': 12, 'circle-opacity': 0 } });
-  map.addLayer({ id: 'vehicle-icon', type: 'symbol', source: 'vehicles', filter: ['!', ['has', 'point_count']], layout: { 'icon-image': ['concat', ['case', ['==', ['get', 'mode'], 'bus'], 'bus-', 'rail-'], ['get', 'color']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .25, 13, .38, 16, .52, 18, .7], 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-opacity': ['interpolate', ['linear'], ['zoom'], 15.8, ['case', ['get', 'underground'], .45, 1], 18, .1] } });
+  map.addLayer({ id: 'vehicle-icon', type: 'symbol', source: 'vehicles', filter: ['!', ['has', 'point_count']], layout: { 'icon-image': ['concat', ['get', 'kind'], '-', ['get', 'color']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .25, 13, .38, 16, .52, 18, .7], 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-opacity': ['case', ['get', 'underground'], .45, 1], 'icon-opacity-transition': { duration: 0, delay: 0 } } });
   map.addLayer({ id: 'vehicle-label', type: 'symbol', source: 'vehicles', minzoom: 12.5, filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['step', ['zoom'], ['get', 'label'], 14.5, ['concat', ['get', 'label'], ' · ', ['get', 'destination']], 16, ['concat', ['get', 'label'], ' · ', ['get', 'destination'], ['case', ['get', 'underground'], ' · túnel', '']]], 'text-size': 11, 'text-font': ['Noto Sans Bold'], 'text-offset': [0, 2], 'text-anchor': 'top', 'text-max-width': 22, 'text-allow-overlap': false, 'symbol-sort-key': ['case', ['get', 'selected'], 0, 1] }, paint: { 'text-color': dark ? '#eff5f7' : '#243c3b', 'text-halo-color': white, 'text-halo-width': 2 } });
   map.addLayer({ id: 'location-halo', type: 'circle', source: 'user-location', paint: { 'circle-radius': 18, 'circle-color': '#3185e6', 'circle-opacity': .15 } });
   map.addLayer({ id: 'location-dot', type: 'circle', source: 'user-location', paint: { 'circle-radius': 6, 'circle-color': '#3185e6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
@@ -43,16 +44,21 @@ export function fitShapes(map: Map, shapes: Shape[], padding: { top: number; bot
 }
 
 export function installVehicleIcons(map: Map, network: Network | null) {
-  for (const color of new Set(network?.routes.map((r) => r.color) ?? [])) for (const type of ['bus', 'rail']) {
+  const pairs = new globalThis.Map(network?.routes.map((route) => [vehicleKind(route) + '-' + route.color, { type: vehicleKind(route), color: route.color }] as const) ?? []);
+  for (const { type, color } of pairs.values()) {
     const id = type + '-' + color; if (map.hasImage(id)) continue;
-    const canvas = document.createElement('canvas'); canvas.width = 48; canvas.height = 80;
+    const height = { bus: 72, train: 144, metro: 112, tram: 128, funicular: 64, unknown: 64 }[type];
+    const canvas = document.createElement('canvas'); canvas.width = 48; canvas.height = height;
     const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#17252d'; for (const x of [3, 36]) for (const y of [14, 55]) ctx.fillRect(x, y, 9, 12);
-    ctx.fillStyle = color; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(9, 3, 30, 74, type === 'bus' ? [9, 9, 4, 4] : 8); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#203b49'; ctx.beginPath(); ctx.roundRect(13, 10, 22, 13, 3); ctx.fill(); ctx.fillRect(12, 31, 4, 23); ctx.fillRect(32, 31, 4, 23);
-    ctx.fillStyle = '#eef4f2'; ctx.fillRect(18, 30, 12, type === 'bus' ? 31 : 25);
-    ctx.fillStyle = '#fff5c5'; ctx.fillRect(12, 5, 6, 3); ctx.fillRect(30, 5, 6, 3);
-    ctx.fillStyle = '#e73939'; ctx.fillRect(12, 70, 5, 3); ctx.fillRect(31, 70, 5, 3);
-    map.addImage(id, ctx.getImageData(0, 0, 48, 80), { pixelRatio: 1 });
+    if (type === 'bus') { ctx.fillStyle = '#17252d'; for (const x of [4, 35]) for (const y of [14, 49]) ctx.fillRect(x, y, 9, 10); }
+    const count = type === 'train' || type === 'tram' ? 3 : type === 'metro' ? 2 : 1;
+    const gap = type === 'tram' ? 3 : 5, length = (height - 6 - gap * (count - 1)) / count;
+    for (let car = 0; car < count; car++) {
+      const y = 3 + car * (length + gap);
+      ctx.fillStyle = color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(10, y, 28, length, type === 'metro' ? 3 : type === 'train' ? 10 : 6); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#203b49'; ctx.fillRect(13, y + 6, 22, 8); ctx.fillStyle = '#dce4e4'; ctx.fillRect(17, y + 19, 14, Math.max(4, length - 25));
+      if (type === 'tram' && car < count - 1) { ctx.fillStyle = '#38434a'; ctx.fillRect(15, y + length, 18, gap); }
+    }
+    map.addImage(id, ctx.getImageData(0, 0, 48, height), { pixelRatio: 1 });
   }
 }
