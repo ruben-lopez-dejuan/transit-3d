@@ -85,7 +85,8 @@ function readCsv(directory: string, filename: string) {
   return parse(
     fs.readFileSync(file, "utf8"),
     {
-      columns: true,
+      columns: (headers: string[]) => headers.map((header) => header.trim()),
+      cast: (value: string) => value.trim(),
       skip_empty_lines: true,
       bom: true,
       relax_column_count: true,
@@ -150,7 +151,7 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
   return memoryCache;
 }
 
-export function parseGtfsDirectory(directory: string): BizkaibusGtfs {
+export function parseGtfsDirectory(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true): BizkaibusGtfs {
   const routes = new Map<string, GtfsRoute>();
   const trips = new Map<string, GtfsTrip>();
   const shapes = new Map<string, GtfsShapePoint[]>();
@@ -182,17 +183,19 @@ export function parseGtfsDirectory(directory: string): BizkaibusGtfs {
   }
 
   for (const row of readCsv(directory, "routes.txt")) {
-    routes.set(row.route_id, {
+    const route: GtfsRoute = {
       routeId: row.route_id,
       shortName: row.route_short_name || row.route_id,
       longName: row.route_long_name || "",
       color: row.route_color || "0067A8",
       textColor: row.route_text_color || "FFFFFF",
       routeType: Number(row.route_type || 3),
-    });
+    };
+    if (includeRoute(route)) routes.set(route.routeId, route);
   }
 
   for (const row of readCsv(directory, "trips.txt")) {
+    if (!routes.has(row.route_id)) continue;
     const trip: GtfsTrip = {
       tripId: row.trip_id,
       routeId: row.route_id,

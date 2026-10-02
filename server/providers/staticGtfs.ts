@@ -2,14 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { downloadFile } from "../lib/download";
-import { parseGtfsDirectory, type BizkaibusGtfs } from "./bizkaibus/gtfs";
+import { parseGtfsDirectory, type BizkaibusGtfs, type GtfsRoute } from "./bizkaibus/gtfs";
 import { generateScheduledVehicles } from "../transit/scheduled";
 import type { TransitProvider } from "../transit/types";
 
 export class StaticGtfsProvider implements TransitProvider {
   private data: Promise<BizkaibusGtfs> | null = null;
   private stale = false;
-  constructor(readonly operatorId: string, private readonly url: string) {}
+  constructor(readonly operatorId: string, private readonly url: string, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void } = {}) {}
   getGtfs(): Promise<BizkaibusGtfs> {
     if (!this.data) this.data = this.load().catch((error) => { this.data = null; throw error; });
     return this.data;
@@ -30,7 +30,8 @@ export class StaticGtfsProvider implements TransitProvider {
       if (entry) fs.writeFileSync(path.join(directory, `${table}.txt`), entry.getData());
       else if (["calendar", "calendar_dates"].includes(table)) fs.rmSync(path.join(directory, `${table}.txt`), { force: true });
     }
-    const gtfs = parseGtfsDirectory(directory);
+    const gtfs = parseGtfsDirectory(directory, this.options.includeRoute);
+    this.options.prepare?.(gtfs);
     if (!gtfs.routes.size || !gtfs.trips.size || !gtfs.shapes.size) throw new Error(`Incomplete GTFS for ${this.operatorId}`);
     console.log(`[${this.operatorId}] GTFS ready: ${gtfs.routes.size} routes, ${gtfs.trips.size} trips.`);
     return gtfs;

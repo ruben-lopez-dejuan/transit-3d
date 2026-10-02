@@ -10,7 +10,7 @@ test('GTFS parser handles quoted labels, missing optional calendar and unsorted 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bilbao-gtfs-test-'));
   const tables = {
     routes: '\ufeffroute_id,route_short_name,route_long_name,route_type\nr,1,"Bilbao, estación",1\n',
-    trips: 'route_id,service_id,trip_id,trip_headsign,shape_id\nr,special,t,End,shape\n',
+    trips: 'route_id,service_id,trip_id,trip_headsign,shape_id    \nr,special,t,End,shape    \n',
     stops: 'stop_id,stop_name,stop_lat,stop_lon\na,"San Mamés, estación",43.26,-2.95\nb,Abando,43.26,-2.94\n',
     stop_times: 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nt,25:30:00,25:31:00,b,2\nt,24:10:00,24:12:00,a,1\n',
     shapes: 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\nshape,43.26,-2.94,2\nshape,43.26,-2.95,1\n',
@@ -21,6 +21,7 @@ test('GTFS parser handles quoted labels, missing optional calendar and unsorted 
     const feed = parseGtfsDirectory(directory);
     assert.equal(feed.routes.get('r')?.longName, 'Bilbao, estación');
     assert.equal(feed.trips.get('t')?.directionId, null);
+    assert.equal(feed.trips.get('t')?.shapeId, 'shape');
     assert.equal(feed.stops.get('a')?.name, 'San Mamés, estación');
     assert.equal(feed.tripStops.get('t')?.[0].stopId, 'a');
     assert.equal(feed.shapes.get('shape')?.[0].longitude, -2.95);
