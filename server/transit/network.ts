@@ -1,38 +1,16 @@
-import { getBizkaibusGtfs, type BizkaibusGtfs } from "../providers/bizkaibus/gtfs";
-import { BizkaibusProvider } from "../providers/bizkaibus/provider";
-import { StaticGtfsProvider } from "../providers/staticGtfs";
-import { renfeProvider } from '../providers/renfe';
+import type { BizkaibusGtfs } from "../providers/bizkaibus/gtfs";
+import { definitions, providers, realtimeProviders, gtfsLoaders } from '../providers/catalog';
 import { bilbobusProvider } from '../providers/bilbobus';
-import { RealtimeProvider } from '../providers/realtimeProvider';
-import { RealtimeFeedClient } from '../providers/realtimeFeed';
 import { freshTimestamp, tripInstanceKey, updatedTimeline } from './realtime';
 import { TransitEngine } from "./engine";
 import { formatServiceDate, isServiceActive, parseGtfsTime } from "./gtfsCalendar";
 import { distanceMeters } from "./motionEngine";
+import { infrastructureFor } from './infrastructure';
 import { passengerHeadsign, placeShortcuts } from './labels';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape } from "../../src/transit/networkTypes";
 
-const definitions = [
-  { id: "bizkaibus", name: "Bizkaibus", color: "#177857", realtime: true },
-  { id: "bilbobus", name: "Bilbobus", color: "#c33b42", realtime: true },
-  { id: "metro-bilbao", name: "Metro Bilbao", color: "#d95038", realtime: true },
-  { id: "euskotren", name: "Euskotren", color: "#3275a6", realtime: true },
-  { id: 'renfe', name: 'Renfe Cercanías', color: '#be1747', realtime: true },
-];
-const staticProviders = [
-  renfeProvider,
-  bilbobusProvider,
-  new StaticGtfsProvider("metro-bilbao", "https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfs_metro_bilbao.zip"),
-  new StaticGtfsProvider("euskotren", "https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfs_euskotren.zip"),
-];
-const realtimeProviders = [
-  new RealtimeProvider(new BizkaibusProvider(), getBizkaibusGtfs, new RealtimeFeedClient('bizkaibus-tu', 'https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb')),
-  ...staticProviders.filter((p) => p.operatorId !== 'bilbobus').map((provider) => new RealtimeProvider(provider, () => provider.getGtfs(),
-    new RealtimeFeedClient(`${provider.operatorId}-tu`, provider.operatorId === 'renfe' ? 'https://gtfsrt.renfe.com/trip_updates.pb' : `https://opendata.euskadi.eus/transport/moveuskadi/${provider.operatorId.replace('-', '_')}/gtfsrt_${provider.operatorId.replace('-', '_')}_trip_updates.pb`),
-    provider.operatorId === 'renfe' ? new RealtimeFeedClient('renfe-vp', 'https://gtfsrt.renfe.com/vehicle_positions.pb') : undefined)),
-];
-const engine = new TransitEngine([...realtimeProviders, ...staticProviders.filter((p) => p.operatorId === 'bilbobus')]);
+const engine = new TransitEngine(providers);
 function updateFor(operatorId: string, date: string, tripId: string) {
   const update = realtimeProviders.find((p) => p.operatorId === operatorId)?.updates.get(tripInstanceKey(date, tripId));
   return update && freshTimestamp(update.updatedAt / 1000, Date.now()) !== null ? update : null;
@@ -40,6 +18,16 @@ function updateFor(operatorId: string, date: string, tripId: string) {
 const feeds = new Map<string, BizkaibusGtfs>();
 const routeMap = new Map<string, Route>();
 const stopMap = new Map<string, Stop>();
+const packets = new Map<string, Shape>();
+const lineGeometry = new Map<string, Pick<LineDetail, 'shapes' | 'stops'>>();
+function packet(operatorId: string, shapeId: string) {
+  const key = operatorId + ':' + shapeId;
+  if (packets.has(key)) return packets.get(key)!;
+  const gtfs = feeds.get(operatorId), metric = gtfs ? shapeMetric(gtfs, shapeId) : null;
+  if (!gtfs || !metric) return null;
+  const result = { ...shapePacket(metric, key), underground: infrastructureFor(gtfs, operatorId, shapeId) };
+  packets.set(key, result); return result;
+}
 type StopReference = { tripId: string; seconds: number; stopId: string; sequence: number };
 const stopReferences = new Map<string, StopReference[]>();
 let networkCache: Promise<Network> | null = null;
@@ -57,7 +45,7 @@ async function loadNetwork(): Promise<Network> {
   const operators: Operator[] = [];
   const loaded = await Promise.allSettled(definitions.map((definition) => feeds.has(definition.id)
     ? Promise.resolve(feeds.get(definition.id)!)
-    : definition.id === "bizkaibus" ? getBizkaibusGtfs() : staticProviders.find((p) => p.operatorId === definition.id)!.getGtfs()));
+    : gtfsLoaders.get(definition.id)!()));
   for (const [index, definition] of definitions.entries()) {
     try {
       if (feeds.has(definition.id)) { operators.push({ ...definition, status: "ok" }); continue; }
@@ -151,8 +139,8 @@ function enrich(vehicle: import("./types").TransitVehicle, now: Date): Vehicle |
 export async function getPresentationSnapshot(): Promise<Snapshot> {
   await getNetwork();
   if (snapshotCache && Date.now() < snapshotExpires) return snapshotCache;
-  snapshotExpires = Date.now() + 5000;
-  snapshotCache = engine.getSnapshot().then((snapshot) => ({ fetchedAt: snapshot.fetchedAt, vehicles: snapshot.vehicles.map((v) => enrich(v, new Date(snapshot.fetchedAt))).filter((v): v is Vehicle => v !== null), providers: snapshot.providers.map(({ vehicles: _vehicles, ...status }) => status) })).catch((error) => { snapshotCache = null; throw error; });
+  snapshotExpires = Infinity;
+  snapshotCache = engine.getSnapshot().then((snapshot) => { snapshotExpires = Date.now() + 5000; return ({ fetchedAt: snapshot.fetchedAt, vehicles: snapshot.vehicles.map((v) => enrich(v, new Date(snapshot.fetchedAt))).filter((v): v is Vehicle => v !== null), providers: snapshot.providers.map(({ vehicles: _vehicles, ...status }) => status) }); }).catch((error) => { snapshotCache = null; throw error; });
   return snapshotCache;
 }
 
@@ -192,9 +180,12 @@ export async function getLine(operatorId: string, routeId: string, direction?: s
   const trips = (gtfs.routeTripIds.get(routeId) ?? []).map((id) => gtfs.trips.get(id)!).filter((t) => !direction || direction === "all" || String(t.directionId ?? "unknown") === direction);
   const shapeIds = new Map<string, number>();
   for (const trip of trips) if (trip.shapeId) shapeIds.set(trip.shapeId, (shapeIds.get(trip.shapeId) ?? 0) + 1);
-  const shapes = [...shapeIds].sort((a, b) => b[1] - a[1]).slice(0, 6).flatMap(([id]) => { const metric = shapeMetric(gtfs, id); return metric ? [shapePacket(metric, `${operatorId}:${id}`)] : []; });
+  const cacheKey = operatorId + ':' + routeId + ':' + (direction ?? 'all');
+  const cached = lineGeometry.get(cacheKey);
+  const shapes = cached?.shapes ?? [...shapeIds].sort((a, b) => b[1] - a[1]).slice(0, 6).flatMap(([id]) => { const shape = packet(operatorId, id); return shape ? [shape] : []; });
   const representative = [...trips].sort((a, b) => (gtfs.tripStops.get(b.tripId)?.length ?? 0) - (gtfs.tripStops.get(a.tripId)?.length ?? 0))[0];
-  const stops = (representative ? gtfs.tripStops.get(representative.tripId) ?? [] : []).flatMap((s) => { const stop = stopMap.get(`${operatorId}:${s.stopId}`); return stop ? [stop] : []; });
+  const stops = cached?.stops ?? (representative ? gtfs.tripStops.get(representative.tripId) ?? [] : []).flatMap((s) => { const stop = stopMap.get(`${operatorId}:${s.stopId}`); return stop ? [stop] : []; });
+  if (!cached) lineGeometry.set(cacheKey, { shapes, stops });
   const refs = trips.flatMap((trip) => { const first = gtfs.tripStops.get(trip.tripId)?.[0]; const seconds = first ? parseGtfsTime(first.departureTime) ?? parseGtfsTime(first.arrivalTime) : null; return seconds !== null && first ? [{ tripId: trip.tripId, seconds, stopId: first.stopId, sequence: first.sequence }] : []; });
   return { route, shapes, stops, departures: await departures(operatorId, refs, new Date()) };
 }
@@ -228,9 +219,9 @@ export async function getTrip(operatorId: string, tripId: string, serviceDate: s
     const upcoming = plan.stops.filter((s) => s.progress > vehicle.progressMetersAlongShape).slice(0, 3);
     await Promise.allSettled(upcoming.map((s) => bilbobusProvider.getArrivals(gtfs.stops.get(s.stopId)?.stopCode ?? '')));
   }
-  return { vehicleId: vehicle?.id ?? `${operatorId}:${serviceDate}:${tripId}`, shape: shape && trip.shapeId ? shapePacket(shape, `${operatorId}:${trip.shapeId}`) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(`${operatorId}:${s.stopId}`), changed = update?.stops.get(s.sequence); const siri = operatorId === 'bilbobus' ? bilbobusProvider.peekArrival(vehicle?.vehicleId, gtfs.stops.get(s.stopId)?.stopCode ?? '') : null; return stop ? [{ ...stop, at: siri?.arrival ?? changed?.arrival ?? serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0)), progress: s.progress, skipped: changed?.skipped ?? false, realtime: !!siri || (changed?.arrivalRealtime ?? false) }] : []; }) };
+  return { vehicleId: vehicle?.id ?? `${operatorId}:${serviceDate}:${tripId}`, shape: shape && trip.shapeId ? packet(operatorId, trip.shapeId) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(`${operatorId}:${s.stopId}`), changed = update?.stops.get(s.sequence); const siri = operatorId === 'bilbobus' ? bilbobusProvider.peekArrival(vehicle?.vehicleId, gtfs.stops.get(s.stopId)?.stopCode ?? '') : null; return stop ? [{ ...stop, at: siri?.arrival ?? changed?.arrival ?? serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0)), progress: s.progress, skipped: changed?.skipped ?? false, realtime: !!siri || (changed?.arrivalRealtime ?? false) }] : []; }) };
 }
 export async function getGeometries(keys: string[]): Promise<Shape[]> {
   await getNetwork();
-  return keys.slice(0, 100).flatMap((key) => { const separator = key.indexOf(":"); const operatorId = key.slice(0, separator); const shapeId = key.slice(separator + 1); const gtfs = feeds.get(operatorId); const metric = gtfs ? shapeMetric(gtfs, shapeId) : null; return metric ? [shapePacket(metric, key)] : []; });
+  return keys.slice(0, 100).flatMap((key) => { const separator = key.indexOf(":"); const operatorId = key.slice(0, separator); const shapeId = key.slice(separator + 1); const gtfs = feeds.get(operatorId); const metric = gtfs ? shapeMetric(gtfs, shapeId) : null; const shape = metric ? packet(operatorId, shapeId) : null; return shape ? [shape] : []; });
 }

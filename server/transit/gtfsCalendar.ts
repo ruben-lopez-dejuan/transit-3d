@@ -1,9 +1,12 @@
 import type { BizkaibusGtfs, GtfsTrip } from "../providers/bizkaibus/gtfs";
 
 export type ServiceDate = { date: string; weekday: number };
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 
 export function formatServiceDate(date: Date, timeZone = "Europe/Madrid"): ServiceDate {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" }).formatToParts(date);
+  let formatter = dateFormatters.get(timeZone);
+  if (!formatter) { formatter = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" }); dateFormatters.set(timeZone, formatter); }
+  const parts = formatter.formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)!.value;
   const weekdayIndex: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
   return { date: `${part("year")}${part("month")}${part("day")}`, weekday: weekdayIndex[part("weekday")] };

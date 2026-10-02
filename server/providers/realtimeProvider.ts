@@ -35,7 +35,7 @@ export function applyRealtime(gtfs: BizkaibusGtfs, base: TransitVehicle[], opera
     const position = positionAtProgress(plan.metric, progress); if (!position) continue;
     const next = calls.find((s) => s.departure >= now.getTime()) ?? last;
     const realtime = next.arrivalRealtime || next.departureRealtime;
-    vehicles.set(id, { ...current, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode: modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1), shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: current?.observationTimestamp ? current.positionQuality : realtime ? 'predicted' : 'scheduled', observationTimestamp: current?.observationTimestamp ?? null, predictionTimestamp: now.getTime(), timetableTimestamp: update.updatedAt, delaySeconds: realtime ? (next.arrival - next.scheduledArrival) / 1000 : null });
+    vehicles.set(id, { ...current, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode: modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1), shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: current?.observationTimestamp ? current.positionQuality : realtime ? 'predicted' : 'scheduled', observationTimestamp: current?.observationTimestamp ?? null, predictionTimestamp: now.getTime(), timetableTimestamp: update.updatedAt, positionSource: current?.observationTimestamp ? 'gps' : realtime ? 'trip-updates' : 'schedule', delaySeconds: realtime ? (next.arrival - next.scheduledArrival) / 1000 : null });
   }
   if (!gps || freshTimestamp(gps.header?.timestamp, now.getTime()) === null) return [...vehicles.values()];
   for (const entity of gps.entity ?? []) {
@@ -60,7 +60,7 @@ export function applyRealtime(gtfs: BizkaibusGtfs, base: TransitVehicle[], opera
     if (!history) continue;
     const position = positionAtProgress(plan.metric, progress); if (!position) continue;
     const id = `${operatorId}:${tripInstanceKey(date, trip.tripId)}`, previous = vehicles.get(id);
-    vehicles.set(id, { ...previous, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode, shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', observationTimestamp: observedAt, predictionTimestamp: now.getTime(), delaySeconds: previous?.delaySeconds ?? null, timetableTimestamp: update?.updatedAt ?? null, observationProgressMeters: progress, previousObservation: history.previous, speedMetersPerSecond: history.speed, tripIdentityQuality: 'exact', positionSource: 'gps' });
+    vehicles.set(id, { ...previous, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode, shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', observationTimestamp: observedAt, predictionTimestamp: now.getTime(), delaySeconds: previous?.delaySeconds ?? null, timetableTimestamp: update?.updatedAt ?? null, observationProgressMeters: progress, previousObservation: history.previous, speedMetersPerSecond: history.speed, vehicleId: observation.vehicle?.id ?? observation.vehicle?.label ?? trip.tripId, tripIdentityQuality: 'exact', positionSource: 'gps' });
   }
   return [...vehicles.values()];
 }
@@ -68,9 +68,10 @@ export function applyRealtime(gtfs: BizkaibusGtfs, base: TransitVehicle[], opera
 export class RealtimeProvider implements TransitProvider {
   readonly operatorId: string;
   updates = new Map<string, UpdatedTrip>();
-  constructor(private readonly base: TransitProvider, private readonly getGtfs: () => Promise<BizkaibusGtfs>, private readonly timetable: RealtimeFeedClient, private readonly gps?: RealtimeFeedClient) { this.operatorId = base.operatorId; }
+  constructor(private readonly base: TransitProvider, private readonly getGtfs: () => Promise<BizkaibusGtfs>, private readonly timetable?: RealtimeFeedClient, private readonly gps?: RealtimeFeedClient) { this.operatorId = base.operatorId; }
   async getSnapshot(now = new Date()): Promise<ProviderSnapshot> {
-    const [snapshot, gtfs, timetable, gps] = await Promise.all([this.base.getSnapshot(now), this.getGtfs(), this.timetable.get(), this.gps?.get()]);
+    const [snapshot, gtfs, timetableState, gps] = await Promise.all([this.base.getSnapshot(now), this.getGtfs(), this.timetable?.get(), this.gps?.get()]);
+    const timetable = timetableState ?? { feed: null };
     this.updates = normalizeTripUpdates(gtfs, timetable.feed, now);
     const vehicles = applyRealtime(gtfs, snapshot.vehicles, this.operatorId, this.updates, gps?.feed ?? null, now);
     const hasTimetable = this.updates.size > 0;

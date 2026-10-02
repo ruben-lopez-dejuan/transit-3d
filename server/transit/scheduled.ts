@@ -47,6 +47,7 @@ export function generateScheduledVehicles(gtfs: BizkaibusGtfs, now = new Date(),
         observationTimestamp: null,
         predictionTimestamp: now.getTime(),
         delaySeconds: null,
+        positionSource: 'schedule', tripIdentityQuality: 'exact',
       });
     }
   }

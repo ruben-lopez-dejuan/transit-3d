@@ -1,87 +1,112 @@
 # Fuentes de datos verificadas
 
-Auditoría realizada el **2 de octubre de 2026** descargando el índice oficial y los ficheros públicos. Los ZIP fueron abiertos y sus tablas leídas; los ficheros GTFS-RT se decodificaron con `gtfs-realtime-bindings`. La presencia de una URL en el índice no se trata como prueba de que contenga posiciones utilizables.
+Auditoría del **2 de octubre de 2026**. Se descargaron ZIP, se leyeron las tablas y se decodificaron los protobuf. Los índices públicos son [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/data-index-gtfs.json) y [GTFS-RT](https://opendata.euskadi.eus/transport/moveuskadi/data-index-gtfs-rt.json). Una URL o un timestamp de catálogo no acreditan posiciones reales. Scripts reproducibles: server/audit-realtime.ts, server/audit-realtime-joins.ts y server/audit-moveuskadi.ts. Los resultados crudos se guardan en server/cache/audit, ignorado por Git.
 
-## Resumen
+## Fuentes utilizadas y calidad
 
-| Operador | GTFS estático (última fecha del índice) | Realtime publicado | Resultado de descarga/parseo observado | Calidad hoy |
-|---|---|---|---|---|
-| Bizkaibus | [gtfs_bizkaibus.zip](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfs_bizkaibus.zip), 2026-10-01 | VehiclePositions, TripUpdates y Alerts | VehiclePositions: protobuf válido, 10 entidades con posiciones; TripUpdates: protobuf válido, 10 entidades. El pipeline mapeó 10/10 a shapes. El timestamp de VehiclePositions era 21:58 UTC del día anterior a la descarga (01:33 UTC), por lo que no era fresco. | LIVE solo cuando la posición tiene menos de 45 s; la captura probada se degrada a SCHEDULED/DEGRADED. |
-| Bilbobus | [gtfs_bilbobus.zip](https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfs_bilbobus.zip), 2026-10-01 | VehiclePositions | El endpoint del índice se descargó, pero entregó un fichero de 0 bytes; el decodificador no pudo leerlo. No se ha verificado ninguna posición real utilizable. | SCHEDULED hasta que el realtime se recupere y se valide. |
-| Metro Bilbao | [gtfs_metro_bilbao.zip](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfs_metro_bilbao.zip), 2026-10-01 | VehiclePositions y TripUpdates | Ambos ficheros se decodificaron como protobuf, pero cada uno contenía 0 entidades. El contenido actual no ofrece posiciones ni actualizaciones de viaje utilizables. | SCHEDULED. |
-| Euskotren (ferrocarril) | [gtfs_euskotren.zip](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfs_euskotren.zip), 2026-10-01 | VehiclePositions, TripUpdates y Alerts | VehiclePositions: protobuf válido con 0 entidades. TripUpdates: protobuf válido con 120 entidades. Alerts: protobuf válido con 0 entidades. | PREDICTED cuando una TripUpdate se una al mismo viaje/horario; de otro modo SCHEDULED. El parser de TripUpdates aún no está conectado. |
-
-El índice oficial es [`data-index-gtfs.json`](https://opendata.euskadi.eus/transport/moveuskadi/data-index-gtfs.json) y el índice realtime [`data-index-gtfs-rt.json`](https://opendata.euskadi.eus/transport/moveuskadi/data-index-gtfs-rt.json). Ambos agrupan los recursos por compañía, formato y hora de actualización. El realtime index anunciaba cambios entre 03:18:27 y 03:18:30 UTC, mientras que el protobuf Bizkaibus descargado tenía una cabecera de 21:58 UTC del día anterior. Esa discrepancia muestra por qué el core verifica el timestamp dentro del propio feed y no confía solo en la hora del índice.
-
-## Validación del GTFS estático
-
-Se validó la estructura ZIP y se leyeron estas tablas requeridas por el core:
-
-| Feed | routes | trips | calendar | calendar_dates | stop_times | shapes |
-|---|---:|---:|---:|---:|---:|---:|
-| Bizkaibus | 100 | 23.332 | 44 | 442 | 542.489 | 565.781 |
-| Bilbobus | 56 | 15.222 | 11 | 24 | 251.370 | 73.178 |
-| Metro Bilbao | 1 | 7.747 | 5 | 34 | 199.700 | 12.616 |
-| Euskotren | 12 | 8.057 | 22 | 22 | 119.514 | 66.905 |
-
-La auditoría confirma que los tres operadores adicionales tienen los elementos estáticos necesarios para crear vehículos programados. Los conteos son las filas leídas, excluida la cabecera, de los ZIP utilizados por la interfaz el 2 de octubre por la mañana. Bilbobus/Euskotren cambiaron respecto a la captura inicial nocturna; se han vuelto a leer sus tablas. El catálogo común contiene 169 rutas y 3.137 paradas con servicios referenciados.
-
-## Detalle, protocolos y fallback
-
-### Bizkaibus
-
-- Fuente: Moveuskadi / Gobierno Vasco; GTFS y GTFS-Realtime sobre HTTPS. La implementación actual descarga también el feed de posiciones ya configurado en `server/providers/bizkaibus/config.ts`.
-- VehiclePositions disponible y actualmente poblado; TripUpdates y Alerts se anuncian y el feed de TripUpdates también se decodificó con entidades.
-- El pipeline legado conserva cache en disco, resuelve `trip_id` con GTFS y rechaza posiciones que no puedan proyectarse razonablemente sobre el shape.
-- El refresco configurado de posiciones es de 5 s; el timestamp del feed puede cambiar con menor frecuencia. Mantener el último fichero válido si falla una actualización.
-- En la prueba nocturna, el feed mapeó 10 buses pero su observación era unas 3 h 35 min más antigua que la descarga. El core los descarta después de 180 s y marca el provider `degraded`; el frontend nuevo consume el snapshot común y comparte ese control de frescura. En la revisión diurna el feed volvió a contener observaciones recientes, alternando PREDICTED y fallback SCHEDULED según su edad.
-- El índice indicaba actualización a las 03:18:30 UTC en su captura, pero el timestamp del protobuf era de la noche anterior. La cadencia real de publicación no se pudo confirmar.
-- Fallback: horario GTFS cuando no se obtiene una observación usable; la calidad del dato no debe seguir etiquetándose como LIVE al envejecer.
-
-### Bilbobus
-
-- Fuente: GTFS oficial de Moveuskadi, feed diario actualizado el 1 de octubre según índice.
-- El índice publica un endpoint GTFS-RT VehiclePositions. Al descargarlo el 2 de octubre devolvió cero bytes, no un FeedMessage vacío. No se encontró un TripUpdates ni Alerts en la entrada del operador.
-- El recurso anunciaba `last-update` 03:18:27 UTC; es la marca del índice, no una frecuencia garantizada.
-- No fijar todavía el recurso realtime en una implementación de producción hasta que una descarga válida se pueda decodificar. Reintentar con tolerancia y conservar el snapshot previo.
-- Fallback disponible: `calendar` + `calendar_dates` + `trips` + `stop_times` + `shapes`, calidad SCHEDULED.
-
-### Metro Bilbao
-
-- Fuente: GTFS oficial de Moveuskadi, actualizado el 1 de octubre según índice.
-- Se anuncian VehiclePositions y TripUpdates en protobuf GTFS-RT. Los dos endpoints respondieron con FeedMessage válido, pero cero entidades en la descarga auditada.
-- El índice marcaba 03:18:27 para VehiclePositions y 03:18:30 para TripUpdates. No puede inferirse un intervalo periódico solo de esta captura.
-- Sin posiciones pobladas no se debe comunicar LIVE. Las TripUpdates deberían elevar la calidad a PREDICTED cuando se asocien de forma verificable a un trip y parada.
-- Fallback actual: posiciones SCHEDULED calculadas sobre shape y tiempos GTFS; el renderer aplica una curva suave ferroviaria y conserva las esperas en estación. No son observaciones GPS.
-
-### Euskotren
-
-- Fuente: GTFS oficial de Moveuskadi para Euskotren ferroviario, actualizado el 1 de octubre según índice. El catálogo también contiene un GTFS distinto de “Euskotren bus (Lurraldebus)”; no se mezcla con el feed ferroviario.
-- Se anuncian VehiclePositions, TripUpdates y Alerts. En la descarga auditada, TripUpdates tenía 120 entidades, mientras VehiclePositions y Alerts eran FeedMessage válidos con cero entidades.
-- El índice anunciaba actualizaciones entre 03:18:27 y 03:18:29 UTC en estos tres recursos; esto es frescura publicada, no una garantía de cadencia.
-- TripUpdates pueden aportar retraso/ETA, pero este repositorio todavía no las parsea ni valida su correspondencia con estos viajes GTFS. Hasta entonces, las entidades de movimiento se basan en horarios y se etiquetan SCHEDULED.
-- Fallback actual: horario GTFS sobre shapes. Luego se podrá degradar o elevar a PREDICTED según frescura y consistencia de TripUpdates.
-
-## Limitaciones y atribución
-
-- Los feeds en vivo cambian entre descargas; estos resultados son una observación puntual y reproducible, no una promesa de disponibilidad futura.
-- El catálogo publica también formatos SIRI y NeTEx para la red de Euskadi, pero no se descargaron ni analizaron en esta fase. No se afirma que los ficheros específicos de estos cuatro operadores aporten más información que GTFS.
-- La nota oficial de Moveuskadi describe datos estáticos y en tiempo real y enumera GTFS, GTFS-RT, SIRI y NeTEx: [datos Moveuskadi](https://www.euskadi.eus/contenidos/ds_movilidad/md_ideeu_moveuskadi/es_def/index.shtml) y [anuncio del Gobierno Vasco sobre realtime](https://www.euskadi.eus/gobierno-vasco/-/noticia/2025/moveuskadi-datos-en-tiempo-real-sobre-el-transporte-publico/).
-- Los recursos enlazados pertenecen a sus publicadores. Comprobar los términos de reutilización vigentes al distribuir una versión pública.
-
-## Fuentes realtime exactas del índice
-
-El índice se volvió a descargar a las 11:18 hora local del 2 de octubre. Estas URLs son las publicadas; únicamente VehiclePositions de Bizkaibus está conectado a producción:
-
-| Operador | VehiclePositions | TripUpdates | Alerts |
+| Operador | Fuente/protocolo | Información realmente disponible | Posición y fallback |
 |---|---|---|---|
-| Bizkaibus | [posiciones](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_Bizkaibus_vehicle_positions.pb) | [viajes](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb) | [avisos](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_Bizkaibus_alerts.pb) |
-| Bilbobus | [posiciones](https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfsrt_bilbobus_vehicle_positions.pb) | No publicado en su entrada | No publicado en su entrada |
-| Metro Bilbao | [posiciones](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_vehicle_positions.pb) | [viajes](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_trip_updates.pb) | No publicado en su entrada |
-| Euskotren | [posiciones](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_vehicle_positions.pb) | [viajes](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_trip_updates.pb) | [avisos](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_alerts.pb) |
+| Bizkaibus | Moveuskadi, GTFS + GTFS-RT VP/TU HTTPS | GPS con trip_id y stop_id; predicciones por parada | B: GPS e interpolación entre timestamps reales. Si supera 180 s, horario/estimado |
+| Bilbobus | GTFS Moveuskadi; API municipal JSON; SOAP SIRI | GPS físico, velocidad km/h; ETA oficial por parada/vehículo | B: GPS/interpolado; unión al viaje GTFS estimada. Si no hay GPS fresco, horario |
+| Metro Bilbao | Moveuskadi GTFS + TripUpdates protobuf | Llegadas actualizadas; VP sin entidades | C: posición ESTIMADA a partir de ETA; D cuando no hay TU fresca. Nunca GPS |
+| Euskotren tren y tranvías Bilbao/Vitoria | Moveuskadi GTFS + TripUpdates | ETA asociada exactamente a viaje y secuencia; VP vacío | C/D, posición ESTIMADA; capas independientes, un solo feed |
+| Renfe Bilbao y Donostia | GTFS nacional oficial + VP/TU oficiales | GPS con viaje exacto y ETA | B si hay GPS válido; C con TU; D con horario. Sin crear GPS para viajes ausentes |
+| Dbus | Moveuskadi GTFS + VP/TU | GPS y ETA con trip_id exactos; capturas posteriores también antiguas | B/C cuando fresco; D al caducar |
+| Tuvisa | Moveuskadi GTFS + VP/TU | GPS y ETA con trip_id exactos, cadencia irregular | B/C cuando fresco; D al caducar |
+| Funicular Artxanda | GTFS oficial Moveuskadi | 2 estaciones, geometría, 1.243 viajes explícitos, 8 calendarios, 39 excepciones | D: posición ESTIMADA, trayecto programado de 3 min y frecuencias publicadas |
+| Otros operadores de la tabla siguiente | GTFS oficial Moveuskadi | Geometría, paradas y servicio/calendar_dates | D: posiciones ESTIMADAS según horario |
 
-## Integración en la interfaz
+A = GPS observado sin interpolación; B = GPS observado + interpolación; C = predicciones de llegada; D = horario estático; E = simulación ajena a servicio real. No se crean vehículos E ni se presentan C/D como GPS. La animación D es una estimación visual del servicio programado, no una observación física.
 
-Los cuatro providers están registrados y visibles. Bilbobus, Metro Bilbao y Euskotren utilizan su GTFS descargado, con calidad SCHEDULED. Sus recursos realtime pendientes no se presentan como GPS. Los paneles de paradas muestran horarios o estimaciones basadas en el desfase inferido de Bizkaibus, identificadas en texto. El número de vehículos depende del día de servicio y la hora, y no es un conteo de GPS reales.
+## Endpoints principales
 
-El browser refresca snapshots cada 15 s. El backend conserva un snapshot enriquecido 5 s y shapes/planes por feed. Los descargadores estáticos usan seis horas de frescura en disco; los feeds parseados se mantienen en memoria durante la vida del proceso. Reiniciar el backend diariamente hasta implementar la recarga de catálogos sin reinicio.
+- Bizkaibus [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfs_bizkaibus.zip), [GPS](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_Bizkaibus_vehicle_positions.pb), [TU](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb).
+- Bilbobus [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfs_bilbobus.zip), JSON GET **https://api.bilbao.eus/bilbobus/Ultimas_posiciones/{LINEA}/{IDA|VLT}**, [SIRI](https://api.bilbao.eus/sae/SIRI.svc).
+- Metro [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfs_metro_bilbao.zip), [TU](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_trip_updates.pb).
+- Euskotren [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfs_euskotren.zip), [TU](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_trip_updates.pb).
+- Renfe [GTFS](https://ssl.renfe.com/ftransit/Fichero_CER_FOMENTO/fomento_transit.zip), [GPS](https://gtfsrt.renfe.com/vehicle_positions.pb), [TU](https://gtfsrt.renfe.com/trip_updates.pb). Documentación oficial: [horarios](https://data.renfe.com/dataset/horarios-cercanias), [ubicación](https://data.renfe.com/dataset/ubicacion-vehiculos). El espejo Moveuskadi descargado fue byte a byte idéntico; no aportaba mejoras frente al feed oficial.
+
+### Bilbobus: detalles de interoperabilidad
+
+La API municipal devolvió posiciones utilizables para líneas como 18, 10 y A7. lineIdPerm coincide con route_id GTFS. Ruta 1 corresponde a dirección 0/IDA y Ruta 2 a 1/VLT. Vehiculo identifica el bus físico; Viaje no es trip_id GTFS. Se asocia a una geometría/dirección y horario próximos, se marca tripIdentityQuality=estimated, y se suprimen los vehículos de horario duplicados de direcciones con GPS válido. No se atribuyen retrasos oficiales a esa unión estimada.
+
+CoordX/CoordY son **ED50 UTM 30N / EPSG:23030**. Se aplica transformación a WGS84 con el desplazamiento de datum estándar [-87,-98,-121]; no basta cambiar de proyección. Ejemplo verificado: (503631,4790217) → (-2.9565231,43.2628654). Precisión del desplazamiento regional aproximada, no centimétrica.
+
+**Instante está codificado como hora civil de Madrid aunque termine en Z.** Comparación repetida con HTTP Date y SIRI: +2 h en octubre. El adaptador municipal lo convierte explícitamente con Europe/Madrid y prueba también el offset invernal. Las fechas UTC reales de SIRI y GTFS-RT no reciben esa corrección.
+
+SIRI usa SOAP 1.1 POST, Content-Type text/xml y SOAPAction **http://tempuri.org/ISIRI/GetStopMonitoring**. Se descargaron WSDL y esquemas públicos. MonitoringRef requiere **stop_code** (1101 verificado), no stop_id (1 rechazado). RecordedAtTime y ExpectedArrivalTime son UTC válidos. VehicleRef VEH_767 se cruza con el vehículo físico; el journey SIRI no se fuerza a trip_id GTFS. Las consultas se limitan a la parada seleccionada o las tres próximas paradas, con caché de 20 s.
+
+La posición municipal se consulta por líneas/direcciones activas, hasta seis solicitudes concurrentes, cada 30 s. No se hace una llamada por vehículo ni por todas las paradas del mapa.
+
+### Renfe
+
+El ZIP nacional analizado contenía 841 rutas, 104.896 viajes, 1.139 paradas, 1.486.864 stop_times, 123.734 puntos de shape y 450 calendarios. Se seleccionan núcleos **60 (Bilbao)** y **61 (Donostia)**, con filtro territorial sobre las paradas reales. Se excluyen líneas de León/Guardo incluidas bajo el núcleo 60. El resultado actual contiene 24 rutas, 12.527 viajes y conserva los IDs para unir realtime. El feed incluye también servicios sustitutorios de bus de Donostia: se conserva su modo publicado.
+
+Las cabeceras/valores CSV tienen espacios de relleno; el parser los normaliza. Algunos shapes de C1/C2/C4/C5 están invertidos respecto a las paradas: se invierten los puntos verificados conservando la geometría. Ciertas expediciones C5 publican geometría incompleta (p. ej. Karrantza–Concordia): se conservan horarios y se omite la posición cuando las paradas no ajustan a su shape. No se dibuja una vía inventada.
+
+## Moveuskadi: todos los feeds adicionales descargados
+
+Conteos antes de expandir frecuencias: rutas / viajes / paradas. El registro modular server/providers/moveuskadi-sources.json contiene las URLs exactas; catalog.ts instancia proveedores comunes. Solo se habilita realtime cuando hay entidades, unión a GTFS y timestamps utilizables.
+
+| Operador | Fuente | Rutas / viajes / paradas | Resultado realtime / fallback |
+|---|---|---:|---|
+| Lasarte (Muittu Manttangorri) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/muittu_manttangorri_lasarte/gtfs_muittu_manttangorri_lasarte.zip) | 3 / 44 / 38 | Sin RT publicado verificado; horario |
+| Guipuzkoana (Lurraldebus) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/guipuzkoana/gtfs_guipuzkoana.zip) | 9 / 639 / 179 | RT probado: vacío o antiguo; horario |
+| EtxeBarriBus | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/etxebarribus/gtfs_etxebarribus.zip) | 2 / 199 / 24 | RT probado: vacío o antiguo; horario |
+| Goierrialdea (Lurraldebus) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/goierrialdea/gtfs_goierrialdea.zip) | 10 / 1115 / 203 | RT probado: vacío o antiguo; horario |
+| Ekialdebus (Lurraldebus) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/ekialdebus/gtfs_ekialdebus.zip) | 24 / 1080 / 227 | RT probado: vacío o antiguo; horario |
+| Irunbus | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/irunbus/gtfs_irunbus.zip) | 5 / 1010 / 77 | Sin RT publicado verificado; horario |
+| Hernaniko hiribusa | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/hernaniko_hiribusa/gtfs_hernaniko_hiribusa.zip) | 2 / 73 / 27 | RT probado: vacío o antiguo; horario |
+| Urbano de Tolosa | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/tolosa/gtfs_tolosa.zip) | 1 / 47 / 26 | RT probado: vacío o antiguo; horario |
+| Tbh (Lurraldebus) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/tbh/gtfs_tbh.zip) | 18 / 2378 / 241 | RT probado: vacío o antiguo; horario |
+| Pesa (Lurraldebus) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/pesa/gtfs_pesa.zip) | 26 / 3961 / 196 | RT probado: vacío o antiguo; horario |
+| Bermibusa | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/bermibusa/gtfs_bermibusa.zip) | 1 / 30 / 20 | RT probado: vacío o antiguo; horario |
+| Euskotren bus (Lurraldebus) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/euskotren_bus/gtfs_euskotren_bus.zip) | 14 / 1139 / 236 | RT probado: vacío o antiguo; horario |
+| Tolosaldea (Lurraldebus) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/tolosaldea/gtfs_tolosaldea.zip) | 21 / 822 / 237 | RT probado: vacío o antiguo; horario |
+| Funicular Artxanda | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/funicular_artxanda/gtfs_funicular_artxanda.zip) | 1 / 1243 / 2 | Sin RT publicado verificado; horario |
+| Oñati | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/onati/gtfs_onati.zip) | 1 / 61 / 32 | RT probado: vacío o antiguo; horario |
+| Erandio! busa | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/erandio_busa/gtfs_erandio_busa.zip) | 2 / 48 / 55 | RT probado: vacío o antiguo; horario |
+| Dbus | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/dbus/gtfs_dbus.zip) | 49 / 23309 / 540 | GPS + TripUpdates verificados; fallback por antigüedad |
+| Puente Colgante | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/pte_colgante/gtfs_pte_colgante.zip) | 1 / 8 / 2 | Sin RT publicado verificado; horario |
+| Tuvisa | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/tuvisa/gtfs_tuvisa.zip) | 31 / 4368 / 368 | GPS + TripUpdates verificados; fallback por antigüedad |
+| Xorrola (Oiartzun) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/oiartzun/gtfs_xorrola_oiartzun.zip) | 1 / 48 / 16 | RT probado: vacío o antiguo; horario |
+| AlavaBus | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/alavabus/gtfs_alavabus.zip) | 53 / 2386 / 696 | GPS/TripUpdates descartados: timestamp de entidad +2 h |
+| Udalbus (Eibar) | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/eibar/gtfs_udalbus_eibar.zip) | 2 / 47 / 38 | RT probado: vacío o antiguo; horario |
+| Lejoan busa | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/lejoan_busa/gtfs_lejoan_busa.zip) | 3 / 163 / 30 | RT probado: vacío o antiguo; horario |
+| Sopelbus | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/sopelbus/gtfs_sopelbus.zip) | 4 / 33 / 18 | RT probado: vacío o antiguo; horario |
+| La Unión | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/la_union/gtfs_la_union.zip) | 11 / 211 / 106 | Sin RT publicado verificado; horario |
+| Zarauzko hiribusa | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/zarauzko_hiribusa/gtfs_zarauzko_hiribusa.zip) | 6 / 242 / 36 | RT probado: vacío o antiguo; horario |
+| Kbus | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/kbus/gtfs_kbus.zip) | 4 / 278 / 88 | RT probado: vacío o antiguo; horario |
+| Errenteria Urbanoa | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/errenteria/gtfs_errenteriako_urbanoa.zip) | 9 / 293 / 82 | RT probado: vacío o antiguo; horario |
+| Arrasate | [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/arrasate/gtfs_arrasate.zip) | 1 / 103 / 54 | RT probado: vacío o antiguo; horario |
+
+Puente Colgante publica frequencies.txt: sus 8 plantillas se expanden en **615 expediciones estimadas**, respetando el límite exclusivo de end_time y los horarios superiores a 24 h. exact_times=0 no garantiza una salida física en el segundo calculado. Artxanda utiliza los viajes explícitos de su feed, sin inventar horarios ni dibujar una recta entre estaciones.
+
+## Fuentes probadas y descartadas
+
+- [Bilbobus municipal GTFS-RT](https://www.bilbao.eus/opendata/datos/bilbobus-gtfs-rt): HTTP 200, **0 bytes**. [Moveuskadi Bilbobus VP](https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfsrt_bilbobus_vehicle_positions.pb): **0 bytes**. Sustituidos por JSON municipal/SIRI real.
+- VehiclePositions de Metro y Euskotren: protobuf válido sin vehículos en las capturas. Se usan sus TripUpdates; no se afirma GPS.
+- Lurraldebus y varias redes locales: ficheros de 15 bytes con 0 entidades; algunos timestamps de junio de 2025. No aportan realtime utilizable pese a las fechas actuales del índice.
+- AlavaBus VP/TU: entidades y uniones reales (19/22 GPS y 25/25 TU en la auditoría), pero timestamp de entidad **dos horas por delante** de cabecera/UTC. No se habilita ni se aplica una corrección global sin verificar todos sus tiempos de parada; alternativa disponible: GTFS estático.
+- SIRI GetVehicleMonitoring municipal sin VehicleRef: aviso de identificador desconocido; no se usa como endpoint agregado.
+- Overpass público para infraestructura: overpass-api.de devolvió HTTP 406 y overpass.kumi.systems HTTP 429. Se utilizó documentación oficial de Metro, sin inventar respuestas OSM.
+- La descarga nativa Node de algunos dominios del Gobierno Vasco falló por confianza TLS del entorno. Se usa el almacén de certificados de Windows mediante el descargador existente; no se desactiva TLS.
+
+## Infraestructura ferroviaria y representación
+
+[Pliego oficial de mantenimiento Metro Bilbao, anexo 2, pp. 78–79](https://www.contratacion.euskadi.eus/webkpe00-kpeperfi/es/contenidos/anuncio_contratacion/expjaso37360/es_doc/adjuntos/lugar_descarga_3_1.pdf): tramo común y L2 en túnel, salvo Etxebarri–Bolueta y viaducto de Urbinaga; Basauri–Ariz en túnel. Se traduce a intervalos sobre shapes y estaciones reales. Profundidad visual **aproximada de 12 m**, transiciones aproximadas cerca de límites. Los coches se representan transparentes bajo el mapa y se pueden ocultar en Capas. No se afirma que exista un levantamiento exacto de cotas/portales; soterramientos aislados de L1 quedan pendientes.
+
+Separación lateral de 1,7 m por sentido para distinguir trenes/tranvías en los shapes compartidos. Es una separación diagramática; no es un inventario exacto de vías. C4/C5 de Renfe conservan la vía sin offset. Composiciones estilizadas por modo/operador, longitud aproximada; cada coche obtiene posición y tangente independientes sobre la curva.
+
+## Frescura, movimiento y arquitectura
+
+- observationTimestamp: hora del GPS original; timetableTimestamp: hora de la predicción del operador; fetchedAt: consulta al servidor; GpsPlayback.renderedAt: tiempo de la observación reproducida. Consultar HTTP no rejuvenece ninguno de los dos primeros.
+- REAL = primer GPS válido; INTERPOLADO = movimiento entre GPS; ESTIMADO = posición calculada con ETA o GTFS. La ficha explica su procedencia y edad. Datos con más de 180 s no se mantienen como observaciones actuales.
+- La reproducción GPS recorre una distancia observada durante el tiempo real entre timestamps, sin comprimir intervalos de 25–90 s a 5–20 s ni añadir 7,5 m/s constantes. Si no llega otra observación, se detiene en la última.
+- Snapping común a geometría, umbral de 120 m para GPS. El tracker rechaza timestamps regresivos, grandes retrocesos y velocidades imposibles según modo; no se aplican cambios de identidad arbitrarios para tapar errores.
+- Los horarios conservan dwell publicado. Para buses sin tiempo de parada explícito se ilustra una pausa estimada de 6 s cuando cabe antes de la siguiente llegada, sin modificar la hora publicada. **No se impone a GPS real.**
+- TU: fecha de servicio/calendario, viaje y secuencia exactos; cancelaciones, SKIPPED, NO_DATA, absolute time y delay=0. No se aceptan DIFFERENTIAL, viajes añadidos sin GTFS ni uniones ambiguas.
+- Refresco independiente en segundo plano, caché válida con fallo aislado por operador. Primer mapa puede mostrar horario mientras llegan los primeros feeds realtime. GTFS diario/caché 6 h y snapshot común 5 s; cliente 15 s.
+- Catálogo multi-provider, modelos comunes y renderer común. No se requiere crear una animación distinta para cada proveedor nuevo.
+
+Términos/atribución pertenecen a cada publicador; [documentación oficial Moveuskadi](https://www.euskadi.eus/contenidos/ds_movilidad/md_ideeu_moveuskadi/es_def/index.shtml). La disponibilidad y la población de realtime varían durante el día; estas observaciones no garantizan servicio externo continuo.

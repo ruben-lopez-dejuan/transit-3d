@@ -101,7 +101,7 @@ export class BilbobusProvider extends StaticGtfsProvider {
     }).filter((d) => d.at >= Date.now() - 30_000);
   }
   async getSnapshot(now = new Date()): Promise<ProviderSnapshot> {
-    const [base, gtfs] = await Promise.all([super.getSnapshot(now), this.getGtfs()]); await this.poll(gtfs, now);
+    const [base, gtfs] = await Promise.all([super.getSnapshot(now), this.getGtfs()]); void this.poll(gtfs, now).catch(() => { this.failures++; });
     const day = formatServiceDate(now), origin = serviceEpoch(day.date, 0), seconds = (now.getTime() - origin) / 1000;
     const active = getActiveTrips(gtfs, day.date, day.weekday);
     const byRoute = new Map<string, GtfsTrip[]>();

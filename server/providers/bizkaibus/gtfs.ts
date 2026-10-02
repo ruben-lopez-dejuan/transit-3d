@@ -3,6 +3,8 @@ import path from "node:path";
 
 import AdmZip from "adm-zip";
 import { parse } from "csv-parse/sync";
+import { expandFrequencies } from '../../transit/frequencies';
+import { readParsedFeed, writeParsedFeed } from '../../lib/gtfsCache';
 
 import { downloadFile } from "../../lib/download";
 import {
@@ -81,7 +83,7 @@ function isFresh(file: string, maxAgeMs: number) {
 
 function readCsv(directory: string, filename: string) {
   const file = path.join(directory, filename);
-  if (!fs.existsSync(file) && ["calendar.txt", "calendar_dates.txt"].includes(filename)) return [];
+  if (!fs.existsSync(file) && ["calendar.txt", "calendar_dates.txt", "frequencies.txt"].includes(filename)) return [];
   return parse(
     fs.readFileSync(file, "utf8"),
     {
@@ -146,7 +148,9 @@ export async function getBizkaibusGtfs(): Promise<BizkaibusGtfs> {
   if (memoryCache) return memoryCache;
 
   await ensureGtfsFiles();
-  memoryCache = parseGtfsDirectory(BIZKAIBUS_GTFS_DIR);
+  const parsedPath = path.join(BIZKAIBUS_GTFS_DIR, 'parsed.v8');
+  memoryCache = readParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP) ?? parseGtfsDirectory(BIZKAIBUS_GTFS_DIR);
+  writeParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP, memoryCache);
   console.log(`[Bizkaibus] GTFS ready: ${memoryCache.routes.size} routes, ${memoryCache.trips.size} trips.`);
   return memoryCache;
 }
@@ -278,7 +282,7 @@ export function parseGtfsDirectory(directory: string, includeRoute: (route: Gtfs
     points.sort((a, b) => a.sequence - b.sequence);
   }
 
-  return {
+  const result = {
     routes,
     trips,
     shapes,
@@ -288,5 +292,7 @@ export function parseGtfsDirectory(directory: string, includeRoute: (route: Gtfs
     calendars,
     calendarDates,
   };
+  expandFrequencies(result, readCsv(directory, 'frequencies.txt'));
+  return result;
 
 }

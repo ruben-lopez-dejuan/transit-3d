@@ -5,14 +5,14 @@ import { StaticGtfsProvider } from './staticGtfs';
 export const RENFE_GTFS_URL = 'https://ssl.renfe.com/ftransit/Fichero_CER_FOMENTO/fomento_transit.zip';
 
 /** The national feed reuses C1/C2 labels across cities. Only Bilbao nucleus 60 is selected. */
-export function prepareRenfeBilbao(gtfs: BizkaibusGtfs) {
+export function prepareRenfeBilbao(gtfs: BizkaibusGtfs, nuclei = ['60']) {
   const usedStops = new Set<string>(), usedShapes = new Set<string>();
   gtfs.routeTripIds.clear();
   for (const trip of gtfs.trips.values()) {
     const times = gtfs.tripStops.get(trip.tripId) ?? [];
     const stops = times.map((t) => gtfs.stops.get(t.stopId));
     // Some national routes under nucleus 60 describe León/Guardo. Check the actual stations.
-    if (!trip.routeId.startsWith('60T') || !stops.some((s) => s && s.latitude >= 42.95 && s.latitude <= 43.5 && s.longitude >= -3.65 && s.longitude <= -2.7)) {
+    if (!nuclei.some((nucleus) => trip.routeId.startsWith(`${nucleus}T`)) || !stops.some((s) => s && s.latitude >= 42.95 && s.latitude <= 43.5 && s.longitude >= -3.65 && s.longitude <= (nuclei.includes('61') ? -1.65 : -2.7))) {
       gtfs.trips.delete(trip.tripId); gtfs.tripStops.delete(trip.tripId); continue;
     }
     const route = gtfs.routes.get(trip.routeId)!;
@@ -45,5 +45,5 @@ export function prepareRenfeBilbao(gtfs: BizkaibusGtfs) {
 }
 
 export const renfeProvider = new StaticGtfsProvider('renfe', RENFE_GTFS_URL, {
-  includeRoute: (route) => route.routeId.startsWith('60T'), prepare: prepareRenfeBilbao,
+  includeRoute: (route) => /^(60|61)T/.test(route.routeId), prepare: (gtfs) => prepareRenfeBilbao(gtfs, ['60', '61']),
 });

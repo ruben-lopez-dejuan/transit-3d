@@ -5,6 +5,8 @@ import type { MotionAnchor, Shape } from "../../src/transit/networkTypes";
 
 type Plan = { metric: ShapeMetric; anchors: { seconds: number; progress: number }[]; stops: { stopId: string; sequence: number; arrival: number; departure: number; progress: number }[] };
 const caches = new WeakMap<BizkaibusGtfs, { metrics: Map<string, ShapeMetric>; plans: Map<string, Plan | null> }>();
+const origins = new Map<string, number>();
+const offsetFormatter = new Intl.DateTimeFormat('en', { timeZone: 'Europe/Madrid', timeZoneName: 'shortOffset' });
 function cache(gtfs: BizkaibusGtfs) {
   let value = caches.get(gtfs);
   if (!value) { value = { metrics: new Map(), plans: new Map() }; caches.set(gtfs, value); }
@@ -42,15 +44,19 @@ export function tripPlan(gtfs: BizkaibusGtfs, tripId: string): Plan | null {
 }
 export function shiftDate(date: string, delta: number) {
   const day = new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6, 8)) + delta, 12));
-  return formatServiceDate(day);
+  return { date: `${day.getUTCFullYear()}${String(day.getUTCMonth() + 1).padStart(2, '0')}${String(day.getUTCDate()).padStart(2, '0')}`, weekday: (day.getUTCDay() + 6) % 7 };
 }
 export function serviceEpoch(date: string, seconds: number): number {
+  if (origins.has(date)) return origins.get(date)! + seconds * 1000;
   const noon = Date.UTC(Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6, 8)), 12);
-  const offset = new Intl.DateTimeFormat("en", { timeZone: "Europe/Madrid", timeZoneName: "shortOffset" }).formatToParts(noon).find((p) => p.type === "timeZoneName")!.value;
+  const offset = offsetFormatter.formatToParts(noon).find((p) => p.type === "timeZoneName")!.value;
   const match = /GMT([+-])(\d+)(?::(\d+))?/.exec(offset);
   const offsetMinutes = match ? (Number(match[2]) * 60 + Number(match[3] ?? 0)) * (match[1] === "+" ? 1 : -1) : 0;
   // GTFS defines time relative to noon minus 12h on the service date, including DST days.
-  return noon - offsetMinutes * 60_000 - 43_200_000 + seconds * 1000;
+  const origin = noon - offsetMinutes * 60_000 - 43_200_000;
+  if (origins.size >= 64) origins.delete(origins.keys().next().value!);
+  origins.set(date, origin);
+  return origin + seconds * 1000;
 }
 export function timelineFor(plan: Plan, date: string, delaySeconds = 0): MotionAnchor[] {
   const origin = serviceEpoch(date, delaySeconds);
@@ -65,6 +71,7 @@ export function shapePacket(metric: ShapeMetric, key: string): Shape {
   return { key, coordinates, cumulative, total: metric.totalMeters };
 }
 export function modeFor(routeType: number) {
+  if (routeType === 7 || (routeType >= 1400 && routeType < 1500)) return 'funicular' as const;
   if (routeType === 0 || (routeType >= 900 && routeType < 1000)) return "tram" as const;
   if ([1, 2].includes(routeType) || (routeType >= 100 && routeType < 500)) return "rail" as const;
   if ([3, 11].includes(routeType) || (routeType >= 700 && routeType < 900)) return "bus" as const;

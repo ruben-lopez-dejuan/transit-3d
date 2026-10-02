@@ -13,12 +13,14 @@ export class RealtimeFeedClient {
   private pending: Promise<RealtimeFeedState> | null = null;
   constructor(readonly name: string, readonly url: string) {}
   get(now = Date.now()): Promise<RealtimeFeedState> {
-    if (this.pending) return this.pending;
-    if (now < this.expires) return Promise.resolve(this.state(now));
-    this.expires = now + 15_000;
-    this.pending = this.refresh().then(() => this.state(Date.now())).finally(() => { this.pending = null; });
-    return this.pending;
+    if (!this.pending && now >= this.expires) {
+      this.expires = now + 15_000;
+      this.pending = this.refresh().then(() => this.state(Date.now())).finally(() => { this.pending = null; this.expires = Date.now() + 15_000; });
+    }
+    // Sources refresh independently; an unavailable operator must not block the map.
+    return Promise.resolve(this.state(now));
   }
+
   private state(now: number): RealtimeFeedState {
     const fresh = this.feed && freshTimestamp(this.feed.header?.timestamp, now) !== null;
     return { feed: fresh ? this.feed : null, ...(this.error ? { error: this.error } : !fresh ? { error: 'Realtime ausente o con más de 180 s de antigüedad; se usa el horario.' } : {}) };

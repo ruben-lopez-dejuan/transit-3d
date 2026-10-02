@@ -1,0 +1,180 @@
+[
+  {
+    "id": "muittu-manttangorri-lasarte",
+    "name": "Lasarte (Muittu Manttangorri)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/muittu_manttangorri_lasarte/gtfs_muittu_manttangorri_lasarte.zip"
+  },
+  {
+    "id": "guipuzkoana",
+    "name": "Guipuzkoana (Lurraldebus)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/guipuzkoana/gtfs_guipuzkoana.zip"
+  },
+  {
+    "id": "etxebarribus",
+    "name": "EtxeBarriBus",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/etxebarribus/gtfs_etxebarribus.zip"
+  },
+  {
+    "id": "goierrialdea",
+    "name": "Goierrialdea (Lurraldebus)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/goierrialdea/gtfs_goierrialdea.zip"
+  },
+  {
+    "id": "ekialdebus",
+    "name": "Ekialdebus (Lurraldebus)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/ekialdebus/gtfs_ekialdebus.zip"
+  },
+  {
+    "id": "irunbus",
+    "name": "Irunbus",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/irunbus/gtfs_irunbus.zip"
+  },
+  {
+    "id": "hernaniko-hiribusa",
+    "name": "Hernaniko hiribusa",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/hernaniko_hiribusa/gtfs_hernaniko_hiribusa.zip"
+  },
+  {
+    "id": "tolosa",
+    "name": "Urbano de Tolosa",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/tolosa/gtfs_tolosa.zip"
+  },
+  {
+    "id": "tbh",
+    "name": "Tbh (Lurraldebus)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/tbh/gtfs_tbh.zip"
+  },
+  {
+    "id": "pesa",
+    "name": "Pesa (Lurraldebus)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/pesa/gtfs_pesa.zip"
+  },
+  {
+    "id": "bermibusa",
+    "name": "Bermibusa",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/bermibusa/gtfs_bermibusa.zip"
+  },
+  {
+    "id": "euskotren-bus",
+    "name": "Euskotren bus (Lurraldebus)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/euskotren_bus/gtfs_euskotren_bus.zip"
+  },
+  {
+    "id": "tolosaldea",
+    "name": "Tolosaldea (Lurraldebus)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lurraldebus/tolosaldea/gtfs_tolosaldea.zip"
+  },
+  {
+    "id": "funicular-artxanda",
+    "name": "Funicular Artxanda",
+    "color": "#dc0b0b",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/funicular_artxanda/gtfs_funicular_artxanda.zip"
+  },
+  {
+    "id": "onati",
+    "name": "Oñati",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/onati/gtfs_onati.zip"
+  },
+  {
+    "id": "erandio-busa",
+    "name": "Erandio! busa",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/erandio_busa/gtfs_erandio_busa.zip"
+  },
+  {
+    "id": "dbus",
+    "name": "Dbus",
+    "color": "#2773a4",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/dbus/gtfs_dbus.zip",
+    "tripUpdates": "https://opendata.euskadi.eus/transport/moveuskadi/dbus/gtfsrt_dbus_trip_updates.pb",
+    "vehiclePositions": "https://opendata.euskadi.eus/transport/moveuskadi/dbus/gtfsrt_dbus_vehicle_positions.pb"
+  },
+  {
+    "id": "pte-colgante",
+    "name": "Puente Colgante",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/pte_colgante/gtfs_pte_colgante.zip"
+  },
+  {
+    "id": "tuvisa",
+    "name": "Tuvisa",
+    "color": "#36704a",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/tuvisa/gtfs_tuvisa.zip",
+    "tripUpdates": "https://opendata.euskadi.eus/transport/moveuskadi/tuvisa/gtfsrt_tuvisa_trip_updates.pb",
+    "vehiclePositions": "https://opendata.euskadi.eus/transport/moveuskadi/tuvisa/gtfsrt_tuvisa_vehicle_positions.pb"
+  },
+  {
+    "id": "xorrola-oiartzun",
+    "name": "Xorrola (Oiartzun)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/oiartzun/gtfs_xorrola_oiartzun.zip"
+  },
+  {
+    "id": "alavabus",
+    "name": "AlavaBus",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/alavabus/gtfs_alavabus.zip"
+  },
+  {
+    "id": "udalbus-eibar",
+    "name": "Udalbus (Eibar)",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/eibar/gtfs_udalbus_eibar.zip"
+  },
+  {
+    "id": "lejoan-busa",
+    "name": "Lejoan busa",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/lejoan_busa/gtfs_lejoan_busa.zip"
+  },
+  {
+    "id": "sopelbus",
+    "name": "Sopelbus",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/sopelbus/gtfs_sopelbus.zip"
+  },
+  {
+    "id": "la-union",
+    "name": "La Unión",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/la_union/gtfs_la_union.zip"
+  },
+  {
+    "id": "zarauzko-hiribusa",
+    "name": "Zarauzko hiribusa",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/zarauzko_hiribusa/gtfs_zarauzko_hiribusa.zip"
+  },
+  {
+    "id": "kbus",
+    "name": "Kbus",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/kbus/gtfs_kbus.zip"
+  },
+  {
+    "id": "errenteriako-urbanoa",
+    "name": "Errenteria Urbanoa",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/errenteria/gtfs_errenteriako_urbanoa.zip"
+  },
+  {
+    "id": "arrasate",
+    "name": "Arrasate",
+    "color": "#666c91",
+    "gtfs": "https://opendata.euskadi.eus/transport/moveuskadi/arrasate/gtfs_arrasate.zip"
+  }
+]

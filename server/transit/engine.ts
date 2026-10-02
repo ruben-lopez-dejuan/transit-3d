@@ -11,8 +11,11 @@ export class TransitEngine {
 
   async getSnapshot(now = new Date()): Promise<TransitSnapshot> {
     const snapshots = await Promise.all(this.providers.map(async (provider) => {
+      const started = performance.now();
       try {
-        return await provider.getSnapshot(now);
+        const snapshot = await provider.getSnapshot(now);
+        if (process.env.TRANSIT_PROFILE === '1') console.log(`[profile] ${provider.operatorId} ${Math.round(performance.now() - started)} ms; ${snapshot.vehicles.length} vehicles`);
+        return snapshot;
       } catch (error) {
         return {
           operatorId: provider.operatorId,

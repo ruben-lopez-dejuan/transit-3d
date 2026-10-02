@@ -1,4 +1,4 @@
-export type TransitMode = "bus" | "rail" | "tram" | "unknown";
+export type TransitMode = "bus" | "rail" | "tram" | "funicular" | "unknown";
 export type PositionQuality = "live" | "predicted" | "scheduled";
 
 export type TransitVehicle = {

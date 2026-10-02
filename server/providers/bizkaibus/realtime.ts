@@ -30,6 +30,8 @@ export type RawRealtimeSnapshot = {
 };
 
 let cache: RawRealtimeSnapshot | null = null;
+let pending: Promise<RawRealtimeSnapshot> | null = null;
+let expires = 0;
 
 function toNumber(value: unknown): number | null {
   if (value === undefined || value === null) return null;
@@ -38,7 +40,7 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export async function getBizkaibusRealtime(): Promise<RawRealtimeSnapshot> {
+async function refreshRealtime(): Promise<RawRealtimeSnapshot> {
   if (
     cache &&
     Date.now() - cache.fetchedAtMs < REALTIME_REFRESH_MS
@@ -114,4 +116,12 @@ export async function getBizkaibusRealtime(): Promise<RawRealtimeSnapshot> {
   };
 
   return cache;
+}
+
+export async function getBizkaibusRealtime(): Promise<RawRealtimeSnapshot> {
+  if (!pending && Date.now() >= expires) {
+    expires = Date.now() + REALTIME_REFRESH_MS;
+    pending = refreshRealtime().catch((error) => { console.warn('[Bizkaibus] Realtime unavailable:', error.message); return cache ?? { feedTimestamp: null, fetchedAtMs: 0, entityCount: 0, vehicles: [] }; }).finally(() => { pending = null; expires = Date.now() + REALTIME_REFRESH_MS; });
+  }
+  return cache ?? { feedTimestamp: null, fetchedAtMs: 0, entityCount: 0, vehicles: [] };
 }

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseGtfsDirectory } from '../providers/bizkaibus/gtfs';
 import { isServiceActive } from './gtfsCalendar';
+import { expandFrequencies } from './frequencies';
 
 test('GTFS parser handles quoted labels, missing optional calendar and unsorted rows', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bilbao-gtfs-test-'));
@@ -34,4 +35,14 @@ test('GTFS parser handles quoted labels, missing optional calendar and unsorted 
     assert.ok(path.basename(directory).startsWith('bilbao-gtfs-test-'));
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('frequency trips replace templates, preserve dwell and expand past midnight without an end-time departure', () => {
+  const feed = { trips: new Map([['t', { tripId: 't', routeId: 'r', serviceId: 's', shapeId: 'x', directionId: 0, headsign: 'B' }]]), routeTripIds: new Map([['r', ['t']]]), tripStops: new Map([['t', [{ stopId: 'a', sequence: 1, arrivalTime: '00:00:00', departureTime: '00:00:00' }, { stopId: 'b', sequence: 2, arrivalTime: '00:03:00', departureTime: '00:04:00' }]]]) } as unknown as import('../providers/bizkaibus/gtfs').BizkaibusGtfs;
+  expandFrequencies(feed, [{ trip_id: 't', start_time: '23:50:00', end_time: '24:20:00', headway_secs: '600' }]);
+  assert.equal(feed.trips.has('t'), false);
+  assert.equal(feed.trips.size, 3);
+  assert.equal(feed.tripStops.get('t@86400')?.[1].departureTime, '24:04:00');
+  assert.equal(feed.trips.has('t@87600'), false);
+  assert.equal(feed.routeTripIds.get('r')?.length, 3);
 });
