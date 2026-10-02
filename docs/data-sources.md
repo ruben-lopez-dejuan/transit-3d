@@ -44,6 +44,8 @@ El ZIP nacional analizado contenía 841 rutas, 104.896 viajes, 1.139 paradas, 1.
 
 Las cabeceras/valores CSV tienen espacios de relleno; el parser los normaliza. Algunos shapes de C1/C2/C4/C5 están invertidos respecto a las paradas: se invierten los puntos verificados conservando la geometría. Ciertas expediciones C5 publican geometría incompleta (p. ej. Karrantza–Concordia): se conservan horarios y se omite la posición cuando las paradas no ajustan a su shape. No se dibuja una vía inventada.
 
+El publicador describe las posiciones como GPS, con actualización de 20 s. Algunas lecturas son discretas o próximas a estaciones; esa descripción no acredita precisión continua. En la observación real apareció un salto equivalente a **240 km/h**. Se rechaza mediante el tracker común, con máximo configurable de **40 m/s para Renfe**, margen sobre los 120 km/h del [material Civia documentado por Renfe](https://www.renfe.com/es/es/cercanias/cercanias-madrid/rodajes/unidad-465). Se conserva la última posición válida y su timestamp original hasta su caducidad.
+
 ## Moveuskadi: todos los feeds adicionales descargados
 
 Conteos antes de expandir frecuencias: rutas / viajes / paradas. El registro modular server/providers/moveuskadi-sources.json contiene las URLs exactas; catalog.ts instancia proveedores comunes. Solo se habilita realtime cuando hay entidades, unión a GTFS y timestamps utilizables.
@@ -101,8 +103,10 @@ Separación lateral de 1,7 m por sentido para distinguir trenes/tranvías en los
 ## Frescura, movimiento y arquitectura
 
 - observationTimestamp: hora del GPS original; timetableTimestamp: hora de la predicción del operador; fetchedAt: consulta al servidor; GpsPlayback.renderedAt: tiempo de la observación reproducida. Consultar HTTP no rejuvenece ninguno de los dos primeros.
-- REAL = primer GPS válido; INTERPOLADO = movimiento entre GPS; ESTIMADO = posición calculada con ETA o GTFS. La ficha explica su procedencia y edad. Datos con más de 180 s no se mantienen como observaciones actuales.
+- REAL = GPS observado (primera lectura o última lectura alcanzada); INTERPOLADO = movimiento entre GPS; ESTIMADO = posición calculada con ETA o GTFS. La ficha explica su procedencia y edad. Datos con más de 180 s no se mantienen como observaciones actuales.
 - La reproducción GPS recorre una distancia observada durante el tiempo real entre timestamps, sin comprimir intervalos de 25–90 s a 5–20 s ni añadir 7,5 m/s constantes. Si no llega otra observación, se detiene en la última.
+- Se observaron intervalos de **149 s en Bizkaibus**: la reproducción conserva esos 149 s. El reloj también avanza para capas ocultas; activarlas no reproduce una cola antigua.
+- Las geometrías transferidas conservan vértices de curvas cortas; solo se omiten puntos próximos cuya desviación respecto a la cuerda no supera 0,5 m. No se añaden trazados ajenos al feed.
 - Snapping común a geometría, umbral de 120 m para GPS. El tracker rechaza timestamps regresivos, grandes retrocesos y velocidades imposibles según modo; no se aplican cambios de identidad arbitrarios para tapar errores.
 - Los horarios conservan dwell publicado. Para buses sin tiempo de parada explícito se ilustra una pausa estimada de 6 s cuando cabe antes de la siguiente llegada, sin modificar la hora publicada. **No se impone a GPS real.**
 - TU: fecha de servicio/calendario, viaje y secuencia exactos; cancelaciones, SKIPPED, NO_DATA, absolute time y delay=0. No se aceptan DIFFERENTIAL, viajes añadidos sin GTFS ni uniones ambiguas.
