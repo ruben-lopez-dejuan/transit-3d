@@ -47,7 +47,7 @@ export async function downloadFile(
     const response = await fetch(url, {
       signal: AbortSignal.timeout(30_000),
       headers: {
-        "User-Agent": "bilbao-transit-3d/0.2",
+        "User-Agent": "transit-3d/0.2",
       },
     });
 
