@@ -1,5 +1,5 @@
 import { CITY_PACKAGE_API_VERSION, type CityPackage } from '../../shared/transit/contracts';
-/** Explicit registration. Package installation is a separate future feature. */
+/** Common registry for built-in packages and validated folder configurations. */
 export class ProviderRegistry<T extends CityPackage = CityPackage> {
   private cities = new Map<string, T>();
   register(city: T) {

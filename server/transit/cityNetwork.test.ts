@@ -56,8 +56,8 @@ function memoryCity(options: { broken?: string; cityId?: string; longitude?: num
   const city: RuntimeCityPackage = { manifest, providers, infrastructure: () => [], places: () => [] };
   return { city, network: createCityNetwork(city), now, feeds };
 }
-test('only Bilbao is registered, with honest source capabilities and existing styling metadata', () => {
-  assert.deepEqual(cityRegistry.getCities().map((city) => city.id), ['es-bilbao']);
+test('built-in Bilbao remains registered with honest capabilities and existing styling when folders are added', () => {
+  assert.ok(cityRegistry.getCities().some((city) => city.id === 'es-bilbao'));
   assert.equal(cityRegistry.getProvidersForCity('es-bilbao').length, bilbaoManifest.providers.length);
   const capabilities = (id: string) => bilbaoManifest.providers.find((p) => p.id === id)!.capabilities;
   assert.equal(capabilities('bizkaibus').vehiclePositions, true);

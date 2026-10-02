@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:transit-3d:city-package:1",
+  "title": "Transit 3D folder city package API 1",
+  "$comment": "Runtime additionally validates timezone, URL credentials, country prefix, bounds ordering, center within bounds, and unique provider IDs. Folder name must equal id.",
+  "type": "object", "additionalProperties": false,
+  "required": ["apiVersion", "id", "countryCode", "name", "region", "timezone", "center", "bounds", "modes", "presentation", "providers"],
+  "properties": {
+    "apiVersion": { "const": 1 },
+    "id": { "type": "string", "maxLength": 500, "pattern": "^[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" },
+    "name": { "$ref": "#/$defs/text" },
+    "region": { "$ref": "#/$defs/text" },
+    "timezone": { "$ref": "#/$defs/text" },
+    "center": { "$ref": "#/$defs/coordinate" },
+    "bounds": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/coordinate" } },
+    "modes": { "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": { "enum": ["bus", "rail", "tram", "funicular", "unknown"] } },
+    "presentation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title", "mapLabel", "searchLabel", "initialZoom", "brandMark"],
+      "properties": {
+        "title": { "$ref": "#/$defs/text" }, "mapLabel": { "$ref": "#/$defs/text" },
+        "searchLabel": { "$ref": "#/$defs/text" }, "brandMark": { "$ref": "#/$defs/text" },
+        "initialZoom": { "type": "number", "minimum": 0, "maximum": 20 }
+      }
+    },
+    "providers": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/provider" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S" },
+    "coordinate": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "prefixItems": [{ "type": "number", "minimum": -180, "maximum": 180 }, { "type": "number", "minimum": -90, "maximum": 90 }],
+      "items": false
+    },
+    "url": { "type": "string", "maxLength": 500, "format": "uri", "pattern": "^https://[^\\s#]+$", "$comment": "Public direct feed URL; no embedded credentials or authentication required." },
+    "provider": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "color", "sources"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 500, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "name": { "$ref": "#/$defs/text" }, "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "primary": { "type": "boolean" }, "group": { "$ref": "#/$defs/text" },
+        "sources": {
+          "type": "object", "additionalProperties": false, "required": ["gtfs"],
+          "properties": { "gtfs": { "$ref": "#/$defs/url" }, "tripUpdates": { "$ref": "#/$defs/url" }, "vehiclePositions": { "$ref": "#/$defs/url" } }
+        },
+        "routeIds": { "type": "array", "minItems": 1, "maxItems": 10000, "uniqueItems": true, "items": { "$ref": "#/$defs/text" } },
+        "maximumGpsSpeed": { "type": "number", "minimum": 1, "maximum": 120 },
+        "appearance": {
+          "type": "object", "additionalProperties": false, "required": ["kind", "composition", "lateralOffsetMeters"],
+          "properties": {
+            "kind": { "enum": ["bus", "train", "metro", "tram", "funicular", "unknown"] },
+            "lateralOffsetMeters": { "type": "number", "minimum": 0, "maximum": 10 },
+            "composition": {
+              "type": "object", "additionalProperties": false, "required": ["count", "length", "gap"],
+              "properties": { "count": { "type": "integer", "minimum": 1, "maximum": 16 }, "length": { "type": "number", "minimum": 1, "maximum": 40 }, "gap": { "type": "number", "minimum": 0, "maximum": 10 } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

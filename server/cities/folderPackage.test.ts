@@ -3,6 +3,9 @@ import test from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import AdmZip from 'adm-zip';
+import { createCityNetwork } from '../transit/network';
 import { parseCityPackage } from './packageConfig';
 import { createFolderCity, loadFolderCities } from './folderPackage';
 import { ProviderRegistry } from '../transit/registry';
@@ -19,6 +22,13 @@ test('data-only format accepts static sources and returns an independent configu
   raw.providers[0].name = 'Changed';
   assert.equal(parsed.providers[0].name, 'Bus');
   assert.equal(parsed.apiVersion, 1);
+});
+test('the template shared with normal chats conforms to the runtime contract', () => {
+  const file = new URL('../../docs/city-package-kit/city.example.json', import.meta.url);
+  assert.equal(parseCityPackage(JSON.parse(fs.readFileSync(file, 'utf8'))).id, 'es-example');
+  const schema = JSON.parse(fs.readFileSync(new URL('../../docs/city-package-kit/city.schema.json', import.meta.url), 'utf8'));
+  assert.equal(schema.properties.apiVersion.const, 1);
+  assert.equal(schema.additionalProperties, false);
 });
 test('rejects incompatible versions, invalid IDs, timezone, coordinates and unsupported fields', () => {
   for (const patch of [{ apiVersion: 2 }, { id: '../test' }, { countryCode: 'FR' }, { timezone: 'Invalid/Zone' }, { bounds: [[-2, 44], [-4, 42]] }, { center: [NaN, 43] }, { center: [10, 10] }, { modes: ['plane'] }, { modes: ['bus', 'bus'] }, { code: 'execute()' }]) {
@@ -76,4 +86,50 @@ test('missing package root leaves the registry untouched', () => {
   const registry = new ProviderRegistry<RuntimeCityPackage>();
   assert.deepEqual(loadFolderCities(registry, path.join(os.tmpdir(), 'transit-missing-' + crypto.randomUUID())), []);
   assert.equal(registry.getCities().length, 0);
+});
+test('a copied GTFS package produces catalog, geometry and scheduled vehicles without touching Bilbao', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'transit-city-test-')), previous = process.cwd();
+  try {
+    process.chdir(root);
+    const config = parseCityPackage({ ...fixture(), providers: [{ ...fixture().providers[0], routeIds: ['r1'] }] });
+    const seed = (cityId: string) => {
+      const hash = createHash('sha256').update(JSON.stringify(config.providers[0])).digest('hex');
+      const directory = path.resolve('server/cache', `${cityId}-${hash}`, 'bus');
+      fs.mkdirSync(directory, { recursive: true });
+      const zip = new AdmZip();
+      const tables = {
+        routes: 'route_id,route_short_name,route_long_name,route_type\nr1,1,Test,3\nr2,2,Outside,3\n',
+        trips: 'route_id,service_id,trip_id,shape_id\nr1,daily,t1,s1\nr2,daily,t2,s2\n',
+        stops: 'stop_id,stop_name,stop_lat,stop_lon\na,Start,43,-3\nb,End,43,-2.99\nx,Outside,0,0\n',
+        stop_times: 'trip_id,stop_id,stop_sequence,arrival_time,departure_time\nt1,a,1,00:00:00,00:00:00\nt1,b,2,24:00:00,24:00:00\nt2,x,1,00:00:00,00:00:00\n',
+        shapes: 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\ns1,43,-3,1\ns1,43,-2.99,2\ns2,0,0,1\ns2,0,1,2\n',
+        calendar: 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\ndaily,1,1,1,1,1,1,1,20260101,20300101\n',
+      };
+      for (const [table, text] of Object.entries(tables)) zip.addFile(table + '.txt', Buffer.from(text));
+      zip.writeZip(path.join(directory, 'gtfs.zip'));
+      return createFolderCity({ ...config, id: cityId });
+    };
+    const city = seed('es-test'), other = seed('es-other');
+    const gtfs = await city.providers[0].getGtfs();
+    assert.deepEqual([...gtfs.routes.keys()], ['r1']);
+    assert.deepEqual([...gtfs.shapes.keys()], ['s1']);
+    assert.deepEqual([...gtfs.stops.keys()], ['a', 'b']);
+    const network = createCityNetwork(city), otherNetwork = createCityNetwork(other);
+    const [catalog, second] = await Promise.all([network.getNetwork(), otherNetwork.getNetwork()]);
+    assert.equal(catalog.routes[0].id, 'es-test:bus:route:r1');
+    assert.equal(second.routes[0].id, 'es-other:bus:route:r1');
+    assert.equal(catalog.stops.length, 2);
+    const snapshot = await city.providers[0].getSnapshot(new Date('2026-10-03T10:00:00Z'));
+    assert.equal(snapshot.vehicles.length, 1);
+    assert.equal(snapshot.vehicles[0].positionSource, 'SCHEDULE_SIMULATION');
+    assert.equal(snapshot.vehicles[0].sourceTimestamp, null);
+    assert.ok(snapshot.vehicles[0].receivedTimestamp! > 0);
+    const shape = await network.getGeometries([snapshot.vehicles[0].shapeId]);
+    assert.equal(shape.length, 1);
+    assert.equal((await network.getGeometries(['es-other:bus:shape:s1'])).length, 0);
+  } finally {
+    process.chdir(previous);
+    assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep + 'transit-city-test-'));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

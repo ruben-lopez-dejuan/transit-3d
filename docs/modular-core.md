@@ -1,5 +1,9 @@
 # Entrega: núcleo modular de ciudades (API 1)
 
+Actualización: el selector y la incorporación de carpetas JSON ya están disponibles.
+Consulta `docs/city-packages.md` y `docs/city-package-kit/FORMAT.md` para el flujo
+actual. Este documento conserva el alcance y decisiones del refactor original.
+
 ## Alcance
 
 Bilbao se encapsula con sus proveedores actuales. No se registran ciudades nuevas.

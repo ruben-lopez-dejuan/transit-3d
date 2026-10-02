@@ -1,5 +1,17 @@
 # Validación de la entrega
 
+## Selector y paquetes de ciudades
+
+**3 de octubre de 2026.** `npm test`: **101 tests pasando**, 72 core y 29 frontend.
+`npm run typecheck`, `npm run build` y `npm run cities:check` correctos.
+Solo Bilbao está instalado; se prueba otra ciudad mediante un ZIP GTFS sintético
+temporal, sin fuentes externas. La integración cubre filtros, catálogo, geometría,
+vehículos, namespaces, timestamps y aislamiento de configuraciones inválidas.
+Los tests ya no suponen que el usuario nunca añadirá carpetas de ciudades.
+Modelos y LOD conservan sus hashes de build. No se abrió la aplicación ni se
+realizaron pruebas manuales. Flujo de instalación, límites y lista de pruebas
+para el usuario: [city-packages.md](city-packages.md).
+
 ## Túneles Euskotren
 
 **3 de octubre de 2026.** `npm test`: **88 tests pasando**, 63 core y 25 frontend.

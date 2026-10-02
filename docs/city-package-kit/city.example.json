@@ -1,0 +1,27 @@
+{
+  "apiVersion": 1,
+  "id": "es-example",
+  "countryCode": "ES",
+  "name": "Ejemplo de formato; no es una ciudad integrada",
+  "region": "Región",
+  "timezone": "Europe/Madrid",
+  "center": [-3, 43],
+  "bounds": [[-4, 42], [-2, 44]],
+  "modes": ["bus"],
+  "presentation": {
+    "title": "Transit 3D",
+    "mapLabel": "Mapa de transporte",
+    "searchLabel": "Buscar transporte",
+    "initialZoom": 12.5,
+    "brandMark": "t."
+  },
+  "providers": [
+    {
+      "id": "example-bus",
+      "name": "Operador de ejemplo",
+      "color": "#cc2233",
+      "primary": true,
+      "sources": { "gtfs": "https://example.org/REEMPLAZAR-POR-FEED-VERIFICADO.zip" }
+    }
+  ]
+}
