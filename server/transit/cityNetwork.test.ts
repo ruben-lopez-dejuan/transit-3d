@@ -26,8 +26,18 @@ function fixture(longitude = -2.95, routeType = 3): BizkaibusGtfs {
 function memoryCity(options: { broken?: string; cityId?: string; longitude?: number } = {}) {
   const ids = ['bizkaibus', 'bilbobus', 'metro-bilbao', 'euskotren'];
   const manifest = { ...bilbaoManifest, id: options.cityId ?? bilbaoManifest.id, providers: bilbaoManifest.providers.filter((p) => ids.includes(p.id)) };
-  const feeds = new Map(ids.map((id) => [id, fixture(options.longitude, id.includes('bus') ? 3 : 1)]));
   const now = Date.now();
+  // Keep the final call near the test clock. A fixed 24:00 call is outside the
+  // API's departures window when these tests run shortly after midnight.
+  const date = formatServiceDate(new Date(now), manifest.timezone).date;
+  const finalSeconds = Math.floor((now - serviceEpoch(date, 0, manifest.timezone)) / 1000) + 600;
+  const finalTime = `${String(Math.floor(finalSeconds / 3600)).padStart(2, '0')}:${String(Math.floor(finalSeconds % 3600 / 60)).padStart(2, '0')}:${String(finalSeconds % 60).padStart(2, '0')}`;
+  const feeds = new Map(ids.map((id) => {
+    const gtfs = fixture(options.longitude, id.includes('bus') ? 3 : 1);
+    const last = gtfs.tripStops.get('trip:1')!.at(-1)!;
+    last.arrivalTime = finalTime; last.departureTime = finalTime;
+    return [id, gtfs] as const;
+  }));
   const providers = ids.map((id) => {
     const gtfs = feeds.get(id)!;
     const provider = new RegisteredProvider(manifest, manifest.providers.find((p) => p.id === id)!, {
