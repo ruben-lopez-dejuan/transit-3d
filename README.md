@@ -8,8 +8,9 @@ incluido el funicular de Artxanda.
 ## Calidad de los datos
 
 - **REAL / INTERPOLADO:** GPS válido de Bizkaibus, Bilbobus y Renfe; también Dbus
-  y Tuvisa cuando sus feeds están frescos. La interpolación respeta los timestamps
-  del operador y se detiene en la última posición observada.
+  y Tuvisa cuando sus feeds están frescos. La predicción usa tiempos y progreso
+  originales, ajusta suavemente las nuevas observaciones y se etiqueta ESTIMADO
+  cuando avanza más allá del último GPS. No recupera errores con acelerones.
 - **ESTIMADO con predicciones:** Metro Bilbao y Euskotren/tranvías tienen
   TripUpdates útiles, pero no posiciones GPS publicadas en la auditoría.
 - **ESTIMADO por horario:** Artxanda y los demás operadores sin realtime
@@ -43,7 +44,8 @@ Se requiere salida HTTPS a las fuentes documentadas y espacio escribible para
 - Mapa claro/oscuro, búsqueda de líneas/paradas, favoritos y próximas llegadas.
 - Capas independientes por operador y modo: tren, tranvía, bus y funicular.
 - Vehículos reconocibles desde lejos; línea y destino con gestión de colisiones.
-- Modelos 3D al acercarse: buses con ruedas/ventanas/luces, Bilbobus rojo y
+- Modelos 3D desde zoom 11: siluetas por modo, detalles desde 14 y 16,
+  buses con ruedas/ventanas/luces, Bilbobus rojo y
   composiciones ferroviarias cuyos coches siguen individualmente las curvas.
 - Selección y seguimiento conservan el detalle de los demás vehículos.
 - Metro subterráneo transparente, con profundidad aproximada documentada.
@@ -83,6 +85,10 @@ guardan diagnósticos en la caché ignorada por Git. Resultados y límites:
 [docs/validation.md](docs/validation.md). MapLibre y Three.js todavía producen
 avisos de tamaño de bundle; queda pendiente medir rendimiento sostenido en Android
 físico.
+
+El paquete de pulido visual se valida con código, unit tests y build;
+las comprobaciones visuales quedan a cargo del usuario. Causas, LOD, cambios y
+lista manual: [docs/visual-motion.md](docs/visual-motion.md).
 
 ## Instalación web existente
 

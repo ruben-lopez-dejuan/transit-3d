@@ -1,31 +1,56 @@
 # MotionEngine
 
-El movimiento se representa como distancia acumulada sobre el shape. Las utilidades reutilizables están en `server/transit/motionEngine.ts`.
+El movimiento utiliza distancia acumulada sobre el shape. El backend mantiene
+snapping, métricas y planes; el cliente convierte progreso en coordenada/bearing
+mediante búsqueda binaria. Los coches ferroviarios calculan su propia tangente.
 
-## Primitivas
+## Flujo de tiempos
 
-- `buildShapeMetric`: crea coordenadas y distancias acumuladas en metros.
-- `projectOntoShape`: proyecta una coordenada a un segmento compatible y devuelve progreso, distancia y rumbo.
-- `positionAtProgress`: convierte progreso a coordenada y bearing sin abandonar el shape.
-- `interpolateProgress`: interpola en el eje de distancia usando una curva suave.
-- `correctedProgress`: aproxima progresivamente un progreso observado, con duración de corrección configurable (10 s por defecto).
+- observationTimestamp: instante original de la fuente GPS, en milisegundos.
+- timetableTimestamp: instante original de las predicciones de llegada.
+- fetchedAt: consulta/snapshot del servidor, sin renovar los datos originales.
+- motionTimestamp: instante de cálculo visual; no es una señal del operador.
 
-La generación schedule usa paradas GTFS como anclas y calcula una posición dentro del segmento temporal actual. Los viajes que cruzan medianoche aprovechan tiempos GTFS superiores a 24:00.
+El desfase inferido desde GPS se calcula en observationTimestamp, incluso si
+su calidad ha envejecido a predicted. Las próximas llegadas se anclan a ese
+mismo instante; una consulta duplicada no modifica el desfase ni el estado.
 
-## Estados de posición
+## GPS y correcciones
 
-- `live`: posición VehiclePosition reciente, ajustada al shape exacto.
-- `predicted`: posición procedente de una extrapolación o de tiempos/retrasos realtime verificables.
-- `scheduled`: posición calculada solo a partir de calendario y horario GTFS.
+src/transit/gpsMotion.ts predice sobre metros, a partir del ritmo observado,
+próximas paradas y forecasts. Al recibir GPS conserva posición y velocidad;
+la observación corrige la predicción progresivamente. No reproduce una cola
+antigua ni comprime dos minutos de recorrido en pocos segundos.
 
-La observación GPS original conserva su timestamp. La calidad pasa a predicted cuando la posición deja de ser reciente; tras 3 minutos se descarta como ubicación y se deja el fallback schedule cuando esté disponible.
+src/transit/progressFollower.ts integra un cambio de velocidad con aceleración
+limitada, compartido con las transiciones al horario. Correcciones con horizonte
+20–90 s dependiente de cadencia; aporte limitado de velocidad, velocidad absoluta
+por modo/proveedor y sin retrocesos. Estado STOPPED_AT o velocidad real cero
+predominan sobre el horario; predicciones de aproximación anticipan el frenado.
+GPS que supera una parada no se rechaza para imponer su horario.
 
-## Límites de esta fase
+Duplicados HTTP no reinician el predictor. Forecasts nuevos pueden actualizar el
+plan sin rejuvenecer GPS. Predicción fuera del último dato es ESTIMADO, progreso
+entre lecturas es INTERPOLADO y el progreso observado es REAL. El GPS caduca
+tras 180 s; se conserva el fallback disponible y una transición limitada.
 
-El nuevo `TransitRenderer` anima sobre metros acumulados en el shape. El backend entrega un timeline de anclas con llegada y salida, conservando tiempos de espera. `src/transit/motion.ts` convierte tiempo a progreso y progreso a posición/bearing. Para rail/tram utiliza smoothstep entre estaciones; los buses interpolan linealmente. La corrección conserva primero la posición visual anterior y desvanece el error durante 5–20 segundos.
+## Horario
 
-El polling se ejecuta cada 15 s; el bucle de animación usa requestAnimationFrame y actualiza GeoJSON aproximadamente a 15 FPS en desktop y 12 en móvil. El mapa sigue respondiendo a sus propios frames. Los shapes se descargan por lotes y se guardan en memoria; no se proyectan paradas en cada frame. A zoom 17 aparecen cuerpos extruidos simples, limitados a 60 visibles.
+Calendario/calendar_dates, tiempos superiores a 24 h y fecha del servicio
+seleccionan viajes activos. Llegada/salida duplicadas conservan dwell. Rail/tram
+usan una curva suave entre estaciones; buses interpolan linealmente y conservan
+la pausa estimada existente cuando no hay dwell publicado. No se impone esa
+pausa al GPS observado. TripUpdates verificadas tienen prioridad para las ETA.
 
-El backend infiere un desfase desde GPS para ajustar el timeline y las próximas paradas; solo lo presenta como retraso estimado si está dentro de una hora. Las TripUpdates todavía no se consumen. La extrapolación inicial de Bizkaibus conserva la aproximación de velocidad del core anterior; afinarla con historia de progreso y TripUpdates sigue pendiente. La curva ferroviaria es una aproximación visual, sin modelo físico ni observaciones reales para los operadores estáticos.
+## Renderizado
 
-No se permite que una posición LIVE conserve esa etiqueta si envejece: el frontend la convierte en PREDICTED después de 45 s. Sin nuevos snapshots durante 180 s retira también cuerpos y selección del mapa. El panel sigue indicando que los servicios SCHEDULED representan un horario, no un GPS.
+Un único requestAnimationFrame prepara movimiento/GeoJSON aproximadamente cada
+65 ms (85 ms en pantalla estrecha), sin cambiar el polling de 15 s. Los modelos
+son instancias compartidas con siluetas desde zoom 11, partes desde 14 y 16,
+y propiedad exclusiva frente a iconos. Las matrices se calculan una vez por
+coche en preparación; el render del mapa las reutiliza. Buffers adaptativos y
+recursos liberados al retirar el estilo.
+
+Causas, pruebas automatizadas, límites y lista de revisión manual:
+[visual-motion.md](visual-motion.md). No se han realizado observaciones visuales
+ni medido FPS en el paquete actual.

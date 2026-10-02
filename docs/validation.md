@@ -1,5 +1,13 @@
 # Validación de la entrega
 
+## Paquete posterior: pulido visual y movimiento
+
+Validado exclusivamente por código: **40 tests core y 24 frontend pasando** y
+`npm run build` correcto. No se abrió la aplicación, no se realizaron pruebas
+visuales ni se esperaron ciclos de feeds. Las capturas reales que aparecen
+debajo corresponden a la entrega anterior. El nuevo comportamiento requiere
+la revisión del usuario descrita en [visual-motion.md](visual-motion.md).
+
 **2 de octubre de 2026**. Feeds públicos reales, API local y frontend compilado.
 
 ## Resultados
