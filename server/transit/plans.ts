@@ -6,7 +6,7 @@ import type { MotionAnchor, Shape } from "../../src/transit/networkTypes";
 type Plan = { metric: ShapeMetric; anchors: { seconds: number; progress: number }[]; stops: { stopId: string; sequence: number; arrival: number; departure: number; progress: number }[] };
 const caches = new WeakMap<BizkaibusGtfs, { metrics: Map<string, ShapeMetric>; plans: Map<string, Plan | null> }>();
 const origins = new Map<string, number>();
-const offsetFormatter = new Intl.DateTimeFormat('en', { timeZone: 'Europe/Madrid', timeZoneName: 'shortOffset' });
+const offsetFormatters = new Map<string, Intl.DateTimeFormat>();
 function cache(gtfs: BizkaibusGtfs) {
   let value = caches.get(gtfs);
   if (!value) { value = { metrics: new Map(), plans: new Map() }; caches.set(gtfs, value); }
@@ -46,8 +46,11 @@ export function shiftDate(date: string, delta: number) {
   const day = new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6, 8)) + delta, 12));
   return { date: `${day.getUTCFullYear()}${String(day.getUTCMonth() + 1).padStart(2, '0')}${String(day.getUTCDate()).padStart(2, '0')}`, weekday: (day.getUTCDay() + 6) % 7 };
 }
-export function serviceEpoch(date: string, seconds: number): number {
-  if (origins.has(date)) return origins.get(date)! + seconds * 1000;
+export function serviceEpoch(date: string, seconds: number, timezone = 'Europe/Madrid'): number {
+  const key = timezone + ':' + date;
+  if (origins.has(key)) return origins.get(key)! + seconds * 1000;
+  let offsetFormatter = offsetFormatters.get(timezone);
+  if (!offsetFormatter) { offsetFormatter = new Intl.DateTimeFormat('en', { timeZone: timezone, timeZoneName: 'shortOffset' }); offsetFormatters.set(timezone, offsetFormatter); }
   const noon = Date.UTC(Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6, 8)), 12);
   const offset = offsetFormatter.formatToParts(noon).find((p) => p.type === "timeZoneName")!.value;
   const match = /GMT([+-])(\d+)(?::(\d+))?/.exec(offset);
@@ -55,11 +58,11 @@ export function serviceEpoch(date: string, seconds: number): number {
   // GTFS defines time relative to noon minus 12h on the service date, including DST days.
   const origin = noon - offsetMinutes * 60_000 - 43_200_000;
   if (origins.size >= 64) origins.delete(origins.keys().next().value!);
-  origins.set(date, origin);
+  origins.set(key, origin);
   return origin + seconds * 1000;
 }
-export function timelineFor(plan: Plan, date: string, delaySeconds = 0): MotionAnchor[] {
-  const origin = serviceEpoch(date, delaySeconds);
+export function timelineFor(plan: Plan, date: string, delaySeconds = 0, timezone = 'Europe/Madrid'): MotionAnchor[] {
+  const origin = serviceEpoch(date, delaySeconds, timezone);
   return plan.anchors.map((anchor) => ({ at: origin + anchor.seconds * 1000, progress: anchor.progress }));
 }
 export function shapePacket(metric: ShapeMetric, key: string): Shape {

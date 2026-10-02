@@ -2,18 +2,21 @@ import { Map as TransitMap, setWorkerUrl } from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
-import { loadNetwork, loadSnapshot, loadShapes, loadLine, loadStop, loadTrip } from './transit/client';
+import { loadCity, loadNetwork, loadSnapshot, loadShapes, loadLine, loadStop, loadTrip } from './transit/client';
 import type { Network, Snapshot, Route, Stop, Vehicle, LineDetail, StopDetail, TripDetail, TransitMode } from './transit/networkTypes';
 import { searchNetwork, type SearchResult } from './transit/search';
 import { positionQuality } from './transit/motion';
 import { TransitRenderer } from './map/transitRenderer';
 import { empty, styleUrl, setData, installLayers, installVehicleIcons, stopsData, routeData, fitShapes } from './map/networkMap';
-import { shell, esc, badge, quality, eta, time, departures, positionExplanation, delayLabel } from './ui';
+import { createShell, configureTimezone, esc, badge, quality, eta, time, departures, positionExplanation, delayLabel } from './ui';
 import { setupPwa } from './pwa';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
-$('#app').innerHTML = shell;
-setupPwa();
+$('#app').textContent = 'Cargando la red de transporte…';
+const city = await loadCity().catch((error) => { $('#app').textContent = error instanceof Error ? error.message : 'No se pudo cargar la ciudad.'; throw error; });
+$('#app').innerHTML = createShell(city);
+configureTimezone(city.timezone);
+setupPwa(city.presentation.title);
 const read = (key: string, fallback: string) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const write = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing can deny persistence. */ } };
 let favorites = new Set<string>();
@@ -25,7 +28,7 @@ const isDark = () => theme === 'dark' || (theme === 'system' && media.matches);
 document.documentElement.dataset.theme = isDark() ? 'dark' : 'light';
 $<HTMLSelectElement>('#theme').value = theme;
 setWorkerUrl(workerUrl);
-const map = new TransitMap({ container: 'map', style: styleUrl(isDark()), center: [-2.949, 43.277], zoom: 12.45, pitch: 0, attributionControl: { compact: true }, maxPitch: 65 });
+const map = new TransitMap({ container: 'map', style: styleUrl(isDark()), center: city.center, zoom: city.presentation.initialZoom, pitch: 0, attributionControl: { compact: true }, maxPitch: 65 });
 const renderer = new TransitRenderer(map);
 let network: Network | null = null, snapshot: Snapshot | null = null;
 let mode: TransitMode | 'all' = 'all';
@@ -68,14 +71,14 @@ function renderOperators() {
     const provider = snapshot?.providers.find((p) => p.operatorId === id), state = provider?.status ?? o.status;
     const vehicles = snapshot?.vehicles.filter((v) => v.operatorId === id && (!transport || v.mode === transport)) ?? [];
     const gps = vehicles.some((v) => v.observationTimestamp !== null), timings = (provider?.realtimeTripCount ?? 0) > 0;
-    const label = state === 'unavailable' ? 'Fuente no disponible' : gps && timings ? 'GPS + llegadas realtime' : timings ? 'Llegadas realtime · posición estimada' : gps ? id === 'bilbobus' ? 'GPS · llegadas por parada' : 'GPS + horarios' : 'Según horario';
+    const label = state === 'unavailable' ? 'Fuente no disponible' : gps && timings ? 'GPS + llegadas realtime' : timings ? 'Llegadas realtime · posición estimada' : gps ? o.capabilities.stopArrivals ? 'GPS · llegadas por parada' : 'GPS + horarios' : 'Según horario';
     const checked = renderer.operators.has(id) && (!transport || !renderer.disabledLayers.has(id + ':' + transport));
     return '<label class="operator-row"><input type="checkbox" data-operator="' + esc(id) + '" ' + (transport ? 'data-transport="' + transport + '" ' : '') + (checked ? 'checked' : '') + '><span class="operator-dot" style="background:' + esc(o.color) + '"></span><span><strong>' + esc(name ?? o.name) + '</strong><small>' + label + '</small></span><span class="operator-count">' + vehicles.length + '</span></label>';
   };
-  const primary = new Set(['metro-bilbao', 'euskotren', 'renfe', 'bizkaibus', 'bilbobus', 'funicular-artxanda']);
+  const rowsFor = (o: Network['operators'][number]) => o.layers?.map((layer) => row(o.id, layer.name, layer.mode)).join('') ?? row(o.id);
   const groups = new Map<string, string[]>();
-  network.operators.filter((o) => !primary.has(o.id)).forEach((o) => { const group = o.group ?? 'Otros'; if (!groups.has(group)) groups.set(group, []); groups.get(group)!.push(row(o.id)); });
-  $('#operator-list').innerHTML = row('metro-bilbao') + row('euskotren', 'Euskotren · tren', 'rail') + row('euskotren', 'Tranvía · Bilbao / Vitoria', 'tram') + row('renfe') + row('bizkaibus') + row('bilbobus') + row('funicular-artxanda') + [...groups].map(([name, rows]) => '<details data-provider-group="' + esc(name) + '" ' + (openGroups.has(name) ? 'open' : '') + '><summary>' + esc(name) + ' · ' + rows.length + ' operadores</summary>' + rows.join('') + '</details>').join('');
+  network.operators.filter((o) => !o.primary).forEach((o) => { const group = o.group ?? 'Otros'; if (!groups.has(group)) groups.set(group, []); groups.get(group)!.push(rowsFor(o)); });
+  $('#operator-list').innerHTML = network.operators.filter((o) => o.primary).map(rowsFor).join('') + [...groups].map(([name, rows]) => '<details data-provider-group="' + esc(name) + '" ' + (openGroups.has(name) ? 'open' : '') + '><summary>' + esc(name) + ' · ' + rows.length + ' operadores</summary>' + rows.join('') + '</details>').join('');
 
 }
 async function ensureShapes() {
@@ -102,7 +105,7 @@ function search() {
   if (query.trim()) results = searchNetwork(network, query, mode, renderer.operators, renderer.disabledLayers);
   else { results = [...network.routes.filter((r) => favorites.has(`route:${r.key}`)).map((item): SearchResult => ({ type: 'route', item })), ...network.stops.filter((s) => favorites.has(`stop:${s.key}`)).map((item): SearchResult => ({ type: 'stop', item }))]; if (!results.length) results = network.places.map((item) => ({ type: 'place', item })); }
   resultIndex = -1;
-  $('.search-heading').textContent = query ? `${results.length} resultados` : favorites.size ? 'Tus favoritos' : 'Explora Bilbao y Bizkaia';
+  $('.search-heading').textContent = query ? `${results.length} resultados` : favorites.size ? 'Tus favoritos' : city.presentation.searchLabel;
   $('#results').innerHTML = results.map((r, i) => `<button id="result-${i}" class="search-result row" role="option" aria-selected="false" data-result="${i}">${r.type === 'route' ? badge(r.item) : `<span class="result-icon">${r.type === 'stop' ? '◎' : '⌖'}</span>`}<span class="row-copy"><strong>${esc(r.type === 'route' ? r.item.longName || r.item.shortName : r.item.name)}</strong><small>${r.type === 'place' ? 'Lugar de la red' : `${r.type === 'route' ? 'Línea' : 'Parada / estación'} · ${esc(operatorName(r.item.operatorId))}`}</small></span><span>↗</span></button>`).join('') || '<p class="empty-copy">No encontramos coincidencias. Prueba una línea o el nombre de una estación.</p>';
   $('#search-results').hidden = false; $('#search').setAttribute('aria-expanded', 'true'); $('#clear-search').hidden = !query;
 }

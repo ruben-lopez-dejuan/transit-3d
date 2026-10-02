@@ -84,7 +84,8 @@ test("scheduled trips get a shape-based position and honest quality", () => {
 });
 
 test("TransitEngine combines normalized provider snapshots and isolates provider failures", async () => {
-  const engine = new TransitEngine([
+  const { RegisteredProvider } = await import('./registeredProvider');
+  const sourceAdapters: import('../../shared/transit/contracts').SourceAdapter[] = [
     {
       operatorId: "good",
       getSnapshot: async (now = new Date()) => ({
@@ -93,7 +94,8 @@ test("TransitEngine combines normalized provider snapshots and isolates provider
       }),
     },
     { operatorId: "offline", getSnapshot: async () => { throw new Error("feed down"); } },
-  ]);
+  ];
+  const engine = new TransitEngine(sourceAdapters.map((adapter) => new RegisteredProvider({ id: 'test-city', timezone: 'Europe/Madrid' }, { id: adapter.operatorId, name: adapter.operatorId, color: '#123456', realtime: true, capabilities: { staticGtfs: true, vehiclePositions: true, tripUpdates: false, serviceAlerts: false, occupancy: false, speed: false, bearing: false, stopArrivals: false } }, adapter)));
   const snapshot = await engine.getSnapshot(new Date("2026-10-02T10:00:00Z"));
   assert.equal(snapshot.vehicles.length, 1);
   assert.equal(snapshot.vehicles[0].positionQuality, "live");

@@ -6,6 +6,7 @@ import { esc, badge, departures, positionExplanation } from '../ui';
 import type { Network, Vehicle } from './networkTypes';
 import { estimatedBusDwell } from './stopMotion';
 import { composition, vehiclePose } from './vehiclePose';
+import { bilbaoManifest } from '../../server/cities/es-bilbao/city.manifest';
 
 test('client movement preserves station dwell and clamps the timeline', () => {
   const anchors = [{ at: 0, progress: 0 }, { at: 10000, progress: 1000 }, { at: 20000, progress: 1000 }, { at: 30000, progress: 2000 }];
@@ -36,12 +37,13 @@ test('GPS correction starts at the displayed position and gradually removes erro
   assert.equal(positionQuality({ ...vehicle, positionQuality: 'scheduled' }, 90000), 'scheduled');
 });
 const network: Network = {
+  city: bilbaoManifest,
   operators: [], places: [{ id: 'mam', name: 'San Mamés', longitude: -2.95, latitude: 43.26 }],
   routes: [
-    { key: 'bus:A3', operatorId: 'bus', routeId: 'A3', shortName: 'A3', longName: 'San Mamés', mode: 'bus', color: '#246b57', textColor: '#fff', directions: [] },
-    { key: 'rail:A3', operatorId: 'rail', routeId: 'A3', shortName: 'A3', longName: 'Rail', mode: 'rail', color: '#246b57', textColor: '#fff', directions: [] },
+    { id: 'bus:A3', cityId: 'test-city', providerId: 'bus', externalId: 'A3', key: 'bus:A3', operatorId: 'bus', routeId: 'A3', shortName: 'A3', longName: 'San Mamés', mode: 'bus', color: '#246b57', textColor: '#fff', directions: [] },
+    { id: 'rail:A3', cityId: 'test-city', providerId: 'rail', externalId: 'A3', key: 'rail:A3', operatorId: 'rail', routeId: 'A3', shortName: 'A3', longName: 'Rail', mode: 'rail', color: '#246b57', textColor: '#fff', directions: [] },
   ],
-  stops: [{ key: 'rail:s', operatorId: 'rail', stopId: 's', name: 'San Mamés', modes: ['rail'], longitude: -2.95, latitude: 43.26 }],
+  stops: [{ id: 'rail:s', cityId: 'test-city', providerId: 'rail', externalId: 's', key: 'rail:s', operatorId: 'rail', stopId: 's', name: 'San Mamés', modes: ['rail'], longitude: -2.95, latitude: 43.26 }],
 };
 
 test('estimated bus stops preserve published arrival times and existing explicit dwell', () => {

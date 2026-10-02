@@ -1,7 +1,10 @@
 import type { Departure, Vehicle, Route } from './transit/networkTypes';
+import type { CityManifest } from '../shared/transit/contracts';
 
 export const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-export const time = (at: number) => new Date(at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+let timezone = 'UTC';
+export function configureTimezone(value: string) { new Intl.DateTimeFormat('es', { timeZone: value }); timezone = value; }
+export const time = (at: number) => new Date(at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: timezone });
 export const eta = (at: number) => { const minutes = Math.ceil((at - Date.now()) / 60000); return minutes <= 0 ? 'Ahora' : minutes < 60 ? `${minutes} min` : time(at); };
 export const qualityName = { live: 'REAL', predicted: 'ESTIMADO', scheduled: 'ESTIMADO' };
 export const quality = (q: keyof typeof qualityName, rendered?: 'real' | 'interpolated' | 'estimated') => `<span class="quality ${rendered === 'estimated' ? 'predicted' : q}"><i></i>${rendered === 'interpolated' ? 'INTERPOLADO' : rendered === 'real' ? 'REAL' : rendered === 'estimated' ? 'ESTIMADO' : qualityName[q]}</span>`;
@@ -25,8 +28,8 @@ export const departures = (items: Departure[], operatorName: (id: string) => str
   const freshness = !expired && d.updatedAt ? `Actualizado hace ${Math.max(0, Math.floor((now - d.updatedAt) / 1000))} s` : expired ? 'Sin actualización reciente' : '';
   return `<button class="departure row ${realtime ? 'realtime' : ''} ${canceled ? 'canceled' : ''}" data-route="${esc(d.routeKey)}"><span class="departure-line">${esc(d.label)}</span><span class="row-copy"><strong>${esc(d.headsign || 'Servicio programado')}</strong><small>${esc(operatorName(d.operatorId))} · <span class="departure-source">${source}</span>${realtime && !canceled && d.delaySeconds !== null ? ` · ${delayLabel(d.delaySeconds)}` : ''}</small>${freshness ? `<small class="departure-freshness">${freshness}</small>` : ''}</span><span class="arrival"><strong>${canceled ? 'Cancelado' : eta(at)}</strong><small>${!canceled && realtime && d.scheduledAt && Math.abs(at - d.scheduledAt) >= 30_000 ? `<s>${time(d.scheduledAt)}</s> → ` : ''}${time(at)}</small></span></button>`;
 }).join('')}</div>` : '<p class="empty-copy">Sin próximos servicios en las siguientes seis horas.</p>';
-export const shell = `<div id="map" aria-label="Mapa del transporte de Bilbao y Bizkaia"></div>
-<header class="brand"><span class="brand-mark">b.</span><div><strong>Bilbao Transit</strong><span>La ciudad en movimiento</span></div></header>
+export const createShell = (city: CityManifest) => `<div id="map" aria-label="${esc(city.presentation.mapLabel)}"></div>
+<header class="brand"><span class="brand-mark">${esc(city.presentation.brandMark)}</span><div><strong>${esc(city.presentation.title)}</strong><span>La ciudad en movimiento</span></div></header>
 <section class="search-shell" aria-label="Buscar transporte"><div class="search-bar"><span aria-hidden="true">⌕</span><input id="search" type="search" autocomplete="off" placeholder="Línea, parada o estación" aria-label="Buscar línea, parada o estación" role="combobox" aria-controls="results" aria-expanded="false"><button id="clear-search" aria-label="Borrar búsqueda" hidden>×</button><kbd>/</kbd></div><div id="search-results" hidden><div class="search-heading">Explora la red</div><div id="results" role="listbox"></div><p class="search-foot">Líneas, paradas y lugares de la red de transporte</p></div></section>
 <nav class="mode-nav" aria-label="Filtrar por transporte"><button data-mode="all" class="active" aria-pressed="true"><span>◉</span>Todos</button><button data-mode="bus" aria-pressed="false"><span>▣</span>Bus</button><button data-mode="rail" aria-pressed="false"><span>▥</span>Metro / tren</button><button data-mode="tram" aria-pressed="false"><span>▤</span>Tranvía</button><button data-mode="funicular" aria-pressed="false"><span>↗</span>Funicular</button></nav>
 <div class="top-actions"><button id="layers-button" class="surface-button" aria-expanded="false" aria-controls="layers"><span>☷</span> Capas</button></div>

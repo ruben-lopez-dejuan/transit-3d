@@ -6,12 +6,14 @@ import type { Vehicle } from '../transit/networkTypes';
 import type { Map as TransitMap } from 'maplibre-gl';
 
 const bus = { mode: 'bus' as const, operatorId: 'bilbobus' };
+const metroStyle = { kind: 'metro' as const, composition: { count: 4, length: 17, gap: 1 }, lateralOffsetMeters: 1.7 };
+const trainStyle = { kind: 'train' as const, composition: { count: 3, length: 23, gap: 1 }, lateralOffsetMeters: 1.7 };
 test('mode silhouettes distinguish bus, suburban train, metro, articulated tram and funicular', () => {
   assert.equal(vehicleKind(bus), 'bus');
-  assert.equal(vehicleKind({ mode: 'rail', operatorId: 'renfe' }), 'train');
-  assert.equal(vehicleKind({ mode: 'rail', operatorId: 'metro-bilbao' }), 'metro');
-  assert.equal(vehicleKind({ mode: 'tram', operatorId: 'euskotren' }), 'tram');
-  assert.equal(vehicleKind({ mode: 'funicular', operatorId: 'funicular-artxanda' }), 'funicular');
+  assert.equal(vehicleKind({ mode: 'rail', appearance: trainStyle }), 'train');
+  assert.equal(vehicleKind({ mode: 'rail', appearance: metroStyle }), 'metro');
+  assert.equal(vehicleKind({ mode: 'tram' }), 'tram');
+  assert.equal(vehicleKind({ mode: 'funicular' }), 'funicular');
 });
 
 test('LOD has one representation owner, with loading and capacity fallback instead of a partial double fleet', () => {
@@ -32,7 +34,7 @@ test('minimum representation smoothly approaches physical scale, independently o
   }
   const metersPerPixel = 40075016.686 * Math.cos(43.26 * Math.PI / 180) / (512 * 2 ** 11);
   assert.ok(Math.abs(vehicleScale(bus, 11, 43.26).length * 12 / metersPerPixel - 18) < .01);
-  assert.ok(Math.abs(vehicleScale({ mode: 'rail', operatorId: 'renfe' }, 11, 43.26).length * 71 / metersPerPixel - 36) < .01);
+  assert.ok(Math.abs(vehicleScale({ mode: 'rail', appearance: trainStyle }, 11, 43.26).length * 71 / metersPerPixel - 36) < .01);
 });
 
 test('render preparation hides icons before enabling models and selection keeps other vehicle LOD unchanged', () => {
@@ -52,6 +54,7 @@ test('render preparation hides icons before enabling models and selection keeps 
   renderer.operators.add('bilbobus'); renderer.operators.add('metro-bilbao');
   const now = Date.now();
   const vehicle = (id: string, mode: Vehicle['mode'], operatorId: string): Vehicle => ({
+    cityId: 'test-city', providerId: operatorId, externalRouteId: id, externalTripId: id, externalShapeId: 's', routeShortName: id, destination: 'Destination', lat: 0, lon: .01, sourceTimestamp: null, receivedTimestamp: null, status: 'IN_SERVICE', positionSource: 'SCHEDULE_SIMULATION', appearance: mode === 'rail' ? metroStyle : undefined,
     id, mode, operatorId, operatorName: operatorId, tripId: id, routeId: id, routeKey: id, shapeId: 's', shapeKey: 's', serviceDate: '20261002', label: id, headsign: 'Destination', color: '#e73939', directionId: 0, longitude: .01, latitude: 0, bearing: 90, progressMetersAlongShape: 2000, positionQuality: 'scheduled', observationTimestamp: null, predictionTimestamp: now, delaySeconds: null, delayEstimated: false, timeline: [{ at: now - 1000, progress: 2000 }, { at: now + 100000, progress: 3000 }], nextStop: null,
   });
   renderer.shapes.set('s', { key: 's', coordinates: [[0, 0], [.05, 0]], cumulative: [0, 5000], total: 5000 });

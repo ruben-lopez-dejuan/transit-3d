@@ -1,9 +1,9 @@
 type InstallEvent = Event & { prompt(): Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
-export function setupPwa() {
+export function setupPwa(title: string) {
   if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js').catch(() => { /* App remains usable without installation. */ }); });
   }
-  const button = document.createElement('button'); button.className = 'text-button'; button.hidden = true; button.textContent = '↓ Instalar Bilbao Transit';
+  const button = document.createElement('button'); button.className = 'text-button'; button.hidden = true; button.textContent = '↓ Instalar ' + title;
   document.querySelector('#layers')?.append(button);
   let pending: InstallEvent | null = null;
   window.addEventListener('beforeinstallprompt', (event) => { event.preventDefault(); pending = event as InstallEvent; button.hidden = false; });

@@ -1,15 +1,1 @@
-import type { TransitVehicle, TransitMode, PositionQuality } from "../../server/transit/types";
-export type { TransitMode, PositionQuality };
-export type Operator = { id: string; name: string; color: string; status: "ok" | "degraded" | "unavailable"; realtime: boolean; group?: string };
-export type Route = { key: string; operatorId: string; routeId: string; shortName: string; longName: string; color: string; textColor: string; mode: TransitMode; directions: { id: string; name: string }[] };
-export type Stop = { key: string; operatorId: string; stopId: string; name: string; longitude: number; latitude: number; modes: TransitMode[] };
-export type Place = { id: string; name: string; longitude: number; latitude: number };
-export type Network = { operators: Operator[]; routes: Route[]; stops: Stop[]; places: Place[] };
-export type MotionAnchor = { at: number; progress: number };
-export type Vehicle = TransitVehicle & { routeKey: string; shapeKey: string; serviceDate: string; label: string; headsign: string; color: string; operatorName: string; timeline: MotionAnchor[]; nextStop: { key: string; name: string; at: number } | null; delayEstimated: boolean };
-export type Snapshot = { fetchedAt: number; serverTime?: number; vehicles: Vehicle[]; providers: { operatorId: string; status: Operator["status"]; sourceTimestamp: number | null; realtimeTripCount?: number; error?: string }[] };
-export type Shape = { key: string; coordinates: [number, number][]; cumulative: number[]; total: number; underground?: { from: number; to: number; depthMeters: number; approximate: boolean }[] };
-export type Departure = { routeKey: string; tripId: string; label: string; headsign: string; operatorId: string; at: number; quality: PositionQuality; delaySeconds: number | null; scheduledAt?: number; updatedAt?: number | null; source?: 'realtime' | 'gps' | 'schedule'; canceled?: boolean; directionId?: number | null; vehicleId?: string };
-export type LineDetail = { route: Route; shapes: Shape[]; stops: Stop[]; departures: Departure[] };
-export type StopDetail = { stop: Stop; nearbyStops: Stop[]; departures: Departure[] };
-export type TripDetail = { vehicleId: string; stops: (Stop & { at: number; progress: number; skipped?: boolean; realtime?: boolean })[]; shape: Shape | null };
+export type * from '../../shared/transit/network';

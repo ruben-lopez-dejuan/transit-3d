@@ -27,7 +27,7 @@ test('passenger labels remove timetable metadata while retaining the actual dest
   assert.equal(passengerHeadsign('PT-BT-SEM-IDA', 'Intermodal'), 'Intermodal');
 });
 test('landmark shortcuts prefer the exact Bilbao station over similarly named suburban stops', () => {
-  const fields = { key: '', operatorId: '', stopId: '' };
+  const fields = { key: '', id: '', cityId: 'test-city', providerId: '', externalId: '', operatorId: '', stopId: '' };
   const places = placeShortcuts([
     { ...fields, name: 'SAN MAMÉS (1060)', longitude: -3.096, latitude: 43.35, modes: ['bus'] },
     { ...fields, name: 'ALAMEDA SAN MAMÉS 8', longitude: -2.935, latitude: 43.257, modes: ['bus'] },

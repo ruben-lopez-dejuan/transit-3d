@@ -1,16 +1,15 @@
-import type { TransitMode } from '../transit/networkTypes';
 import { composition } from '../transit/vehiclePose';
+import { kindFor, type StyledVehicle } from '../../shared/transit/appearance';
+import type { VehicleKind } from '../../shared/transit/contracts';
 
-export type VehicleKind = 'bus' | 'train' | 'metro' | 'tram' | 'funicular' | 'unknown';
+export type { VehicleKind };
 export const MODEL_MIN_ZOOM = 11;
 export const MODEL_DETAIL_ZOOM = 14;
 export const MODEL_FULL_ZOOM = 16;
 export const MODEL_CAPACITY = 4096;
 
-/** Styling classification only; rail remains a shared transport mode. */
-export function vehicleKind(vehicle: { mode: TransitMode; operatorId: string }): VehicleKind {
-  return vehicle.mode === 'rail' ? vehicle.operatorId === 'metro-bilbao' ? 'metro' : 'train' : vehicle.mode;
-}
+/** Branding and consist metadata come from the city package. */
+export const vehicleKind = kindFor;
 
 export function modelLevel(zoom: number) {
   return zoom < MODEL_MIN_ZOOM ? 'cluster' : zoom < MODEL_DETAIL_ZOOM ? 'silhouette' : zoom < MODEL_FULL_ZOOM ? 'simplified' : 'detailed';
@@ -21,7 +20,7 @@ export function representation(zoom: number, ready: boolean, visibleCars: number
   return zoom >= MODEL_MIN_ZOOM && ready && visibleCars <= MODEL_CAPACITY ? 'model' : 'icon';
 }
 
-export function vehicleScale(vehicle: { mode: TransitMode; operatorId: string }, zoom: number, latitude: number) {
+export function vehicleScale(vehicle: StyledVehicle, zoom: number, latitude: number) {
   const kind = vehicleKind(vehicle), consist = composition(vehicle);
   const totalLength = consist.count * consist.length + (consist.count - 1) * consist.gap;
   const minimumLength = { bus: 18, train: 36, metro: 28, tram: 30, funicular: 16, unknown: 16 }[kind];
