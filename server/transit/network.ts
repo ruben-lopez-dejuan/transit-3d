@@ -1,6 +1,10 @@
 import { getBizkaibusGtfs, type BizkaibusGtfs } from "../providers/bizkaibus/gtfs";
 import { BizkaibusProvider } from "../providers/bizkaibus/provider";
 import { StaticGtfsProvider } from "../providers/staticGtfs";
+import { renfeProvider } from '../providers/renfe';
+import { RealtimeProvider } from '../providers/realtimeProvider';
+import { RealtimeFeedClient } from '../providers/realtimeFeed';
+import { freshTimestamp, tripInstanceKey, updatedTimeline } from './realtime';
 import { TransitEngine } from "./engine";
 import { formatServiceDate, isServiceActive, parseGtfsTime } from "./gtfsCalendar";
 import { distanceMeters } from "./motionEngine";
@@ -11,19 +15,31 @@ import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, Line
 const definitions = [
   { id: "bizkaibus", name: "Bizkaibus", color: "#177857", realtime: true },
   { id: "bilbobus", name: "Bilbobus", color: "#c33b42", realtime: false },
-  { id: "metro-bilbao", name: "Metro Bilbao", color: "#d95038", realtime: false },
-  { id: "euskotren", name: "Euskotren", color: "#3275a6", realtime: false },
+  { id: "metro-bilbao", name: "Metro Bilbao", color: "#d95038", realtime: true },
+  { id: "euskotren", name: "Euskotren", color: "#3275a6", realtime: true },
+  { id: 'renfe', name: 'Renfe Cercanías', color: '#be1747', realtime: true },
 ];
 const staticProviders = [
+  renfeProvider,
   new StaticGtfsProvider("bilbobus", "https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfs_bilbobus.zip"),
   new StaticGtfsProvider("metro-bilbao", "https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfs_metro_bilbao.zip"),
   new StaticGtfsProvider("euskotren", "https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfs_euskotren.zip"),
 ];
-const engine = new TransitEngine([new BizkaibusProvider(), ...staticProviders]);
+const realtimeProviders = [
+  new RealtimeProvider(new BizkaibusProvider(), getBizkaibusGtfs, new RealtimeFeedClient('bizkaibus-tu', 'https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb')),
+  ...staticProviders.filter((p) => p.operatorId !== 'bilbobus').map((provider) => new RealtimeProvider(provider, () => provider.getGtfs(),
+    new RealtimeFeedClient(`${provider.operatorId}-tu`, provider.operatorId === 'renfe' ? 'https://gtfsrt.renfe.com/trip_updates.pb' : `https://opendata.euskadi.eus/transport/moveuskadi/${provider.operatorId.replace('-', '_')}/gtfsrt_${provider.operatorId.replace('-', '_')}_trip_updates.pb`),
+    provider.operatorId === 'renfe' ? new RealtimeFeedClient('renfe-vp', 'https://gtfsrt.renfe.com/vehicle_positions.pb') : undefined)),
+];
+const engine = new TransitEngine([...realtimeProviders, ...staticProviders.filter((p) => p.operatorId === 'bilbobus')]);
+function updateFor(operatorId: string, date: string, tripId: string) {
+  const update = realtimeProviders.find((p) => p.operatorId === operatorId)?.updates.get(tripInstanceKey(date, tripId));
+  return update && freshTimestamp(update.updatedAt / 1000, Date.now()) !== null ? update : null;
+}
 const feeds = new Map<string, BizkaibusGtfs>();
 const routeMap = new Map<string, Route>();
 const stopMap = new Map<string, Stop>();
-type StopReference = { tripId: string; seconds: number };
+type StopReference = { tripId: string; seconds: number; stopId: string; sequence: number };
 const stopReferences = new Map<string, StopReference[]>();
 let networkCache: Promise<Network> | null = null;
 let networkExpires = 0;
@@ -73,7 +89,7 @@ async function loadNetwork(): Promise<Network> {
           if (seconds === null) continue;
           const key = `${definition.id}:${time.stopId}`;
           if (!stopReferences.has(key)) stopReferences.set(key, []);
-          stopReferences.get(key)!.push({ tripId, seconds });
+          stopReferences.get(key)!.push({ tripId, seconds, stopId: time.stopId, sequence: time.sequence });
         }
       }
       for (const stop of gtfs.stops.values()) {
@@ -100,10 +116,11 @@ function enrich(vehicle: import("./types").TransitVehicle, now: Date): Vehicle |
   if (!gtfs || !trip || !route) return null;
   const serviceDate = vehicle.id.split(":")[1] || formatServiceDate(now).date;
   const plan = tripPlan(gtfs, trip.tripId);
+  const update = updateFor(vehicle.operatorId, serviceDate, trip.tripId);
   let shiftSeconds = vehicle.delaySeconds ?? 0;
   let delaySeconds = vehicle.delaySeconds;
   let delayEstimated = false;
-  if (plan && vehicle.positionQuality !== "scheduled" && vehicle.observationTimestamp !== null) {
+  if (!update && plan && vehicle.positionQuality !== "scheduled" && vehicle.observationTimestamp !== null) {
     const interval = plan.anchors.find((a, i) => i > 0 && a.progress > plan.anchors[i - 1].progress && vehicle.progressMetersAlongShape >= plan.anchors[i - 1].progress - 2 && vehicle.progressMetersAlongShape <= a.progress + 2);
     if (interval) {
       const index = plan.anchors.indexOf(interval);
@@ -115,13 +132,19 @@ function enrich(vehicle: import("./types").TransitVehicle, now: Date): Vehicle |
       if (Math.abs(shiftSeconds) <= 3600) { delaySeconds = shiftSeconds; delayEstimated = true; }
     }
   }
-  const fullTimeline = plan ? timelineFor(plan, serviceDate, shiftSeconds) : [];
+  let fullTimeline = update ? updatedTimeline(gtfs, update) ?? (plan ? timelineFor(plan, serviceDate) : []) : plan ? timelineFor(plan, serviceDate, shiftSeconds) : [];
+  if (update && vehicle.observationTimestamp !== null) {
+    // The actual GPS anchors the map position; the forecasts control the following station times.
+    fullTimeline = [{ at: now.getTime(), progress: vehicle.progressMetersAlongShape }, ...fullTimeline.filter((a) => a.at > now.getTime() && a.progress >= vehicle.progressMetersAlongShape)];
+  }
   let nextAnchor = fullTimeline.findIndex((a) => a.at >= now.getTime());
   if (nextAnchor < 0) nextAnchor = fullTimeline.length - 1;
   const timeline = fullTimeline.slice(Math.max(0, nextAnchor - 1), nextAnchor + 5);
-  const next = plan?.stops.find((s) => s.progress >= vehicle.progressMetersAlongShape + 10);
+  const next = plan?.stops.find((s) => s.progress >= vehicle.progressMetersAlongShape + 10 && !update?.stops.get(s.sequence)?.skipped);
   const nextStop = next ? stopMap.get(`${vehicle.operatorId}:${next.stopId}`) : null;
-  return { ...vehicle, delaySeconds, delayEstimated, serviceDate, timeline, routeKey: route.key, shapeKey: `${vehicle.operatorId}:${vehicle.shapeId}`, label: route.shortName, headsign: passengerHeadsign(trip.headsign || route.longName, route.longName), color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop ? { key: nextStop.key, name: nextStop.name, at: serviceEpoch(serviceDate, next.arrival + shiftSeconds) } : null };
+  const nextUpdate = next ? update?.stops.get(next.sequence) : null;
+  if (nextUpdate) { delaySeconds = nextUpdate.arrivalRealtime ? (nextUpdate.arrival - nextUpdate.scheduledArrival) / 1000 : null; delayEstimated = false; }
+  return { ...vehicle, delaySeconds, delayEstimated, serviceDate, timeline, routeKey: route.key, shapeKey: `${vehicle.operatorId}:${vehicle.shapeId}`, label: route.shortName, headsign: passengerHeadsign(trip.headsign || route.longName, route.longName), color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop ? { key: nextStop.key, name: nextStop.name, at: nextUpdate?.arrival ?? serviceEpoch(serviceDate, next.arrival + shiftSeconds) } : null };
 }
 export async function getPresentationSnapshot(): Promise<Snapshot> {
   await getNetwork();
@@ -145,10 +168,16 @@ async function departures(operatorId: string, references: StopReference[], now: 
       if (!trip || !isServiceActive(gtfs, trip.serviceId, date.date, date.weekday)) continue;
       const route = routeMap.get(`${operatorId}:${trip.routeId}`)!;
       const vehicle = vehicles.get(`${operatorId}:${date.date}:${trip.tripId}`);
-      const at = origin + (reference.seconds + (vehicle?.delaySeconds ?? 0)) * 1000;
+      const update = updateFor(operatorId, date.date, trip.tripId);
+      const changed = update?.stops.get(reference.sequence);
+      if (changed?.skipped) continue;
+      const scheduledAt = origin + reference.seconds * 1000;
+      const gpsEstimated = !update && vehicle?.positionQuality !== 'scheduled' && vehicle?.delaySeconds != null;
+      const at = changed?.departure ?? scheduledAt + (gpsEstimated ? vehicle!.delaySeconds! * 1000 : 0);
       if (at < now.getTime() - 30_000 || at > now.getTime() + 6 * 3600_000) continue;
-      const key = `${date.date}:${trip.tripId}`;
-      const row: Departure = { routeKey: route.key, tripId: trip.tripId, label: route.shortName, headsign: passengerHeadsign(trip.headsign || route.longName, route.longName), operatorId, at, quality: vehicle && vehicle.positionQuality !== "scheduled" && vehicle.delaySeconds !== null ? "predicted" : "scheduled", delaySeconds: vehicle?.delaySeconds ?? null };
+      const key = `${date.date}:${trip.tripId}:${reference.sequence}`;
+      const realtime = changed?.departureRealtime || update?.canceled;
+      const row: Departure = { routeKey: route.key, tripId: trip.tripId, label: route.shortName, headsign: passengerHeadsign(trip.headsign || route.longName, route.longName), operatorId, at, scheduledAt, updatedAt: realtime ? update!.updatedAt : gpsEstimated ? vehicle!.observationTimestamp : null, source: realtime ? 'realtime' : gpsEstimated ? 'gps' : 'schedule', canceled: update?.canceled ?? false, quality: realtime || gpsEstimated ? 'predicted' : 'scheduled', delaySeconds: changed?.departureRealtime ? (at - scheduledAt) / 1000 : gpsEstimated ? vehicle!.delaySeconds : null };
       if (!result.has(key) || at < result.get(key)!.at) result.set(key, row);
     }
   }
@@ -164,7 +193,7 @@ export async function getLine(operatorId: string, routeId: string, direction?: s
   const shapes = [...shapeIds].sort((a, b) => b[1] - a[1]).slice(0, 6).flatMap(([id]) => { const metric = shapeMetric(gtfs, id); return metric ? [shapePacket(metric, `${operatorId}:${id}`)] : []; });
   const representative = [...trips].sort((a, b) => (gtfs.tripStops.get(b.tripId)?.length ?? 0) - (gtfs.tripStops.get(a.tripId)?.length ?? 0))[0];
   const stops = (representative ? gtfs.tripStops.get(representative.tripId) ?? [] : []).flatMap((s) => { const stop = stopMap.get(`${operatorId}:${s.stopId}`); return stop ? [stop] : []; });
-  const refs = trips.flatMap((trip) => { const first = gtfs.tripStops.get(trip.tripId)?.[0]; const seconds = first ? parseGtfsTime(first.departureTime) ?? parseGtfsTime(first.arrivalTime) : null; return seconds !== null ? [{ tripId: trip.tripId, seconds }] : []; });
+  const refs = trips.flatMap((trip) => { const first = gtfs.tripStops.get(trip.tripId)?.[0]; const seconds = first ? parseGtfsTime(first.departureTime) ?? parseGtfsTime(first.arrivalTime) : null; return seconds !== null && first ? [{ tripId: trip.tripId, seconds, stopId: first.stopId, sequence: first.sequence }] : []; });
   return { route, shapes, stops, departures: await departures(operatorId, refs, new Date()) };
 }
 export async function getStop(operatorId: string, stopId: string): Promise<StopDetail | null> {
@@ -182,8 +211,9 @@ export async function getTrip(operatorId: string, tripId: string, serviceDate: s
   const snapshot = await getPresentationSnapshot();
   const vehicle = snapshot.vehicles.find((v) => v.operatorId === operatorId && v.tripId === tripId && v.serviceDate === serviceDate);
   const plan = tripPlan(gtfs, tripId); const trip = gtfs.trips.get(tripId)!;
+  const update = updateFor(operatorId, serviceDate, tripId);
   const shape = trip.shapeId ? shapeMetric(gtfs, trip.shapeId) : null;
-  return { vehicleId: vehicle?.id ?? `${operatorId}:${serviceDate}:${tripId}`, shape: shape && trip.shapeId ? shapePacket(shape, `${operatorId}:${trip.shapeId}`) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(`${operatorId}:${s.stopId}`); return stop ? [{ ...stop, at: serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0)), progress: s.progress }] : []; }) };
+  return { vehicleId: vehicle?.id ?? `${operatorId}:${serviceDate}:${tripId}`, shape: shape && trip.shapeId ? shapePacket(shape, `${operatorId}:${trip.shapeId}`) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(`${operatorId}:${s.stopId}`), changed = update?.stops.get(s.sequence); return stop ? [{ ...stop, at: changed?.arrival ?? serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0)), progress: s.progress, skipped: changed?.skipped ?? false, realtime: changed?.arrivalRealtime ?? false }] : []; }) };
 }
 export async function getGeometries(keys: string[]): Promise<Shape[]> {
   await getNetwork();

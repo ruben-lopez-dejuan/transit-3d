@@ -16,6 +16,7 @@ export type TransitVehicle = {
   positionQuality: PositionQuality;
   observationTimestamp: number | null;
   predictionTimestamp: number;
+  timetableTimestamp?: number | null;
   delaySeconds: number | null;
 };
 
@@ -25,6 +26,7 @@ export type ProviderSnapshot = {
   sourceTimestamp: number | null;
   vehicles: TransitVehicle[];
   status: "ok" | "degraded" | "unavailable";
+  realtimeTripCount?: number;
   error?: string;
 };
 

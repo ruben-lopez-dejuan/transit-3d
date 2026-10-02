@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { progressAt, positionAlong, correctionOffset, positionQuality } from './motion';
 import { searchNetwork } from './search';
-import { esc, badge } from '../ui';
+import { esc, badge, departures, positionExplanation } from '../ui';
 import type { Network, Vehicle } from './networkTypes';
 
 test('client movement preserves station dwell and clamps the timeline', () => {
@@ -56,4 +56,19 @@ test('feed strings cannot inject HTML or CSS through labels and route badges', (
   assert.ok(html.includes('--line:#176955'));
   assert.ok(html.includes('&lt;script&gt;'));
   assert.ok(!html.includes('position:fixed'));
+});
+
+test('Realtime timetables show freshness, delay and cancellation, reverting stale updates to schedule', () => {
+  const at = Date.now() + 600_000;
+  const row = { routeKey: 'renfe:r', tripId: 't', label: 'C1', headsign: 'Abando', operatorId: 'renfe', at, scheduledAt: at - 120_000, source: 'realtime' as const, updatedAt: at - 610_000, quality: 'predicted' as const, delaySeconds: 120 };
+  const html = departures([row], () => 'Renfe', at - 600_000);
+  assert.ok(html.includes('Tiempo real')); assert.ok(html.includes('+2 min')); assert.ok(html.includes('Actualizado hace 10 s'));
+  assert.ok(departures([{ ...row, canceled: true }], () => 'Renfe', at - 600_000).includes('Cancelado'));
+  const stale = departures([row], () => 'Renfe', at);
+  assert.ok(stale.includes('Sin actualización reciente')); assert.ok(!stale.includes('Tiempo real'));
+});
+test('A position predicted from TripUpdates does not claim to have a GPS signal', () => {
+  const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000 } as Vehicle;
+  assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
+  assert.ok(!positionExplanation(v, 16000).includes('Último GPS'));
 });

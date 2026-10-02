@@ -8,7 +8,7 @@ import { searchNetwork, type SearchResult } from './transit/search';
 import { positionQuality } from './transit/motion';
 import { TransitRenderer } from './map/transitRenderer';
 import { empty, styleUrl, setData, installLayers, stopsData, routeData, fitShapes } from './map/networkMap';
-import { shell, esc, badge, quality, eta, time, departures } from './ui';
+import { shell, esc, badge, quality, eta, time, departures, positionExplanation, delayLabel } from './ui';
 import { setupPwa } from './pwa';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -62,7 +62,7 @@ function updateStatus() {
 }
 function renderOperators() {
   if (!network) return;
-  $('#operator-list').innerHTML = network.operators.map((o) => { const state = snapshot?.providers.find((p) => p.operatorId === o.id)?.status ?? o.status; const count = snapshot?.vehicles.filter((v) => v.operatorId === o.id).length ?? 0; return `<label class="operator-row"><input type="checkbox" data-operator="${esc(o.id)}" ${renderer.operators.has(o.id) ? 'checked' : ''}><span class="operator-dot" style="background:${esc(o.color)}"></span><span><strong>${esc(o.name)}</strong><small>${state === 'unavailable' ? 'Fuente no disponible' : state === 'degraded' ? 'Fuente parcial · horario disponible' : o.realtime ? 'GPS + horarios' : 'Según horario'}</small></span><span class="operator-count">${count}</span></label>`; }).join('');
+  $('#operator-list').innerHTML = network.operators.map((o) => { const provider = snapshot?.providers.find((p) => p.operatorId === o.id); const state = provider?.status ?? o.status; const vehicles = snapshot?.vehicles.filter((v) => v.operatorId === o.id) ?? []; const gps = vehicles.some((v) => v.observationTimestamp !== null); const timings = (provider?.realtimeTripCount ?? 0) > 0; const label = state === 'unavailable' ? 'Fuente no disponible' : gps && timings ? 'GPS + llegadas realtime' : timings ? 'Llegadas realtime · posición estimada' : gps ? 'GPS + horarios' : 'Según horario'; return `<label class="operator-row"><input type="checkbox" data-operator="${esc(o.id)}" ${renderer.operators.has(o.id) ? 'checked' : ''}><span class="operator-dot" style="background:${esc(o.color)}"></span><span><strong>${esc(o.name)}</strong><small>${label}</small></span><span class="operator-count">${vehicles.length}</span></label>`; }).join('');
 }
 async function ensureShapes() {
   const keys = [...new Set(renderer.getVehicles().map((v) => v.shapeKey))].filter((k) => !renderer.shapes.has(k) && !inFlightShapes.has(k));
@@ -131,7 +131,7 @@ function renderDetails() {
     const q = positionQuality(v, Date.now() + renderer.clockOffset), trip = detail as TripDetail | null;
     const delay = v.delaySeconds;
     const next = trip?.stops.find((s) => s.progress > v.progressMetersAlongShape + 10);
-    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(v.operatorName)} · ${v.mode === 'rail' ? 'Metro / tren' : v.mode === 'tram' ? 'Tranvía' : 'Bus'}</div><div class="title-row">${badge(v)}<h1>${esc(v.headsign || 'Servicio en circulación')}</h1></div>${quality(q)}<p class="quality-explanation">${q === 'scheduled' ? 'Posición calculada con el horario. No es una ubicación GPS.' : `Último GPS hace ${Math.max(0, Math.floor((Date.now() + renderer.clockOffset - (v.observationTimestamp ?? Date.now())) / 1000))} s. El movimiento entre lecturas es estimado.`}</p></div><div class="next-stop"><span>Próxima parada</span><strong>${esc(v.nextStop?.name ?? next?.name ?? 'Fin del recorrido')}</strong><div>${v.nextStop ? eta(v.nextStop.at) : next ? eta(next.at) : '—'}${delay !== null ? `<small> · ${v.delayEstimated ? 'Desfase estimado' : 'Retraso'} ${delay < 0 ? '−' : '+'}${Math.round(Math.abs(delay) / 60)} min</small>` : ''}</div></div><div class="detail-actions"><button data-follow class="${following ? 'primary' : ''}">${following ? '● Siguiendo' : '⌖ Seguir vehículo'}</button><button data-fit>Ver recorrido</button></div><section class="detail-section"><div class="section-heading"><h2>Paradas del recorrido</h2><button data-full-line class="text-button">Ver línea →</button></div>${trip ? stopRows(trip.stops, v.progressMetersAlongShape) : loading}</section>`;
+    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(v.operatorName)} · ${v.mode === 'rail' ? 'Metro / tren' : v.mode === 'tram' ? 'Tranvía' : 'Bus'}</div><div class="title-row">${badge(v)}<h1>${esc(v.headsign || 'Servicio en circulación')}</h1></div>${quality(q)}<p class="quality-explanation">${esc(positionExplanation(v, Date.now() + renderer.clockOffset))}</p></div><div class="next-stop"><span>Próxima parada</span><strong>${esc(v.nextStop?.name ?? next?.name ?? 'Fin del recorrido')}</strong><div>${v.nextStop ? eta(v.nextStop.at) : next ? eta(next.at) : '—'}${delay !== null ? `<small> · ${v.delayEstimated ? 'Desfase estimado · ' : ''}${delayLabel(delay)}</small>` : ''}</div></div><div class="detail-actions"><button data-follow class="${following ? 'primary' : ''}">${following ? '● Siguiendo' : '⌖ Seguir vehículo'}</button><button data-fit>Ver recorrido</button></div><section class="detail-section"><div class="section-heading"><h2>Paradas del recorrido</h2><button data-full-line class="text-button">Ver línea →</button></div>${trip ? stopRows(trip.stops, v.progressMetersAlongShape) : loading}</section>`;
     if (new URLSearchParams(location.search).has('debug')) { $('#debug').hidden = false; $('#debug').textContent = `trip: ${v.tripId}\nshape: ${v.shapeKey}\nprogress: ${v.progressMetersAlongShape.toFixed(1)} m\nquality: ${q}\nGPS: ${v.observationTimestamp ? new Date(v.observationTimestamp).toISOString() : 'none'}\nshape cache: ${renderer.shapes.size}\n${following ? 'following' : ''}`; }
   } else if (selection.kind === 'route') {
     const route = selection.route, line = detail as LineDetail | null;
@@ -142,8 +142,8 @@ function renderDetails() {
     $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">Parada / estación</div><h1>${esc(stop.name)}</h1><p>${data ? [...new Set(data.nearbyStops.map((s) => operatorName(s.operatorId)))].map(esc).join(' · ') : esc(operatorName(stop.operatorId))}</p></div><section class="detail-section"><div class="section-heading"><h2>Próximos servicios</h2><small>Hora local</small></div>${data ? departures(data.departures, operatorName) : loading}<p class="section-note">Incluye paradas a menos de 80 m. Las llegadas marcadas como horario pueden variar.</p></section>`;
   }
 }
-function stopRows(stops: (Stop & { at?: number; progress?: number })[], progress = -1) {
-  return `<ol class="stop-timeline">${stops.map((s) => `<li class="${s.progress !== undefined && s.progress < progress - 10 ? 'passed' : ''}"><button data-stop="${esc(s.key)}"><span>${esc(s.name)}</span>${s.at ? `<small>${time(s.at)}</small>` : ''}</button></li>`).join('')}</ol>`;
+function stopRows(stops: (Stop & { at?: number; progress?: number; skipped?: boolean; realtime?: boolean })[], progress = -1) {
+  return `<ol class="stop-timeline">${stops.map((s) => `<li class="${s.progress !== undefined && s.progress < progress - 10 ? 'passed' : ''}"><button data-stop="${esc(s.key)}"><span>${esc(s.name)}</span>${s.skipped ? '<small>No para</small>' : s.at ? `<small>${s.realtime ? '↻ ' : ''}${time(s.at)}</small>` : ''}</button></li>`).join('')}</ol>`;
 }
 function drawSelection() {
   if (!detail || !selection) return;
@@ -203,7 +203,7 @@ document.addEventListener('pointerdown', (event) => { const target = event.targe
 document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
 window.addEventListener('online', () => { void refresh(); }); window.addEventListener('offline', updateStatus);
 window.setInterval(() => { if (!document.hidden) { void refresh(); } }, 15000);
-window.setInterval(() => { if (!document.hidden) { updateStatus(); if (selection?.kind === 'vehicle') renderDetails(); } }, 10000);
-window.setInterval(async () => { const current = selection, version = detailVersion; if (!current || current.kind === 'vehicle' || document.hidden || !navigator.onLine) return; try { const fresh = current.kind === 'stop' ? await loadStop(current.stop) : await loadLine(current.route, current.direction); if (version === detailVersion) { detail = fresh; renderDetails(); } } catch { /* Keep the selected detail and make freshness visible in the main status. */ } }, 30000);
+window.setInterval(() => { if (!document.hidden) { updateStatus(); renderDetails(); } }, 10000);
+window.setInterval(async () => { const current = selection, version = detailVersion; if (!current || document.hidden || !navigator.onLine) return; try { const vehicle = selectedVehicle(); const fresh = current.kind === 'stop' ? await loadStop(current.stop) : current.kind === 'route' ? await loadLine(current.route, current.direction) : vehicle ? await loadTrip(vehicle) : null; if (version === detailVersion && fresh) { detail = fresh; renderDetails(); } } catch { /* Keep previous detail; stale arrivals revert visibly to schedule. */ } }, 15000);
 void refresh();
 window.addEventListener('pagehide', () => renderer.stop());

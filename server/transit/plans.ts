@@ -3,7 +3,7 @@ import { buildShapeMetric, projectOntoShape, type ShapeMetric } from "./motionEn
 import { formatServiceDate, parseGtfsTime } from "./gtfsCalendar";
 import type { MotionAnchor, Shape } from "../../src/transit/networkTypes";
 
-type Plan = { metric: ShapeMetric; anchors: { seconds: number; progress: number }[]; stops: { stopId: string; arrival: number; departure: number; progress: number }[] };
+type Plan = { metric: ShapeMetric; anchors: { seconds: number; progress: number }[]; stops: { stopId: string; sequence: number; arrival: number; departure: number; progress: number }[] };
 const caches = new WeakMap<BizkaibusGtfs, { metrics: Map<string, ShapeMetric>; plans: Map<string, Plan | null> }>();
 function cache(gtfs: BizkaibusGtfs) {
   let value = caches.get(gtfs);
@@ -31,7 +31,7 @@ export function tripPlan(gtfs: BizkaibusGtfs, tripId: string): Plan | null {
     if (!stop || arrival === null || departure === null) continue;
     const projection = projectOntoShape(metric, [stop.longitude, stop.latitude], stops.at(-1)?.progress ?? 0);
     if (!projection || projection.distanceMeters >= 600) continue;
-    stops.push({ stopId: time.stopId, arrival, departure: Math.max(arrival, departure), progress: projection.progressMeters });
+    stops.push({ stopId: time.stopId, sequence: time.sequence, arrival, departure: Math.max(arrival, departure), progress: projection.progressMeters });
     anchors.push({ seconds: arrival, progress: projection.progressMeters });
     if (departure > arrival) anchors.push({ seconds: departure, progress: projection.progressMeters });
   }
