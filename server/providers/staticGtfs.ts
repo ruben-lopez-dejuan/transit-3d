@@ -16,7 +16,7 @@ export class StaticGtfsProvider implements TransitProvider {
   private expires = 0;
   private stale = false;
   private receivedTimestamp: number | null = null;
-  constructor(readonly operatorId: string, source: string | SourceSupplier, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; timezone?: string; cacheNamespace?: string } = {}) { this.source = typeof source === 'string' ? async (): Promise<ResolvedSource> => ({ url: source, identity: `http:${source}`, temporary: false }) : source; }
+  constructor(readonly operatorId: string, source: string | SourceSupplier, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; timezone?: string; cacheNamespace?: string; filterActiveServices?: boolean } = {}) { this.source = typeof source === 'string' ? async (): Promise<ResolvedSource> => ({ url: source, identity: `http:${source}`, temporary: false }) : source; }
   private readonly source: SourceSupplier;
   getGtfs(): Promise<BizkaibusGtfs> {
     if (!this.data || Date.now() >= this.expires) {
@@ -36,9 +36,9 @@ export class StaticGtfsProvider implements TransitProvider {
     }
     const parsedPath = path.join(directory, 'parsed.v8');
     const today = formatServiceDate(new Date(), this.options.timezone);
-    const serviceDates = [-1, 0, 1].map((delta) => shiftDate(today.date, delta));
+    const serviceDates = this.options.filterActiveServices === false ? undefined : [-1, 0, 1].map((delta) => shiftDate(today.date, delta));
     const now = Date.now();
-    const cacheVariant = serviceDates.map(({ date }) => date).join(',') + ':' + Math.floor(now / (3 * 3600_000));
+    const cacheVariant = serviceDates ? serviceDates.map(({ date }) => date).join(',') + ':' + Math.floor(now / (3 * 3600_000)) : 'all-services';
     this.receivedTimestamp = fs.statSync(zipPath).mtimeMs;
     const parsed = readParsedFeed(parsedPath, zipPath, cacheVariant);
     if (parsed) return parsed;
@@ -49,7 +49,7 @@ export class StaticGtfsProvider implements TransitProvider {
       if (entry) fs.writeFileSync(path.join(directory, `${table}.txt`), entry.getData());
       else if (["calendar", "calendar_dates", "frequencies"].includes(table)) fs.rmSync(path.join(directory, `${table}.txt`), { force: true });
     }
-    const gtfs = await parseGtfsDirectoryStreaming(directory, this.options.includeRoute, serviceDates, { from: now - 2 * 3600_000, to: now + 8 * 3600_000, timezone: this.options.timezone ?? 'Europe/Madrid' });
+    const gtfs = await parseGtfsDirectoryStreaming(directory, this.options.includeRoute, serviceDates, serviceDates ? { from: now - 2 * 3600_000, to: now + 8 * 3600_000, timezone: this.options.timezone ?? 'Europe/Madrid' } : undefined);
     await this.options.prepare?.(gtfs);
     if (!gtfs.routes.size || !gtfs.trips.size || !gtfs.shapes.size) throw new Error(`Incomplete GTFS for ${this.operatorId}`);
     writeParsedFeed(parsedPath, zipPath, gtfs, cacheVariant);

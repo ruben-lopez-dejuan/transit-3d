@@ -88,12 +88,13 @@ async function ensureGtfsFiles() {
   if (!isFresh(BIZKAIBUS_GTFS_ZIP, STATIC_GTFS_MAX_AGE_MS)) {
     console.log("[Bizkaibus] Downloading static GTFS...");
 
-    const bytes = await downloadFile(
-      BIZKAIBUS_GTFS_URL,
-      BIZKAIBUS_GTFS_ZIP,
-    );
-
-    console.log(`[Bizkaibus] Static GTFS: ${bytes} bytes.`);
+    try {
+      const bytes = await downloadFile(BIZKAIBUS_GTFS_URL, BIZKAIBUS_GTFS_ZIP);
+      console.log(`[Bizkaibus] Static GTFS: ${bytes} bytes.`);
+    } catch (error) {
+      if (!fs.existsSync(BIZKAIBUS_GTFS_ZIP)) throw error;
+      console.warn('[Bizkaibus] Static refresh failed; using the cached GTFS.');
+    }
   }
 
   const markerPath = path.join(BIZKAIBUS_GTFS_DIR, ".source-mtime");

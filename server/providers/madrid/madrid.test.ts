@@ -173,7 +173,9 @@ test('EMT arrivals hook scopes bus IDs and only claims forecasts; the fleet rema
 });
 test('Madrid extensions remain code-owned; topology capabilities are honest and other data-only cities are unchanged', () => {
   const config = parseCityPackage(JSON.parse(fs.readFileSync('city-packages/es-madrid/city.json', 'utf8')));
-  const city = createFolderCity(config, madridExtensions(config));
+  const extensions = madridExtensions(config);
+  const city = createFolderCity(config, extensions);
+  assert.equal(extensions.get('metro-madrid')!.filterActiveServices, false);
   assert.equal(city.manifest.providers.find((p) => p.id === 'metro-madrid')!.capabilities.scheduledService, false);
   assert.equal(city.manifest.providers.find((p) => p.id === 'metro-madrid')!.capabilities.vehiclePositions, false);
   assert.equal(city.manifest.providers.find((p) => p.id === 'cercanias-renfe')!.capabilities.vehiclePositions, true);

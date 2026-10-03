@@ -21,6 +21,7 @@ import type { CityExtensionRegistry } from './extensionRegistry';
 export type ProviderExtension = {
   cacheVersion: string;
   capabilities?: Partial<CityManifest['providers'][number]['capabilities']>;
+  filterActiveServices?: boolean;
   prepareGtfs?(gtfs: BizkaibusGtfs): void | Promise<void>;
   create(context: { base: StaticGtfsProvider; getGtfs: () => Promise<BizkaibusGtfs>; timetable?: RealtimeFeedClient; gps?: RealtimeFeedClient; timezone: string; maximumGpsSpeed?: number }): { adapter: SourceAdapter; getUpdates?: () => ReadonlyMap<string, UpdatedTrip>; arrivals?: StopArrivalsAdapter };
 };
@@ -40,7 +41,7 @@ export function createFolderCity(config: CityPackageConfig, extensions: Readonly
     const hash = createHash('sha256').update(JSON.stringify({ ...settings, sources }) + (extension?.cacheVersion ?? '')).digest('hex');
     const routeIds = settings.routeIds ? new Set(settings.routeIds) : null;
     const base = new StaticGtfsProvider(settings.id, sourceSupplier(descriptor(settings.sources.gtfs), resolver), {
-      timezone: config.timezone, cacheNamespace: `${config.id}-${hash}`,
+      timezone: config.timezone, cacheNamespace: `${config.id}-${hash}`, filterActiveServices: extension?.filterActiveServices,
       includeRoute: routeIds ? (route) => routeIds.has(route.routeId) : undefined,
       prepare: async (gtfs) => {
         if (routeIds) for (const id of routeIds) if (!gtfs.routes.has(id)) throw new Error(`routeId no encontrado en GTFS: ${id}`);

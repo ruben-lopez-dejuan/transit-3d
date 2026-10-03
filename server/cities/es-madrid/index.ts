@@ -16,7 +16,8 @@ export function madridExtensions(config: CityPackageConfig): ReadonlyMap<string,
     const metro = provider.id === 'metro-madrid', lightRail = provider.id === 'metro-ligero-crtm';
     if (!metro && !lightRail) continue;
     extensions.set(provider.id, {
-      cacheVersion: 'madrid-teleindicadores-topology-v2',
+      cacheVersion: 'madrid-teleindicadores-topology-v3',
+      ...(metro ? { filterActiveServices: false } : {}),
       ...(metro ? { prepareGtfs: async (gtfs) => { try { await completeMetroTopology(gtfs); } catch { console.warn('[metro-madrid] Topología de L3 no disponible; continúan las otras líneas.'); } } } : {}),
       capabilities: { stopArrivals: true, ...(metro ? { scheduledService: false } : {}) },
       create: ({ base, getGtfs }) => {

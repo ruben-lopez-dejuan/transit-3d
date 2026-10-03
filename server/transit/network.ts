@@ -47,7 +47,7 @@ let networkExpires = 0;
 let snapshotCache: Promise<Snapshot> | null = null;
 let snapshotExpires = 0;
 let enabledState = providers.map((p) => p.enabled).join(',');
-type CatalogTask = { promise: Promise<void>; result?: PromiseSettledResult<BizkaibusGtfs>; expires: number };
+type CatalogTask = { promise: Promise<void>; result?: PromiseSettledResult<BizkaibusGtfs>; expires: number; warned?: boolean };
 const catalogTasks = new Map<string, CatalogTask>();
 // Parse large GTFS feeds sequentially so transient CSV allocations do not add
 // up to the Node heap limit when a city starts.
@@ -142,7 +142,11 @@ async function loadNetwork(): Promise<Network> {
         stopMap.set(item.key, item);
       }
     } catch (error) {
-      console.warn(`[${definition.id}] Catalog unavailable:`, error instanceof Error ? error.message : error);
+      const failedTask = catalogTasks.get(definition.id);
+      if (!failedTask?.warned) {
+        console.warn(`[${definition.id}] Catalog unavailable:`, error instanceof Error ? error.message : error);
+        if (failedTask) failedTask.warned = true;
+      }
       operators.push({ ...definition, status: "unavailable" });
       networkExpires = Math.min(networkExpires, Date.now() + 60_000);
     }
