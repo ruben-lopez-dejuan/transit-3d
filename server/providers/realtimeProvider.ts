@@ -3,16 +3,20 @@ import { RealtimeFeedClient } from './realtimeFeed';
 import { normalizeTripUpdates, type UpdatedTrip } from '../transit/realtime';
 import type { TransitProvider, ProviderSnapshot } from '../transit/types';
 import { applyRealtime } from '../transit/applyRealtime';
+import type { RealtimeMessage } from '../transit/realtime';
 export { applyRealtime } from '../transit/applyRealtime';
+export type RealtimePreparation = (gtfs: BizkaibusGtfs, timetable: RealtimeMessage | null, gps: RealtimeMessage | null, now: Date) => RealtimeMessage | null;
 
 export class RealtimeProvider implements TransitProvider {
   readonly operatorId: string;
   updates = new Map<string, UpdatedTrip>();
-  constructor(private readonly base: TransitProvider, private readonly getGtfs: () => Promise<BizkaibusGtfs>, private readonly timetable?: RealtimeFeedClient, private readonly gps?: RealtimeFeedClient, private readonly maximumGpsSpeed?: number, private readonly timezone = 'Europe/Madrid') { this.operatorId = base.operatorId; }
+  constructor(private readonly base: TransitProvider, private readonly getGtfs: () => Promise<BizkaibusGtfs>, private readonly timetable?: RealtimeFeedClient, private readonly gps?: RealtimeFeedClient, private readonly maximumGpsSpeed?: number, private readonly timezone = 'Europe/Madrid', private readonly prepare?: RealtimePreparation) { this.operatorId = base.operatorId; }
   async getSnapshot(now = new Date()): Promise<ProviderSnapshot> {
-    const [snapshot, gtfs, timetableState, gps] = await Promise.all([this.base.getSnapshot(now), this.getGtfs(), this.timetable?.get(), this.gps?.get()]);
+    const [gtfs, timetableState, gps] = await Promise.all([this.getGtfs(), this.timetable?.get(), this.gps?.get()]);
     const timetable = timetableState ?? { feed: null, sourceTimestamp: null, receivedTimestamp: null };
-    this.updates = normalizeTripUpdates(gtfs, timetable.feed, now, this.timezone);
+    const feed = this.prepare ? this.prepare(gtfs, timetable.feed, gps?.feed ?? null, now) : timetable.feed;
+    const snapshot = await this.base.getSnapshot(now);
+    this.updates = normalizeTripUpdates(gtfs, feed, now, this.timezone);
     const vehicles = applyRealtime(gtfs, snapshot.vehicles, this.operatorId, this.updates, gps?.feed ?? null, now, this.maximumGpsSpeed, this.timezone).map((vehicle) => {
       // An explicitly unknown receipt stays unknown; HTTP query time is unrelated.
       const baseReceipt = vehicle.receivedTimestamp === undefined ? snapshot.receivedTimestamp ?? null : vehicle.receivedTimestamp;

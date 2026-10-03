@@ -13,4 +13,4 @@ export type Shape = { key: string; coordinates: [number, number][]; cumulative: 
 export type Departure = { routeKey: string; tripId: string; label: string; headsign: string; operatorId: string; at: number; quality: PositionQuality; delaySeconds: number | null; scheduledAt?: number; updatedAt?: number | null; source?: 'realtime' | 'gps' | 'schedule'; canceled?: boolean; directionId?: number | null; vehicleId?: string };
 export type LineDetail = { route: Route; shapes: Shape[]; stops: Stop[]; departures: Departure[] };
 export type StopDetail = { stop: Stop; nearbyStops: Stop[]; departures: Departure[] };
-export type TripDetail = { vehicleId: string; trip: NormalizedTrip; stops: (Stop & { at: number; progress: number; skipped?: boolean; realtime?: boolean })[]; shape: Shape | null };
+export type TripDetail = { vehicleId: string; trip: NormalizedTrip; stops: (Stop & { at: number | null; progress: number; skipped?: boolean; realtime?: boolean })[]; shape: Shape | null };

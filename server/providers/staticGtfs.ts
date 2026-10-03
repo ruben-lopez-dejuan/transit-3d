@@ -12,7 +12,7 @@ export class StaticGtfsProvider implements TransitProvider {
   private expires = 0;
   private stale = false;
   private receivedTimestamp: number | null = null;
-  constructor(readonly operatorId: string, private readonly url: string, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void; timezone?: string; cacheNamespace?: string } = {}) {}
+  constructor(readonly operatorId: string, private readonly url: string, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; timezone?: string; cacheNamespace?: string } = {}) {}
   getGtfs(): Promise<BizkaibusGtfs> {
     if (!this.data || Date.now() >= this.expires) {
       this.expires = Infinity;
@@ -41,7 +41,7 @@ export class StaticGtfsProvider implements TransitProvider {
       else if (["calendar", "calendar_dates", "frequencies"].includes(table)) fs.rmSync(path.join(directory, `${table}.txt`), { force: true });
     }
     const gtfs = parseGtfsDirectory(directory, this.options.includeRoute);
-    this.options.prepare?.(gtfs);
+    await this.options.prepare?.(gtfs);
     if (!gtfs.routes.size || !gtfs.trips.size || !gtfs.shapes.size) throw new Error(`Incomplete GTFS for ${this.operatorId}`);
     writeParsedFeed(parsedPath, zipPath, gtfs);
     console.log(`[${this.operatorId}] GTFS ready: ${gtfs.routes.size} routes, ${gtfs.trips.size} trips.`);

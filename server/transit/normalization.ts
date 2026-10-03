@@ -8,6 +8,8 @@ type Scope = { cityId: string; providerId: string };
 const key = (scope: Scope, kind: Parameters<typeof entityId>[2], id: string) => entityId(scope.cityId, scope.providerId, kind, id);
 export function normalizeVehicle(vehicle: AdapterVehicle, scope: Scope & { timezone: string }, receivedTimestamp: number | null, now: number): NormalizedVehicle | null {
   if (vehicle.operatorId !== scope.providerId || !vehicle.id || !vehicle.tripId || !vehicle.routeId || !vehicle.shapeId || !Number.isFinite(vehicle.latitude) || !Number.isFinite(vehicle.longitude) || Math.abs(vehicle.latitude) > 90 || Math.abs(vehicle.longitude) > 180 || !Number.isFinite(vehicle.progressMetersAlongShape) || vehicle.progressMetersAlongShape < 0) return null;
+  if (vehicle.motionTimeline && (vehicle.motionTimeline.length < 2 || vehicle.motionTimeline.length > 500 || vehicle.motionTimeline.some((a, i, anchors) => !Number.isFinite(a.at) || a.at <= 0 || !Number.isFinite(a.progress) || a.progress < 0 || i > 0 && (a.at < anchors[i - 1].at || a.progress < anchors[i - 1].progress)))) return null;
+  if (vehicle.arrivalPredictions && (vehicle.arrivalPredictions.length > 200 || vehicle.arrivalPredictions.some((a) => !Number.isFinite(a.at) || a.at <= 0 || !Number.isFinite(a.progress) || a.progress < 0 || !Number.isFinite(a.sourceTimestamp) || a.sourceTimestamp <= 0))) return null;
   const sourceTimestamp = vehicle.observationTimestamp ?? (vehicle.positionQuality === 'scheduled' ? null : vehicle.timetableTimestamp ?? null);
   // Malformed dates must not become apparently fresh GPS or break date formatting.
   if (sourceTimestamp !== null && (!Number.isFinite(sourceTimestamp) || sourceTimestamp <= 0)) return null;
@@ -24,7 +26,7 @@ export function normalizeVehicle(vehicle: AdapterVehicle, scope: Scope & { timez
     routeId: key(scope, 'route', vehicle.routeId), tripId: key(scope, 'trip', vehicle.tripId), shapeId: key(scope, 'shape', vehicle.shapeId),
     externalRouteId: vehicle.routeId, externalTripId: vehicle.tripId, externalShapeId: vehicle.shapeId,
     vehicleId: vehicle.vehicleId ? key(scope, 'vehicle', vehicle.vehicleId) : null, externalVehicleId: vehicle.vehicleId ?? null,
-    serviceDate, routeShortName: '', destination: '', lat: vehicle.latitude, lon: vehicle.longitude, bearing,
+    serviceDate, routeShortName: '', destination: vehicle.destination ?? '', nextStopId: vehicle.nextStopId ? key(scope, 'stop', vehicle.nextStopId) : undefined, lat: vehicle.latitude, lon: vehicle.longitude, bearing,
     speed, speedMetersPerSecond: speed, sourceTimestamp, receivedTimestamp: receipt,
     positionQuality: vehicle.positionQuality === 'live' && !isFresh(vehicle.observationTimestamp, now, GPS_LIVE_MAX_AGE_MS) ? 'predicted' : vehicle.positionQuality,
     positionSource: stale ? 'STALE' : vehicle.observationTimestamp !== null ? 'GPS' : vehicle.positionQuality === 'scheduled' ? 'SCHEDULE_SIMULATION' : 'PROVIDER_ESTIMATED',

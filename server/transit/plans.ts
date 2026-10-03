@@ -12,6 +12,8 @@ function cache(gtfs: BizkaibusGtfs) {
   if (!value) { value = { metrics: new Map(), plans: new Map() }; caches.set(gtfs, value); }
   return value;
 }
+/** In-memory realtime journeys may change or expire; their plan cache must expire too. */
+export function invalidateTripPlan(gtfs: BizkaibusGtfs, tripId: string) { cache(gtfs).plans.delete(tripId); }
 export function shapeMetric(gtfs: BizkaibusGtfs, shapeId: string) {
   const store = cache(gtfs);
   let metric = store.metrics.get(shapeId);

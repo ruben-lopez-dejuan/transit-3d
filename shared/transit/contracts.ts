@@ -10,6 +10,8 @@ export type ProviderCapabilities = {
   serviceAlerts: boolean; occupancy: boolean; speed: boolean; bearing: boolean;
   /** Stop-level arrival predictions, independently of GTFS-RT TripUpdates. */
   stopArrivals: boolean;
+  /** False for topology-only feeds whose published schedule has expired. */
+  scheduledService?: boolean;
 };
 export type ProviderDefinition = {
   id: string; name: string; color: string; realtime: boolean; group?: string;
@@ -31,14 +33,19 @@ export type AdapterVehicle = {
   maximumSpeedMetersPerSecond?: number; stoppedAtStop?: boolean; observationProgressMeters?: number | null;
   previousObservation?: { at: number; progress: number } | null; tripIdentityQuality?: 'exact' | 'estimated';
   positionSource?: 'gps' | 'trip-updates' | 'schedule'; delaySeconds: number | null;
+  /** Native adapters supply supported anchors independently of a static timetable. */
+  motionTimeline?: { at: number; progress: number }[];
+  /** Provider arrival forecasts only; inferred approach/dwell anchors are excluded. */
+  arrivalPredictions?: { at: number; progress: number; sourceTimestamp: number }[];
+  destination?: string; nextStopId?: string;
 };
 export type AdapterSnapshot = {
   operatorId: string; fetchedAt: number; sourceTimestamp: number | null; receivedTimestamp?: number | null;
-  vehicles: AdapterVehicle[]; status: 'ok' | 'degraded' | 'unavailable'; realtimeTripCount?: number; error?: string;
+  vehicles: AdapterVehicle[]; status: 'ok' | 'degraded' | 'unavailable'; realtimeTripCount?: number; realtimeArrivalCount?: number; error?: string;
 };
 export interface SourceAdapter { readonly operatorId: string; getSnapshot(now?: Date): Promise<AdapterSnapshot>; }
 /** IDs and references here are city/provider namespaced; external IDs are explicitly separate. */
-export type NormalizedVehicle = Omit<AdapterVehicle, 'routeId' | 'tripId' | 'shapeId' | 'positionSource' | 'serviceDate' | 'receivedTimestamp'> & {
+export type NormalizedVehicle = Omit<AdapterVehicle, 'routeId' | 'tripId' | 'shapeId' | 'positionSource' | 'serviceDate' | 'receivedTimestamp' | 'destination' | 'nextStopId'> & {
   cityId: string; providerId: string; routeId: string; tripId: string; shapeId: string;
   externalRouteId: string; externalTripId: string; externalShapeId: string; externalVehicleId?: string | null; serviceDate: string;
   routeShortName: string; destination: string; lat: number; lon: number; speed?: number | null;
