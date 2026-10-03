@@ -50,6 +50,19 @@
       }
     },
     {
+      "id": "renfe-cercanias-malaga-c2",
+      "name": "Renfe Cercanías Málaga — C2",
+      "color": "#0FCF34",
+      "primary": true,
+      "sources": {
+        "gtfs": "https://ssl.renfe.com/ftransit/Fichero_CER_FOMENTO/fomento_transit.zip"
+      },
+      "routeIds": [
+        "32T0003C2",
+        "32T0004C2"
+      ]
+    },
+    {
       "id": "ctmam-bus",
       "name": "Consorcio de Transporte Metropolitano del Área de Málaga",
       "color": "#009A44",

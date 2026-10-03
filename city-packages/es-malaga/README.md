@@ -1,40 +1,83 @@
-# Málaga y núcleo metropolitano — Transit 3D API 1
+# Málaga — Transit 3D API 1
 
-Paquete de ciudad para `es-malaga`, preparado conforme al contrato API 1 suministrado.
+Paquete de ciudad `es-malaga` preparado conforme al contrato API 1 suministrado.
 
 ## Alcance
 
-El paquete integra únicamente fuentes GTFS estáticas que se pudieron inspeccionar de forma efectiva:
+Este paquete integra:
 
-- **EMT Málaga**: red urbana de autobús de Málaga.
-- **Metro de Málaga**: Líneas 1 y 2.
-- **Consorcio de Transporte Metropolitano del Área de Málaga**: subconjunto de 50 `route_id` del GTFS unificado andaluz, acotado al núcleo metropolitano representado por los `bounds` del paquete. Se excluyen deliberadamente rutas de otros consorcios y corredores que salen hacia Marbella, Antequera, Casabermeja/Colmenar, Comares, Torre del Mar, Vélez-Málaga, Nerja, Motril, Almería, Córdoba y otros destinos externos al alcance seleccionado.
+- **EMT Málaga** — autobús urbano, GTFS estático.
+- **Metro de Málaga** — Líneas 1 y 2, GTFS estático.
+- **Renfe Cercanías Málaga — C2** — Málaga-Centro Alameda ↔ Álora, ambos sentidos, GTFS estático nacional filtrado mediante `routeIds`.
+- **Consorcio de Transporte Metropolitano del Área de Málaga** — 50 `route_id` exactos del GTFS unificado andaluz, acotados al núcleo metropolitano definido por el paquete.
 
-**Renfe Cercanías Málaga no se incluye en `providers` en esta versión.** El GTFS nacional analizado contiene las rutas C1/C2, pero los shapes de C1 están orientados en sentido contrario a la secuencia de paradas del viaje. API 1 no corrige automáticamente geometría invertida. Los GTFS-RT oficiales de Renfe también fueron analizados, pero la muestra aportada era nocturna y contenía cero entidades, por lo que no permitió comprobar correspondencia de `trip_id` con el GTFS estático. Los detalles están en `data-sources.md`.
+### Cercanías C1
 
-No hay realtime declarado en `city.json`. Por tanto, los tres proveedores incluidos funcionan como **SCHEDULE_SIMULATION** con sus horarios GTFS. La posición pública de EMT disponible como CSV/GeoJSON no es GTFS-RT protobuf y no es compatible con API 1.
+La **C1 Málaga-Centro Alameda ↔ Fuengirola no se incluye todavía**. En el GTFS oficial de Renfe descargado el 3 de octubre de 2026, los dos viajes principales de C1 referencian shapes orientados en sentido contrario a su secuencia de paradas:
+
+- `32T0001C1`: Málaga-Centro Alameda → Fuengirola usa `32_C1`, cuya geometría empieza en Fuengirola y termina en Málaga.
+- `32T0002C1`: Fuengirola → Málaga-Centro Alameda usa `32_C1_INV`, cuya geometría empieza en Málaga y termina en Fuengirola.
+
+API 1 exige que el shape siga el sentido del viaje y no permite corregir ni invertir geometrías desde `city.json`. Por eso se integra **C2**, que sí pasa la comprobación geométrica, y se omite C1 en vez de mostrar trenes recorriendo la línea al revés.
+
+### Realtime de Renfe
+
+Se volvieron a descargar y analizar `vehicle_positions.pb` y `trip_updates.pb` durante horario diurno, aproximadamente a las **11:17 CEST del 3 de octubre de 2026**.
+
+- `vehicle_positions.pb` era un GTFS-RT 2.0 válido pero contenía **cero entidades**.
+- `trip_updates.pb` contenía solo **dos entidades especiales**, ninguna de Málaga; una de ellas correspondía a la ruta `10T0053C7` (C7 Príncipe Pío–Atocha).
+
+Por tanto, no se declaran `vehiclePositions` ni `tripUpdates` en `city.json`: el contrato exige realtime realmente verificado y compatible con el GTFS seleccionado. La documentación oficial de Renfe describe VehiclePositions como GPS real y TripUpdates como actualizaciones de viaje, pero la muestra actual no permite validar realtime de C1/C2 Málaga.
+
+En esta versión, todos los proveedores del paquete se representan mediante **horario estático / SCHEDULE_SIMULATION**.
 
 ## Instalación
 
-1. Extrae el ZIP.
-2. Copia la carpeta `es-malaga/` directamente a `city-packages/` en la raíz del repositorio.
-3. Desde la raíz del repositorio ejecuta:
+Extrae el ZIP y copia directamente:
 
-   ```powershell
-   npm run cities:check
-   ```
+```text
+es-malaga/
+```
 
-4. Reinicia el servidor de Transit 3D.
-5. Selecciona **Málaga y núcleo metropolitano** en el selector de ciudades.
+a:
 
-No hay que modificar ningún registry, renderer, `package.json` ni código TypeScript.
+```text
+city-packages/es-malaga/
+```
+
+en la raíz de `transit-3d`.
+
+Después ejecuta:
+
+```powershell
+cd C:\Users\ruben\transit-3d
+npm run cities:check
+```
+
+y reinicia el servidor.
+
+No hay que modificar registry, renderer, `package.json` ni código TypeScript.
 
 ## Comprobaciones recomendadas
 
-Tras copiar el paquete, comprueba que `npm run cities:check` acepta `es-malaga` y que, después del reinicio, aparecen las capas de EMT Málaga, Metro de Málaga y autobuses metropolitanos. Comprueba también que L1/L2 de Metro aparecen como ferrocarril/metro y que el proveedor metropolitano no muestra rutas de otros consorcios andaluces.
+Tras reiniciar:
 
-La validación realizada para generar este paquete fue sobre los archivos de datos y sobre `city.json`; **no se ha abierto, ejecutado, compilado ni probado visualmente tu aplicación**.
+1. El selector debe mostrar **Málaga**.
+2. Deben aparecer EMT Málaga, Metro de Málaga, Renfe Cercanías Málaga — C2 y el Consorcio metropolitano.
+3. En Renfe solo deben aparecer `32T0003C2` y `32T0004C2`; no deben aparecer rutas de otros núcleos de Cercanías.
+4. C2 debe recorrer Málaga-Centro Alameda ↔ Álora en ambos sentidos.
+5. Metro debe mostrar L1 y L2.
+6. El proveedor CTMAM no debe arrastrar líneas de otros consorcios andaluces.
 
-## Actualización de feeds
+La validación realizada aquí es sobre los feeds y `city.json`. **No se ha ejecutado, compilado ni probado visualmente Transit 3D.**
 
-El ZIP del paquete no contiene copias de los GTFS. El servidor descargará las URLs declaradas cuando utilice la ciudad, tal como establece API 1. Los análisis de `data-sources.md` corresponden a las muestras verificadas el **3 de octubre de 2026** y una actualización posterior del operador puede modificar calendarios, IDs o geometrías.
+## Vigencia
+
+Las verificaciones de este paquete corresponden al **3 de octubre de 2026**.
+
+- EMT declara servicio hasta el 30/11/2026 en la muestra analizada.
+- Metro Málaga declara `feed_end_date=20261007`; el operador deberá publicar una actualización antes/después de esa fecha para mantener el servicio.
+- El GTFS nacional de Cercanías analizado cubre hasta el 23/10/2026.
+- CTAN indica que su GTFS unificado se actualiza diariamente.
+
+Consulta `data-sources.md` para hashes, conteos, IDs exactos, geometría, realtime y fuentes descartadas.
