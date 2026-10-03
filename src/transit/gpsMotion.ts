@@ -131,8 +131,8 @@ export class GpsMotion {
     const pace = this.referenceSpeed(at);
     const stop = this.timeline.find((anchor) => anchor.at >= at && anchor.progress > this.observation!.progress && anchor.progress >= this.progress);
     const brakingLimit = stop ? Math.sqrt(2 * this.acceleration * Math.max(0, stop.progress - this.progress - this.velocity * dt)) : this.maximumSpeed;
-    const horizon = clamp(this.cadence / 2000, 20, 90);
-    const next = advanceProgress(this.progress, this.velocity, dt, this.target, pace, horizon, Math.min(this.maximumSpeed, brakingLimit), this.acceleration, this.end);
+    const cadenceSeconds = this.cadence / 1000;
+    const next = advanceProgress(this.progress, this.velocity, dt, this.target, pace, cadenceSeconds, Math.min(this.maximumSpeed, brakingLimit), this.acceleration, this.end);
     this.progress = next.progress; this.velocity = next.speed; this.correction = next.correction;
     this.lastAt = at;
     return this.progress;

@@ -40,16 +40,35 @@ test('duplicate HTTP replies leave source timestamp, cadence and corrections unc
   assert.equal(a.diagnostics.cadenceSeconds, null);
 });
 
-test('bounded corrections converge without traveling a two-minute error in five seconds', () => {
-  const motion = new GpsMotion();
-  motion.update({ at: 0, progress: 0 }, 0, options);
-  advance(motion, 0, 120000);
-  motion.update({ at: 120000, progress: 1400 }, 120000, options);
-  const initial = motion.diagnostics.correctionErrorMeters;
-  advance(motion, 120000, 240000);
-  assert.ok(motion.diagnostics.correctionErrorMeters < initial * .5);
-  assert.ok(motion.diagnostics.renderedSpeed < 13.51);
-  assert.ok(motion.diagnostics.renderedProgress > 2400);
+function correction(error: number, cadence: number, mode: 'bus' | 'rail' = 'bus', step = 1000) {
+  const pace = mode === 'bus' ? 10 : 20, observed = 6700, start = 120000;
+  const motion = new GpsMotion({ progress: observed - error, speed: pace });
+  motion.update({ at: start, progress: observed }, start, { mode, timeline: [], speed: pace, previous: { at: start - cadence * 1000, progress: observed - pace * cadence } });
+  let maximum = 0;
+  for (let at = start + step; at <= start + 20000; at += step) { motion.position(at); maximum = Math.max(maximum, motion.diagnostics.renderedSpeed); }
+  return { motion, maximum };
+}
+test('adaptive catch-up keeps small errors gentle and makes fresh large forward errors converge faster', () => {
+  const small = correction(50, 30), large = correction(500, 30);
+  assert.ok(small.maximum < 15, `small correction peaked at ${small.maximum}`);
+  assert.ok(large.maximum > small.maximum * 2, `large ${large.maximum}, small ${small.maximum}`);
+  assert.ok(large.motion.diagnostics.correctionErrorMeters < 300);
+  assert.ok(large.motion.diagnostics.renderedProgress < large.motion.diagnostics.predictedProgress);
+  assert.ok(large.maximum <= 40);
+});
+
+test('catch-up uses cadence and mode limits without making low-frequency observations weak forever', () => {
+  const fast = correction(500, 10), slow = correction(500, 150), rail = correction(500, 30, 'rail');
+  assert.ok(fast.motion.diagnostics.correctionErrorMeters < slow.motion.diagnostics.correctionErrorMeters);
+  assert.ok(slow.motion.diagnostics.correctionErrorMeters < 400);
+  assert.ok(fast.maximum <= 40); assert.ok(rail.maximum <= 75);
+  assert.ok(rail.motion.diagnostics.renderedProgress <= rail.motion.diagnostics.predictedProgress);
+});
+
+test('physical result is stable across sparse and frame-rate position calls', () => {
+  const oneHz = correction(500, 30, 'bus', 1000), sixtyHz = correction(500, 30, 'bus', 1000 / 60);
+  assert.ok(Math.abs(oneHz.motion.diagnostics.renderedProgress - sixtyHz.motion.diagnostics.renderedProgress) < 1);
+  assert.ok(Math.abs(oneHz.maximum - sixtyHz.maximum) < .2);
 });
 
 test('a correction behind the displayed bus slows it progressively and never drives it backwards', () => {
@@ -129,5 +148,5 @@ test('schedule/GPS handovers preserve displayed progress; fallback also limits a
   const next = advanceProgress(400, 6, .1, 4000, 10, 30, 40, 1.2);
   assert.ok(next.progress < 401);
   assert.ok(next.speed <= 6.120001);
-  assert.ok(next.correction <= 3.5);
+  assert.ok(next.correction > 8 && next.correction <= 30);
 });
