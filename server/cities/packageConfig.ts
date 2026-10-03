@@ -1,10 +1,11 @@
 import { CITY_PACKAGE_API_VERSION, type CityManifest, type TransitMode, type VehicleAppearance } from '../../shared/transit/contracts';
+import type { SourceDescriptor } from '../sources/types';
 
 /** Data-only installation contract: downloaded city packages never execute code. */
-export type CityPackageConfig = Omit<CityManifest, 'providers'> & {
+export type CityPackageConfig = Omit<CityManifest, 'providers' | 'apiVersion'> & { apiVersion: 1 | 2;
   providers: {
     id: string; name: string; color: string; primary?: boolean; group?: string;
-    sources: { gtfs: string; tripUpdates?: string; vehiclePositions?: string };
+    sources: { gtfs: string | SourceDescriptor; tripUpdates?: string | SourceDescriptor; vehiclePositions?: string | SourceDescriptor };
     routeIds?: string[]; maximumGpsSpeed?: number; appearance?: VehicleAppearance;
   }[];
 };
@@ -39,9 +40,25 @@ function url(value: unknown, at: string) {
   try { parsed = new URL(text); } catch { return fail(at, 'URL no válida'); }
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash) fail(at, 'se requiere HTTPS público, sin credenciales ni fragmento');
 }
+function source(value: unknown, at: string, version: 1 | 2): void {
+  if (version === 1) { url(value, at); return; }
+  const descriptor = object(value, at, ['type'], ['url', 'datasetId', 'fileId']);
+  if (descriptor.type === 'http') {
+    if (Object.keys(descriptor).some((key) => !['type', 'url'].includes(key))) fail(at, 'fuente HTTP con campos no soportados');
+    url(descriptor.url, `${at}.url`); return;
+  }
+  if (descriptor.type === 'nap') {
+    if (Object.keys(descriptor).some((key) => !['type', 'datasetId', 'fileId'].includes(key))) fail(at, 'fuente NAP con campos no soportados');
+    const dataset = number(descriptor.datasetId, `${at}.datasetId`, 1, Number.MAX_SAFE_INTEGER), file = number(descriptor.fileId, `${at}.fileId`, 1, Number.MAX_SAFE_INTEGER);
+    if (!Number.isInteger(dataset) || !Number.isInteger(file)) fail(at, 'los identificadores NAP deben ser enteros');
+    return;
+  }
+  fail(`${at}.type`, 'se requiere http o nap');
+}
 export function parseCityPackage(value: unknown): CityPackageConfig {
   const root = object(value, 'city', ['apiVersion', 'id', 'countryCode', 'name', 'region', 'timezone', 'center', 'bounds', 'modes', 'presentation', 'providers']);
-  if (root.apiVersion !== CITY_PACKAGE_API_VERSION) fail('city.apiVersion', 'versión incompatible; se requiere 1');
+  if (root.apiVersion !== CITY_PACKAGE_API_VERSION && root.apiVersion !== 2) fail('city.apiVersion', 'versión incompatible; se requiere 1 o 2');
+  const version = root.apiVersion as 1 | 2;
   string(root.id, 'city.id', /^[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$/);
   const country = string(root.countryCode, 'city.countryCode', /^[A-Z]{2}$/);
   if (!(root.id as string).startsWith(country.toLowerCase() + '-')) fail('city.id', 'el prefijo debe corresponder a countryCode');
@@ -66,7 +83,7 @@ export function parseCityPackage(value: unknown): CityPackageConfig {
     if (provider.primary !== undefined && typeof provider.primary !== 'boolean') fail(`${at}.primary`, 'debe ser boolean');
     if (provider.group !== undefined) string(provider.group, `${at}.group`);
     const sources = object(provider.sources, `${at}.sources`, ['gtfs'], ['tripUpdates', 'vehiclePositions']);
-    for (const [key, source] of Object.entries(sources)) url(source, `${at}.sources.${key}`);
+    for (const [key, descriptor] of Object.entries(sources)) source(descriptor, `${at}.sources.${key}`, version);
     if (provider.routeIds !== undefined) {
       const routes = list(provider.routeIds, `${at}.routeIds`);
       for (const route of routes) string(route, `${at}.routeIds`);

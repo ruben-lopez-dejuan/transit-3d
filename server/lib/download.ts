@@ -1,17 +1,13 @@
-import { execFile } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
-import { promisify } from "node:util";
+import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
-const execFileAsync = promisify(execFile);
-
-function escapePowerShell(value: string) {
-  return value.replaceAll("'", "''");
-}
+export type DownloadRequest = { url: string; headers?: Readonly<Record<string, string>>; timeoutMs?: number };
 
 export async function downloadFile(
-  url: string,
+  source: string | DownloadRequest,
   destination: string,
 ): Promise<number> {
   fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -20,54 +16,26 @@ export async function downloadFile(
   fs.rmSync(temporary, { force: true });
 
   try {
-  if (process.platform === "win32") {
-    const script = [
-      "$ErrorActionPreference='Stop'",
-      "$ProgressPreference='SilentlyContinue'",
-      `Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri '${escapePowerShell(url)}' -OutFile '${escapePowerShell(temporary)}'`,
-    ].join("; ");
-
-    await execFileAsync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        script,
-      ],
-      {
-        windowsHide: true,
-        timeout: 45_000,
-        maxBuffer: 1024 * 1024,
-      },
-    );
-  } else {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(30_000),
-      headers: {
-        "User-Agent": "transit-3d/0.2",
-      },
+    const request = typeof source === 'string' ? { url: source } : source;
+    const response = await fetch(request.url, {
+      signal: AbortSignal.timeout(request.timeoutMs ?? 30_000),
+      headers: { 'User-Agent': 'transit-3d/0.2', ...request.headers },
     });
 
     if (!response.ok) {
       throw new Error(
-        `Download failed: ${response.status} ${response.statusText}`,
+        `Download failed: HTTP ${response.status}`,
       );
     }
 
-    fs.writeFileSync(
-      temporary,
-      Buffer.from(await response.arrayBuffer()),
-    );
-  }
+    if (!response.body) throw new Error('Download failed: empty response body');
+    await pipeline(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream), fs.createWriteStream(temporary, { flags: 'wx' }));
 
   const size = fs.statSync(temporary).size;
 
   if (size <= 0) {
     fs.rmSync(temporary, { force: true });
-    throw new Error(`Downloaded file is empty: ${url}`);
+    throw new Error('Downloaded file is empty');
   }
 
   fs.renameSync(temporary, destination);

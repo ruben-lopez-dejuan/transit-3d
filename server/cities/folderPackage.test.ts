@@ -10,6 +10,8 @@ import { parseCityPackage } from './packageConfig';
 import { createFolderCity, loadFolderCities } from './folderPackage';
 import { ProviderRegistry } from '../transit/registry';
 import type { RuntimeCityPackage } from '../transit/cityPackage';
+import { sourceIdentity } from '../sources/types';
+import { CityExtensionRegistry } from './extensionRegistry';
 
 // Explicitly synthetic configuration. Tests never fetch these reserved example URLs.
 const fixture = () => ({ apiVersion: 1, id: 'es-test', countryCode: 'ES', name: 'Test', region: 'Test', timezone: 'Europe/Madrid',
@@ -27,13 +29,29 @@ test('the template shared with normal chats conforms to the runtime contract', (
   const file = new URL('../../docs/city-package-kit/city.example.json', import.meta.url);
   assert.equal(parseCityPackage(JSON.parse(fs.readFileSync(file, 'utf8'))).id, 'es-example');
   const schema = JSON.parse(fs.readFileSync(new URL('../../docs/city-package-kit/city.schema.json', import.meta.url), 'utf8'));
-  assert.equal(schema.properties.apiVersion.const, 1);
+  assert.deepEqual(schema.properties.apiVersion.enum, [1, 2]);
   assert.equal(schema.additionalProperties, false);
 });
 test('rejects incompatible versions, invalid IDs, timezone, coordinates and unsupported fields', () => {
-  for (const patch of [{ apiVersion: 2 }, { id: '../test' }, { countryCode: 'FR' }, { timezone: 'Invalid/Zone' }, { bounds: [[-2, 44], [-4, 42]] }, { center: [NaN, 43] }, { center: [10, 10] }, { modes: ['plane'] }, { modes: ['bus', 'bus'] }, { code: 'execute()' }]) {
+  for (const patch of [{ apiVersion: 3 }, { id: '../test' }, { countryCode: 'FR' }, { timezone: 'Invalid/Zone' }, { bounds: [[-2, 44], [-4, 42]] }, { center: [NaN, 43] }, { center: [10, 10] }, { modes: ['plane'] }, { modes: ['bus', 'bus'] }, { code: 'execute()' }]) {
     assert.throws(() => parseCityPackage({ ...fixture(), ...patch }));
   }
+});
+test('API 2 accepts explicit HTTP and stable NAP descriptors while API 1 remains unchanged', () => {
+  const base = fixture();
+  const v2 = { ...base, apiVersion: 2, providers: [{ ...base.providers[0], sources: { gtfs: { type: 'nap', datasetId: 896, fileId: 1097 }, tripUpdates: { type: 'http', url: 'https://example.org/trips.pb' } } }] };
+  const parsed = parseCityPackage(v2);
+  assert.equal(parsed.apiVersion, 2); assert.equal((parsed.providers[0].sources.gtfs as { fileId: number }).fileId, 1097);
+  assert.equal(sourceIdentity(parsed.providers[0].sources.gtfs as import('../sources/types').SourceDescriptor), 'nap:896:1097');
+  for (const invalid of [{ type: 'nap', datasetId: 0, fileId: 1 }, { type: 'nap', datasetId: 1, fileId: 1, apiKey: 'secret' }, { type: 'http', url: 'https://user:secret@example.org/a' }, 'https://example.org/legacy']) {
+    assert.throws(() => parseCityPackage({ ...v2, providers: [{ ...v2.providers[0], sources: { gtfs: invalid } }] }));
+  }
+});
+test('trusted city extensions are selected by a registry outside the generic loader', () => {
+  const registry = new CityExtensionRegistry(); registry.register('es-test', () => new Map());
+  assert.equal(registry.get(parseCityPackage(fixture())).size, 0);
+  assert.equal(registry.get(parseCityPackage({ ...fixture(), id: 'es-other' })).size, 0);
+  assert.throws(() => registry.register('es-test', () => new Map()), /already registered/);
 });
 test('rejects credentials, non-HTTPS sources, unsupported protocols and duplicate providers', () => {
   for (const gtfs of ['http://example.org/a', 'https://user:secret@example.org/a', 'file:///a', 'not-url', 'https://example.org/a#fragment']) {
@@ -93,7 +111,9 @@ test('a copied GTFS package produces catalog, geometry and scheduled vehicles wi
     process.chdir(root);
     const config = parseCityPackage({ ...fixture(), providers: [{ ...fixture().providers[0], routeIds: ['r1'] }] });
     const seed = (cityId: string) => {
-      const hash = createHash('sha256').update(JSON.stringify(config.providers[0])).digest('hex');
+      const settings = config.providers[0];
+      const sources = Object.fromEntries(Object.entries(settings.sources).map(([key, value]) => [key, sourceIdentity(typeof value === 'string' ? { type: 'http', url: value } : value)]));
+      const hash = createHash('sha256').update(JSON.stringify({ ...settings, sources })).digest('hex');
       const directory = path.resolve('server/cache', `${cityId}-${hash}`, 'bus');
       fs.mkdirSync(directory, { recursive: true });
       const zip = new AdmZip();

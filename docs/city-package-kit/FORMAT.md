@@ -34,7 +34,7 @@ Sin campos adicionales. JSON estricto, sin comentarios ni bloques Markdown.
 
 | Campo | Regla |
 |---|---|
-| apiVersion | Número 1 |
+| apiVersion | `1` para URLs directas heredadas; `2` para descriptores de fuente explícitos |
 | id | `es-malaga`, por ejemplo. Prefijo de país en minúsculas, slug sin espacios; mismo nombre que la carpeta |
 | countryCode | Código de país ISO de dos letras mayúsculas; debe corresponder al prefijo de id |
 | name, region | Nombre visible de ciudad/núcleo y región |
@@ -67,9 +67,10 @@ Cada provider requiere `id`, `name`, `color`, `sources`:
 - `id`: slug en minúsculas, dígitos y guiones, p. ej. `metro`.
 - `name`: nombre del operador.
 - `color`: `#RRGGBB`, basado en su identidad verificada.
-- `sources.gtfs`: URL HTTPS directa a un ZIP GTFS público, obligatoria.
-- `sources.tripUpdates`: URL HTTPS a GTFS-RT protobuf FULL_DATASET, opcional.
-- `sources.vehiclePositions`: URL HTTPS a GTFS-RT protobuf FULL_DATASET, opcional.
+- En API 1, `sources.gtfs`, `tripUpdates` y `vehiclePositions` conservan exactamente sus URLs HTTPS directas.
+- En API 2, cada fuente es `{ "type": "http", "url": "https://..." }` o `{ "type": "nap", "datasetId": 896, "fileId": 1097 }`.
+- Los IDs NAP son los identificadores estables del conjunto y fichero. El enlace firmado y temporal se resuelve en backend cada vez que se descarga.
+- `NAP_API_KEY` solo se configura en el entorno del servidor. No se admite en `city.json`.
 - Omitir las claves realtime cuando no haya fuente verificada; no poner null.
 - URLs sin usuario/contraseña, fragmentos ni autenticación privada. No enlazar una
   página HTML de descarga como si fuese el ZIP. No incrustar tokens.

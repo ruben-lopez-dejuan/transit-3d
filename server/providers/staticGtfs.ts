@@ -7,13 +7,15 @@ import type { BizkaibusGtfs, GtfsRoute } from "./bizkaibus/gtfs";
 import { parseGtfsDirectoryStreaming } from '../transit/gtfsParser';
 import { generateScheduledVehicles } from "../transit/scheduled";
 import type { TransitProvider, ProviderSnapshot } from "../transit/types";
+import type { ResolvedSource, SourceSupplier } from '../sources/types';
 
 export class StaticGtfsProvider implements TransitProvider {
   private data: Promise<BizkaibusGtfs> | null = null;
   private expires = 0;
   private stale = false;
   private receivedTimestamp: number | null = null;
-  constructor(readonly operatorId: string, private readonly url: string, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; timezone?: string; cacheNamespace?: string } = {}) {}
+  constructor(readonly operatorId: string, source: string | SourceSupplier, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; timezone?: string; cacheNamespace?: string } = {}) { this.source = typeof source === 'string' ? async (): Promise<ResolvedSource> => ({ url: source, identity: `http:${source}`, temporary: false }) : source; }
+  private readonly source: SourceSupplier;
   getGtfs(): Promise<BizkaibusGtfs> {
     if (!this.data || Date.now() >= this.expires) {
       this.expires = Infinity;
@@ -27,7 +29,7 @@ export class StaticGtfsProvider implements TransitProvider {
     fs.mkdirSync(directory, { recursive: true });
     const fresh = fs.existsSync(zipPath) && Date.now() - fs.statSync(zipPath).mtimeMs < 6 * 3600_000;
     if (!fresh) {
-      try { await downloadFile(this.url, zipPath); this.stale = false; }
+      try { const source = await this.source(); await downloadFile({ url: source.url, headers: source.headers }, zipPath); this.stale = false; }
       catch (error) { if (!fs.existsSync(zipPath)) throw error; this.stale = true; }
     }
     const parsedPath = path.join(directory, 'parsed.v8');

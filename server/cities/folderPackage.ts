@@ -13,7 +13,9 @@ import { parseCityPackage, type CityPackageConfig } from './packageConfig';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
 import type { StopArrivalsAdapter } from '../transit/cityPackage';
 import type { UpdatedTrip } from '../transit/realtime';
-import { madridExtensions } from './es-madrid';
+import { DefaultSourceResolver, sourceSupplier } from '../sources/resolver';
+import { directSource, sourceIdentity, type SourceDescriptor, type SourceResolver } from '../sources/types';
+import type { CityExtensionRegistry } from './extensionRegistry';
 
 /** Trusted backend extensions; packages remain data-only and API 1 is unchanged. */
 export type ProviderExtension = {
@@ -23,8 +25,9 @@ export type ProviderExtension = {
   create(context: { base: StaticGtfsProvider; getGtfs: () => Promise<BizkaibusGtfs>; timetable?: RealtimeFeedClient; gps?: RealtimeFeedClient; timezone: string; maximumGpsSpeed?: number }): { adapter: SourceAdapter; getUpdates?: () => ReadonlyMap<string, UpdatedTrip>; arrivals?: StopArrivalsAdapter };
 };
 
-export function createFolderCity(config: CityPackageConfig, extensions: ReadonlyMap<string, ProviderExtension> = new Map()): RuntimeCityPackage {
-  const manifest: CityManifest = { ...config, providers: config.providers.map((provider) => ({
+const descriptor = (source: string | SourceDescriptor) => typeof source === 'string' ? directSource(source) : source;
+export function createFolderCity(config: CityPackageConfig, extensions: ReadonlyMap<string, ProviderExtension> = new Map(), resolver: SourceResolver = new DefaultSourceResolver()): RuntimeCityPackage {
+  const manifest: CityManifest = { ...config, apiVersion: 1, providers: config.providers.map((provider) => ({
     id: provider.id, name: provider.name, color: provider.color, primary: provider.primary, group: provider.group,
     realtime: !!(provider.sources.tripUpdates || provider.sources.vehiclePositions || extensions.get(provider.id)?.capabilities?.stopArrivals),
     capabilities: { staticGtfs: true, vehiclePositions: !!provider.sources.vehiclePositions, tripUpdates: !!provider.sources.tripUpdates,
@@ -33,9 +36,10 @@ export function createFolderCity(config: CityPackageConfig, extensions: Readonly
   const providers = config.providers.map((settings, index) => {
     // Include the configuration in the cache identity: changed route filters/URLs cannot reuse another feed.
     const extension = extensions.get(settings.id);
-    const hash = createHash('sha256').update(JSON.stringify(settings) + (extension?.cacheVersion ?? '')).digest('hex');
+    const sources = Object.fromEntries(Object.entries(settings.sources).map(([key, value]) => [key, sourceIdentity(descriptor(value))]));
+    const hash = createHash('sha256').update(JSON.stringify({ ...settings, sources }) + (extension?.cacheVersion ?? '')).digest('hex');
     const routeIds = settings.routeIds ? new Set(settings.routeIds) : null;
-    const base = new StaticGtfsProvider(settings.id, settings.sources.gtfs, {
+    const base = new StaticGtfsProvider(settings.id, sourceSupplier(descriptor(settings.sources.gtfs), resolver), {
       timezone: config.timezone, cacheNamespace: `${config.id}-${hash}`,
       includeRoute: routeIds ? (route) => routeIds.has(route.routeId) : undefined,
       prepare: async (gtfs) => {
@@ -49,8 +53,8 @@ export function createFolderCity(config: CityPackageConfig, extensions: Readonly
       },
     });
     const cacheName = `${config.id}__${settings.id}__${hash}`;
-    const timetable = settings.sources.tripUpdates ? new RealtimeFeedClient(cacheName + '__tu', settings.sources.tripUpdates) : undefined;
-    const gps = settings.sources.vehiclePositions ? new RealtimeFeedClient(cacheName + '__vp', settings.sources.vehiclePositions) : undefined;
+    const timetable = settings.sources.tripUpdates ? new RealtimeFeedClient(cacheName + '__tu', sourceSupplier(descriptor(settings.sources.tripUpdates), resolver)) : undefined;
+    const gps = settings.sources.vehiclePositions ? new RealtimeFeedClient(cacheName + '__vp', sourceSupplier(descriptor(settings.sources.vehiclePositions), resolver)) : undefined;
     const custom = extension?.create({ base, getGtfs: () => base.getGtfs(), timetable, gps, timezone: config.timezone, maximumGpsSpeed: settings.maximumGpsSpeed });
     const realtime = !custom && (timetable || gps) ? new RealtimeProvider(base, () => base.getGtfs(), timetable, gps,
       settings.maximumGpsSpeed, config.timezone) : undefined;
@@ -65,7 +69,7 @@ export function createFolderCity(config: CityPackageConfig, extensions: Readonly
   return { manifest, providers, places: () => [], infrastructure: () => [] };
 }
 export type PackageReport = { directory: string; cityId?: string; state: 'loaded' | 'invalid'; error?: string };
-export function loadFolderCities(registry: ProviderRegistry<RuntimeCityPackage>, directory = path.resolve('city-packages')): PackageReport[] {
+export function loadFolderCities(registry: ProviderRegistry<RuntimeCityPackage>, directory = path.resolve('city-packages'), extensions?: CityExtensionRegistry): PackageReport[] {
   if (!fs.existsSync(directory)) return [];
   const reports: PackageReport[] = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -77,7 +81,7 @@ export function loadFolderCities(registry: ProviderRegistry<RuntimeCityPackage>,
       if (fs.lstatSync(file).isSymbolicLink() || !fs.statSync(file).isFile() || fs.statSync(file).size > 1_048_576) throw new Error('city.json debe ser un archivo regular de hasta 1 MiB');
       config = parseCityPackage(JSON.parse(fs.readFileSync(file, 'utf8')));
       if (config.id !== entry.name) throw new Error('La carpeta debe tener el mismo nombre que city.id');
-      registry.register(createFolderCity(config, config.id === 'es-madrid' ? madridExtensions(config) : undefined));
+      registry.register(createFolderCity(config, extensions?.get(config)));
       reports.push({ directory: entry.name, cityId: config.id, state: 'loaded' });
     } catch (error) { reports.push({ directory: entry.name, cityId: config?.id, state: 'invalid', error: error instanceof Error ? error.message : String(error) }); }
   }
