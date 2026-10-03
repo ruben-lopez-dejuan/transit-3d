@@ -21,8 +21,49 @@ Frontend: movimiento común → pose → LOD → modelos/capas
 Los adaptadores existentes se conservan en `server/providers`. No contienen
 React, cámara, zoom, selección ni modelos 3D. La configuración de operadores
 está en `server/cities/es-bilbao`; el núcleo recibe sus interfaces.
-Solo se registra Bilbao. Sus 34 proveedores incluyen la cobertura regional
+Bilbao se registra como paquete de código; las carpetas API 1 añaden Málaga,
+Madrid y futuras ciudades. Sus 34 proveedores conservan la cobertura regional
 que ya tenía la aplicación.
+
+## Adaptadores nativos de Madrid
+
+`ProviderExtension` en `server/cities/folderPackage.ts` permite preparar GTFS
+(incluidas fuentes estructurales asíncronas), declarar capacidades reales y
+componer un adaptador con hooks de llegadas. Las extensiones son código de
+confianza del servidor: el JSON API 1 sigue siendo declarativo y estricto.
+`server/cities/es-madrid/index.ts` conecta exclusivamente los providers de Madrid.
+
+Los vehículos nativos aportan `motionTimeline` y, por separado,
+`arrivalPredictions`. El normalizador valida las anclas; `CityNetwork` reutiliza
+geometrías, namespaces y detalles. Una ancla estimada de aproximación o dwell
+no se transforma en una hora oficial de parada. `scheduledService: false`
+impide mostrar horas del GTFS caducado de Metro; las horas desconocidas son null.
+Los vehículos de horario, GPS y predicciones usan el mismo renderizador y LOD.
+
+Módulos nuevos:
+
+- `metroFeed.ts`: XML oficial, polling agregado compartido, caché válida y fechas.
+- `metroTopology.ts`: geometría/estaciones oficiales que faltan para L3, sin servicio de calendario.
+- `metroEstimates.ts`: asociación conservadora de ETAs e IDs internos temporales.
+- `metroProvider.ts`: snapshots normalizados y hooks de llegadas de Metro/ML1.
+- `renfeAddedTrips.ts`: viajes oficiales añadidos, fechas y llamadas verificadas.
+- `emt.ts`: autenticación por entorno y llegadas de paradas seleccionadas; sin GPS supuesto.
+- `madrid.test.ts`: regresiones de adapters y su integración con el núcleo.
+- `server/transit/shapeOrientation.ts`: orientación reutilizable mediante copias por trip, activada para Renfe Madrid.
+- `server/audit-madrid.ts`: inspección offline/backend de una muestra, sin servidor web.
+
+Cambios comunes: preparación opcional en `RealtimeProvider`, preparación
+asíncrona en `StaticGtfsProvider`, invalidación de planes efímeros, índices de
+salidas que incorporan ADDED, contratos y validación de timelines nativas.
+El frontend solo admite tiempos desconocidos y etiquetas basadas en capacidades.
+No cambia modelos, LOD, pose ni el algoritmo de movimiento de Bizkaibus.
+
+Rendimiento: un feed Metro para dos providers, topología/planes cacheados,
+correlación por patrones y sin peticiones por convoy. Tracks limitados a 1.000,
+viajes Renfe añadidos a 500 y paradas EMT a 100; estados caducados se eliminan.
+EMT limita concurrencia y consultas. La cobertura real, identidad física de
+Metro, incidencias y acceso realtime CRTM siguen siendo límites de las fuentes;
+EMT requiere validar una sesión auténtica antes de incorporar posiciones.
 
 ## Contratos e identidades
 

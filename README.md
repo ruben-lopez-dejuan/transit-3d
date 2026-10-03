@@ -1,9 +1,14 @@
-# Bilbao Transit 3D
+# Transit 3D
 
 Mapa de transporte público con vehículos, líneas, destinos y próximas llegadas.
-Integra 34 proveedores: Bizkaibus, Bilbobus, Metro Bilbao, Euskotren (tren y
+Incluye selector de ciudad y paquetes para Bilbao/Euskadi, Málaga y Madrid.
+Bilbao integra 34 proveedores: Bizkaibus, Bilbobus, Metro Bilbao, Euskotren (tren y
 tranvías), Renfe Cercanías y los feeds adicionales verificados de Moveuskadi,
 incluido el funicular de Artxanda.
+
+Madrid añade Metro estimado desde teleindicadores oficiales, Cercanías con GPS
+cuando Renfe lo publica, llegadas EMT opcionales con autenticación y horarios
+CRTM. Estado y configuración: [city-packages/es-madrid/README.md](city-packages/es-madrid/README.md).
 
 ## Calidad de los datos
 
@@ -25,6 +30,10 @@ Para diagnosticar las fuentes de Euskadi sin abrir el mapa:
 comprueba su edad y unión con los horarios, y guarda el informe en
 `server/cache/audit/euskadi/report.json`. Una cabecera reciente no garantiza
 que las observaciones individuales sigan vigentes.
+
+Para Madrid: `npm run audit:madrid` inspecciona una muestra sin arrancar la app;
+`npm run audit:madrid -- --cached` reproduce la copia en su instante original,
+sin afirmar que sea el estado actual. Pruebas concretas: `npm run test:madrid`.
 
 ## Ejecutar localmente
 

@@ -12,7 +12,7 @@ pendientes, selección, geometrías, historial de movimiento y zona horaria.
 1. Adjunta `docs/city-package-kit/FORMAT.md` y `city.schema.json` al chat.
 2. Copia el prompt de `docs/city-package-kit/PROMPT.md`, indicando el núcleo.
 3. Obtén el ZIP y extrae su carpeta. Ejemplo futuro de destino:
-   `C:\Users\ruben\bilbao-transit-3d\city-packages\es-malaga\city.json`.
+   `C:\Users\ruben\transit-3d\city-packages\es-malaga\city.json`.
 4. Desde la raíz del repo, ejecuta `npm run cities:check`. Si falla, corrige el
    archivo/carpeta indicado. Es una comprobación de formato, no de conectividad.
 5. Reinicia el proceso que sirve la API: `npm start` en producción, después de

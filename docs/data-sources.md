@@ -1,5 +1,28 @@
 # Fuentes de datos verificadas
 
+## Madrid — integración del 3 de octubre de 2026
+
+La evidencia detallada está en [es-madrid/data-sources.md](../city-packages/es-madrid/data-sources.md).
+Se descargaron y analizaron las fuentes oficiales durante esta sesión, sin abrir
+la aplicación ni hacer pruebas visuales.
+
+| Red | Fuente final | Calidad |
+|---|---|---|
+| Metro Madrid | CRTM GTFS como topología; GIS oficial L3 hasta El Casar; XML de teleindicadores Metro | Llegadas reales del proveedor, posición estimada; nunca GPS ni horario caducado |
+| Cercanías Madrid | Renfe GTFS nacional filtrado, VP y TU | GPS cuando existe; interpolación/TripUpdates y horario como fallback; shapes orientadas y viajes ADDED verificados |
+| EMT | GTFS y MobilityLabs con `EMT_CLIENT_ID`/`EMT_PASSKEY` opcionales | Llegadas por parada autenticadas; flota por horario. Sin muestra autenticada no se declara GPS |
+| CRTM urbanos/interurbanos | GTFS oficial vigente | Horario; no se obtuvo un endpoint realtime público verificable |
+| ML1 / ML2 / ML3 / Parla | CRTM GTFS; teleindicadores para ML1 | ML1 estimado por llegadas cuando están disponibles; demás horario |
+
+Los feeds de Renfe pueden responder vacíos aunque la cabecera sea reciente.
+El GPS ADDED observado inicialmente se aceptó; la muestra final no tenía
+vehículos. Metro se consulta de forma agregada cada 30 s; los timestamps de
+emisión son independientes del registro, recepción y animación. `audit:madrid`
+genera un informe sin arrancar el servidor. No se cambian las fuentes ni la
+interpolación corregida de Bizkaibus.
+
+## Euskadi
+
 Auditoría del **2 de octubre de 2026**. Se descargaron ZIP, se leyeron las tablas y se decodificaron los protobuf. Los índices públicos son [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/data-index-gtfs.json) y [GTFS-RT](https://opendata.euskadi.eus/transport/moveuskadi/data-index-gtfs-rt.json). Una URL o un timestamp de catálogo no acreditan posiciones reales. Scripts reproducibles: server/audit-realtime.ts, server/audit-realtime-joins.ts y server/audit-moveuskadi.ts. Los resultados crudos se guardan en server/cache/audit, ignorado por Git.
 
 ## Revisión de la integración de Euskadi — 3 de octubre de 2026
