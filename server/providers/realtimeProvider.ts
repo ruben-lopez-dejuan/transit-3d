@@ -24,6 +24,12 @@ export class RealtimeProvider implements TransitProvider {
     const hasTimetable = this.updates.size > 0;
     const hasGps = vehicles.some((v) => v.observationTimestamp !== null);
     const errors = [timetable.error, gps?.error, snapshot.error].filter(Boolean);
+    if (!hasTimetable && !hasGps && !errors.length) {
+      const feeds = [timetable.feed, gps?.feed].filter(Boolean);
+      errors.push(feeds.some((feed) => (feed!.entity?.length ?? 0) > 0)
+        ? 'El feed recibido no contiene observaciones vigentes compatibles con esta red; se usa el horario.'
+        : 'El feed recibido está vacío para esta red; se usa el horario.');
+    }
     const baseTimestamp = snapshot.sourceTimestamp === null ? null : snapshot.sourceTimestamp < 1e12 ? snapshot.sourceTimestamp * 1000 : snapshot.sourceTimestamp;
     const realtimeStates = [timetableState, gps].filter((state) => state?.sourceTimestamp !== null && state?.sourceTimestamp !== undefined);
     const latestState = realtimeStates.sort((a, b) => b!.sourceTimestamp! - a!.sourceTimestamp!)[0];

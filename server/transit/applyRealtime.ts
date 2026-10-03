@@ -29,9 +29,15 @@ export function applyRealtime(gtfs: BizkaibusGtfs, base: TransitVehicle[], opera
     const calls = [...update.stops.values()].filter((s) => !s.skipped);
     const first = calls[0], last = calls.at(-1);
     if (!first || !last) continue;
-    // Delayed services can remain active after their originally scheduled arrival.
-    if (now.getTime() < first.departure || now.getTime() > last.arrival) { vehicles.delete(id); continue; }
     const current = vehicles.get(id);
+    const hasFreshGps = current?.observationTimestamp != null && freshTimestamp(current.observationTimestamp / 1000, now.getTime()) !== null;
+    // Delayed services can remain active after their originally scheduled arrival.
+    // An estimated timetable boundary cannot erase a fresh physical observation
+    // already supplied by the base adapter (Bizkaibus). Explicit cancellations still win.
+    if (now.getTime() < first.departure || now.getTime() > last.arrival) {
+      if (!hasFreshGps) vehicles.delete(id);
+      continue;
+    }
     const progress = current?.observationTimestamp !== null && current?.observationTimestamp !== undefined ? current.progressMetersAlongShape : progressAt(timeline, now.getTime());
     const position = positionAtProgress(plan.metric, progress); if (!position) continue;
     const next = calls.find((s) => s.departure >= now.getTime()) ?? last;

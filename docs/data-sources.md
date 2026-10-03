@@ -2,6 +2,49 @@
 
 Auditoría del **2 de octubre de 2026**. Se descargaron ZIP, se leyeron las tablas y se decodificaron los protobuf. Los índices públicos son [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/data-index-gtfs.json) y [GTFS-RT](https://opendata.euskadi.eus/transport/moveuskadi/data-index-gtfs-rt.json). Una URL o un timestamp de catálogo no acreditan posiciones reales. Scripts reproducibles: server/audit-realtime.ts, server/audit-realtime-joins.ts y server/audit-moveuskadi.ts. Los resultados crudos se guardan en server/cache/audit, ignorado por Git.
 
+## Revisión de la integración de Euskadi — 3 de octubre de 2026
+
+Muestra única descargada y decodificada entre **10:17:50 y 10:17:51 UTC**;
+Bilbobus JSON a continuación. No se abrió la aplicación, no se hicieron
+pruebas visuales ni se esperaron ciclos sucesivos. Los ZIP existentes del
+runtime se cargaron para comprobar los IDs de viaje y paradas.
+
+| Fuente | Resultado de la muestra | Interpretación |
+|---|---|---|
+| Bizkaibus VP | 187 entidades; 187 viajes presentes en GTFS; 163 posiciones aceptadas por el normalizador común; cabecera de 160 s | GPS disponible con publicación espaciada. La ruta histórica de Bizkaibus conserva su map matching y tracker propios |
+| Bizkaibus TU | 188 entidades; 184 actualizaciones normalizadas | Predicciones disponibles; no deben borrar GPS vigente por una discrepancia con el fin estimado de un viaje |
+| Bilbobus JSON, línea 18/IDA | HTTP 200; 2 posiciones recientes | GPS municipal sigue disponible; G1/IDA devolvió 0 filas, no un error HTTP |
+| Metro Bilbao TU | 59 viajes reconocidos; 51 actualizaciones vigentes normalizadas | Llegadas realtime; posición calculada, sin GPS |
+| Euskotren TU | 253 viajes reconocidos y actualizaciones normalizadas | Llegadas realtime para tren/tranvía cuando el viaje está cubierto; posición calculada, sin GPS |
+| Tuvisa VP/TU | 42 GPS reconocidos, 41 aceptados; 115 actualizaciones normalizadas | GPS y predicciones disponibles |
+| Dbus VP/TU | 40 entidades y viajes reconocidos en cada feed; 0 posiciones/actualizaciones aceptadas | Las observaciones estaban caducadas aunque la cabecera tenía 150 s. Se mantiene horario; una nueva consulta no renueva esos datos |
+| Renfe nacional VP/TU | 2 entidades en cada feed; ninguna pertenece a los viajes de Euskadi cargados | La muestra solo incluía viajes ADDED de Madrid, fuera de esta red. Se mantiene horario en Euskadi; no se inventan posiciones ni se eliminan filtros territoriales |
+
+Una respuesta posterior del pipeline local entregó 84 Bilbobus, 136 Bizkaibus
+y 41 Tuvisa con observaciones GPS, además de 31 Euskotren y 15 Metro con
+posiciones estimadas a partir de predicciones. Son conteos de esa respuesta,
+no una garantía de cobertura ni una validación visual del movimiento.
+Las fuentes siguen siendo las oficiales documentadas más abajo; no se han
+sustituido endpoints ni ampliado artificialmente la caducidad de 180 s.
+
+Correcciones:
+
+- El servidor local se reactivó tras la parada durante el cambio de carpeta.
+- Los lectores GTFS-RT restauran la caché validada en la primera petición,
+  mientras refrescan en segundo plano. Solo se utiliza si sus timestamps
+  siguen vigentes; la recepción desconocida después de un reinicio es null.
+- Bizkaibus valida el protobuf descargado antes de reemplazar la caché anterior.
+  Una descarga inválida o un fallo no rejuvenecen la última observación.
+- TripUpdates no elimina el GPS vigente del adapter base por un límite de
+  horario estimado. Una cancelación oficial sí elimina el viaje.
+- La salud del provider explica cuándo un feed recibido está vacío o no aporta
+  observaciones vigentes compatibles, en vez de ocultar el motivo del fallback.
+
+Diagnóstico reproducible: `npm run audit:euskadi-realtime`. Descarga **una sola
+muestra** por fuente conectada y comprueba timestamps, uniones y normalización.
+Guarda protobuf y `report.json` en `server/cache/audit/euskadi`, fuera de Git.
+La disponibilidad y los conteos cambiarán con la hora de ejecución.
+
 ## Fuentes utilizadas y calidad
 
 ### Migración al núcleo modular

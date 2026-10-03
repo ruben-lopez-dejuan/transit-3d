@@ -20,6 +20,12 @@ La hora del dato, la consulta al servidor y la posición animada se mantienen
 separadas. Una consulta HTTP no rejuvenece una señal antigua.
 Fuentes, protocolos, fallos y limitaciones: [docs/data-sources.md](docs/data-sources.md).
 
+Para diagnosticar las fuentes de Euskadi sin abrir el mapa:
+`npm run audit:euskadi-realtime`. Descarga una muestra por fuente conectada,
+comprueba su edad y unión con los horarios, y guarda el informe en
+`server/cache/audit/euskadi/report.json`. Una cabecera reciente no garantiza
+que las observaciones individuales sigan vigentes.
+
 ## Ejecutar localmente
 
 ```powershell

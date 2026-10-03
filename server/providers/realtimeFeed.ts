@@ -5,6 +5,12 @@ import { downloadFile } from '../lib/download';
 import { freshTimestamp, type RealtimeMessage } from '../transit/realtime';
 
 export type RealtimeFeedState = { feed: RealtimeMessage | null; sourceTimestamp: number | null; receivedTimestamp: number | null; error?: string };
+type FeedOptions = { cacheDirectory?: string; download?: typeof downloadFile };
+export function decodeRealtimeFeed(bytes: Buffer): RealtimeMessage {
+  const feed = bindings.transit_realtime.FeedMessage.toObject(bindings.transit_realtime.FeedMessage.decode(bytes), { longs: Number, enums: String }) as RealtimeMessage;
+  if (!feed.header?.gtfsRealtimeVersion || feed.header.incrementality === 'DIFFERENTIAL') throw new Error('Unsupported realtime dataset');
+  return feed;
+}
 /** Keep only decodable full datasets; fetching an old file never renews its timestamp. */
 export class RealtimeFeedClient {
   private feed: RealtimeMessage | null = null;
@@ -12,8 +18,21 @@ export class RealtimeFeedClient {
   private expires = 0;
   private error: string | undefined;
   private pending: Promise<RealtimeFeedState> | null = null;
-  constructor(readonly name: string, readonly url: string) {}
+  private cacheLoaded = false;
+  private readonly file: string;
+  constructor(readonly name: string, readonly url: string, private readonly options: FeedOptions = {}) {
+    this.file = path.join(options.cacheDirectory ?? path.resolve('server/cache/realtime'), `${name}.pb`);
+  }
   get(now = Date.now()): Promise<RealtimeFeedState> {
+    if (!this.cacheLoaded) {
+      this.cacheLoaded = true;
+      // A restart must not discard usable realtime while its independent refresh runs.
+      // Receipt is unknown after restart; mtime and the current query are not signal time.
+      if (!this.feed && fs.existsSync(this.file)) {
+        try { this.feed = decodeRealtimeFeed(fs.readFileSync(this.file)); }
+        catch { this.error = 'Caché realtime inválida; se intenta recuperar la fuente.'; }
+      }
+    }
     if (!this.pending && now >= this.expires) {
       this.expires = now + 15_000;
       this.pending = this.refresh().then(() => this.state(Date.now())).finally(() => { this.pending = null; this.expires = Date.now() + 15_000; });
@@ -29,22 +48,16 @@ export class RealtimeFeedClient {
     return { feed: fresh ? this.feed : null, sourceTimestamp, receivedTimestamp: this.receivedTimestamp, ...(this.error ? { error: this.error } : !fresh ? { error: 'Realtime ausente o con más de 180 s de antigüedad; se usa el horario.' } : {}) };
   }
   private async refresh() {
-    const directory = path.resolve('server/cache/realtime');
-    fs.mkdirSync(directory, { recursive: true });
-    const file = path.join(directory, `${this.name}.pb`), candidate = `${file}.${process.pid}.candidate`;
-    const decode = (bytes: Buffer) => {
-      const feed = bindings.transit_realtime.FeedMessage.toObject(bindings.transit_realtime.FeedMessage.decode(bytes), { longs: Number, enums: String }) as RealtimeMessage;
-      if (!feed.header?.gtfsRealtimeVersion || feed.header.incrementality === 'DIFFERENTIAL') throw new Error('Unsupported realtime dataset');
-      return feed;
-    };
+    const file = this.file, candidate = `${file}.${process.pid}.candidate`;
     try {
-      await downloadFile(this.url, candidate);
-      const bytes = fs.readFileSync(candidate), feed = decode(bytes);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      await (this.options.download ?? downloadFile)(this.url, candidate);
+      const bytes = fs.readFileSync(candidate), feed = decodeRealtimeFeed(bytes);
       this.feed = feed; this.receivedTimestamp = Date.now(); this.error = undefined;
       fs.writeFileSync(file, bytes);
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
-      if (!this.feed && fs.existsSync(file)) { try { this.feed = decode(fs.readFileSync(file)); } catch { /* Invalid disk data is never used. */ } }
-    } finally { fs.rmSync(candidate, { force: true }); }
+      if (!this.feed && fs.existsSync(file)) { try { this.feed = decodeRealtimeFeed(fs.readFileSync(file)); } catch { /* Invalid disk data is never used. */ } }
+    } finally { try { fs.rmSync(candidate, { force: true }); } catch { /* A read-only cache must not reject the background task. */ } }
   }
 }

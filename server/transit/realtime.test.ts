@@ -51,6 +51,22 @@ function fixture(): BizkaibusGtfs {
 function feed(update: Partial<TripUpdate> = {}): RealtimeMessage {
   return { header: { gtfsRealtimeVersion: '2.0', timestamp: now.getTime() / 1000 }, entity: [{ tripUpdate: { trip: { tripId: 't', startDate: date }, stopTimeUpdate: [{ stopSequence: 2, stopId: 'b', arrival: { delay: 120 } }], ...update } }] };
 }
+
+test('TripUpdates must not erase fresh base GPS at timetable boundaries, but cancellation still removes it', () => {
+  const data = fixture(), evaluatedAt = new Date(serviceEpoch(date, 10 * 3600 + 31 * 60));
+  const observedAt = evaluatedAt.getTime() - 149_000;
+  const base = generateScheduledVehicles(data, now, 'bizkaibus').map((v) => ({ ...v, positionQuality: 'predicted' as const, positionSource: 'gps' as const, observationTimestamp: observedAt, receivedTimestamp: evaluatedAt.getTime() - 1000, vehicleId: 'physical-bus' }));
+  const input = feed({ delay: 0, stopTimeUpdate: [{ stopSequence: 2, stopId: 'b', arrival: { delay: 0 } }] }); input.header!.timestamp = evaluatedAt.getTime() / 1000;
+  const updates = normalizeTripUpdates(data, input, evaluatedAt);
+  const result = applyRealtime(data, base, 'bizkaibus', updates, null, evaluatedAt);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].observationTimestamp, observedAt);
+  assert.equal(result[0].receivedTimestamp, base[0].receivedTimestamp);
+  assert.equal(result[0].progressMetersAlongShape, base[0].progressMetersAlongShape);
+  assert.equal(applyRealtime(data, generateScheduledVehicles(data, now, 'bizkaibus'), 'bizkaibus', updates, null, evaluatedAt).length, 0, 'an ended schedule stand-in is still removed');
+  const canceled = feed({ trip: { tripId: 't', startDate: date, scheduleRelationship: 'CANCELED' } }); canceled.header!.timestamp = evaluatedAt.getTime() / 1000;
+  assert.equal(applyRealtime(data, base, 'bizkaibus', normalizeTripUpdates(data, canceled, evaluatedAt), null, evaluatedAt).length, 0);
+});
 test('TripUpdates absolute times take precedence, preserve dwell, and propagate stop delays', () => {
   const update = normalizeTripUpdates(fixture(), feed({ delay: 60, stopTimeUpdate: [{ stopId: 'b', arrival: { delay: 999, time: serviceEpoch(date, 10 * 3600 + 12 * 60) / 1000 }, departure: { delay: 150 } }] }), now).get(`${date}:t`)!;
   assert.equal(update.stops.get(1)!.departure - update.stops.get(1)!.scheduledDeparture, 60_000);
