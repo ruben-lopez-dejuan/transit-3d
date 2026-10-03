@@ -3,7 +3,8 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import { downloadFile } from "../lib/download";
 import { readParsedFeed, writeParsedFeed } from '../lib/gtfsCache';
-import { parseGtfsDirectory, type BizkaibusGtfs, type GtfsRoute } from "./bizkaibus/gtfs";
+import type { BizkaibusGtfs, GtfsRoute } from "./bizkaibus/gtfs";
+import { parseGtfsDirectoryStreaming } from '../transit/gtfsParser';
 import { generateScheduledVehicles } from "../transit/scheduled";
 import type { TransitProvider, ProviderSnapshot } from "../transit/types";
 
@@ -40,7 +41,7 @@ export class StaticGtfsProvider implements TransitProvider {
       if (entry) fs.writeFileSync(path.join(directory, `${table}.txt`), entry.getData());
       else if (["calendar", "calendar_dates", "frequencies"].includes(table)) fs.rmSync(path.join(directory, `${table}.txt`), { force: true });
     }
-    const gtfs = parseGtfsDirectory(directory, this.options.includeRoute);
+    const gtfs = await parseGtfsDirectoryStreaming(directory, this.options.includeRoute);
     await this.options.prepare?.(gtfs);
     if (!gtfs.routes.size || !gtfs.trips.size || !gtfs.shapes.size) throw new Error(`Incomplete GTFS for ${this.operatorId}`);
     writeParsedFeed(parsedPath, zipPath, gtfs);

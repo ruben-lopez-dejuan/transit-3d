@@ -11,10 +11,17 @@ export async function loadCity(id?: string) {
 }
 
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(90_000), ...init });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "El servicio no está disponible. Inténtalo de nuevo.");
-  return body as T;
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(90_000), ...init });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "El servicio no está disponible. Inténtalo de nuevo.");
+    return body as T;
+  } catch (error) {
+    if (!init.signal && error instanceof Error && error.name === 'TimeoutError') {
+      throw new Error('El servidor ha tardado demasiado en responder. Reintenta la actualización desde Capas.');
+    }
+    throw error;
+  }
 }
 export const loadNetwork = () => request<Network>(inCity('/api/network'));
 export const loadSnapshot = () => request<Snapshot>(inCity('/api/transit'));

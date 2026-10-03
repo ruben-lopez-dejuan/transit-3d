@@ -90,7 +90,7 @@ function renderOperators() {
     const provider = snapshot?.providers.find((p) => p.operatorId === id), state = provider?.status ?? o.status;
     const vehicles = snapshot?.vehicles.filter((v) => v.operatorId === id && (!transport || v.mode === transport)) ?? [];
     const gps = vehicles.some((v) => v.observationTimestamp !== null), timings = (provider?.realtimeTripCount ?? 0) > 0 || (provider?.realtimeArrivalCount ?? 0) > 0;
-    const label = state === 'unavailable' ? 'Fuente no disponible' : gps && timings ? 'GPS + llegadas realtime' : timings ? 'Llegadas realtime · posición estimada' : gps ? o.capabilities.stopArrivals ? 'GPS · llegadas por parada' : 'GPS + horarios' : o.capabilities.scheduledService === false ? 'Sin predicciones recientes' : 'Según horario';
+    const label = o.loading ? 'Preparando datos…' : state === 'unavailable' ? 'Fuente no disponible' : gps && timings ? 'GPS + llegadas realtime' : timings ? 'Llegadas realtime · posición estimada' : gps ? o.capabilities.stopArrivals ? 'GPS · llegadas por parada' : 'GPS + horarios' : o.capabilities.scheduledService === false ? 'Sin predicciones recientes' : 'Según horario';
     const checked = renderer.operators.has(id) && (!transport || !renderer.disabledLayers.has(id + ':' + transport));
     return '<label class="operator-row"><input type="checkbox" data-operator="' + esc(id) + '" ' + (transport ? 'data-transport="' + transport + '" ' : '') + (checked ? 'checked' : '') + '><span class="operator-dot" style="background:' + esc(o.color) + '"></span><span><strong>' + esc(name ?? o.name) + '</strong><small>' + label + '</small></span><span class="operator-count">' + vehicles.length + '</span></label>';
   };
@@ -113,7 +113,12 @@ async function refresh() {
   if (polling || !navigator.onLine) return;
   polling = true; $('#refresh').textContent = 'Actualizando…';
   try {
-    if (!network) { network = await loadNetwork(); favorites = migrateFavorites(favorites, network); write('transit:favorites', JSON.stringify([...favorites])); network.operators.forEach((o) => renderer.operators.add(o.id)); setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network); }
+    if (!network || network.operators.some((o) => o.loading || o.status === 'unavailable')) {
+      const firstLoad = !network;
+      network = await loadNetwork(); favorites = migrateFavorites(favorites, network); write('transit:favorites', JSON.stringify([...favorites]));
+      if (firstLoad) network.operators.forEach((o) => renderer.operators.add(o.id));
+      setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network);
+    }
     snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); filters(); renderDetails();
   } catch (error) { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
   finally { polling = false; $('#refresh').textContent = '↻ Actualizar datos'; }

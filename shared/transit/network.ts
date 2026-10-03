@@ -1,6 +1,6 @@
 import type { NormalizedVehicle, NormalizedRoute, NormalizedStop, NormalizedTrip, NormalizedProviderSnapshot, ProviderDefinition, TransitMode, PositionQuality, CityManifest } from './contracts';
 export type { TransitMode, PositionQuality };
-export type Operator = ProviderDefinition & { status: 'ok' | 'degraded' | 'unavailable' };
+export type Operator = ProviderDefinition & { status: 'ok' | 'degraded' | 'unavailable'; loading?: boolean };
 // Compatibility names are retained in the UI payload. key === id; routeId/stopId are external API lookup IDs.
 export type Route = NormalizedRoute & { key: string; operatorId: string; routeId: string };
 export type Stop = NormalizedStop & { key: string; operatorId: string; stopId: string };

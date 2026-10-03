@@ -14,7 +14,7 @@ import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape } from '../../shared/transit/network';
 
 /** Each city owns its caches, catalog and provider bindings. */
-export function createCityNetwork(city: RuntimeCityPackage) {
+export function createCityNetwork(city: RuntimeCityPackage, options: { catalogWaitMs?: number } = {}) {
 const definitions = city.manifest.providers;
 const providers = city.providers;
 const gtfsLoaders = new Map(providers.map((provider) => [provider.operatorId, () => provider.enabled ? provider.getGtfs() : Promise.reject(new Error('Provider disabled'))]));
@@ -47,32 +47,61 @@ let networkExpires = 0;
 let snapshotCache: Promise<Snapshot> | null = null;
 let snapshotExpires = 0;
 let enabledState = providers.map((p) => p.enabled).join(',');
+type CatalogTask = { promise: Promise<void>; result?: PromiseSettledResult<BizkaibusGtfs>; expires: number };
+const catalogTasks = new Map<string, CatalogTask>();
 function checkProviderState() {
   const current = providers.map((p) => p.enabled).join(',');
-  if (current !== enabledState) { enabledState = current; networkCache = null; snapshotCache = null; }
+  if (current !== enabledState) {
+    enabledState = current; networkCache = null; snapshotCache = null;
+    for (const provider of providers) if (!provider.enabled) catalogTasks.delete(provider.operatorId);
+  }
 }
 
 function getNetwork(): Promise<Network> {
   checkProviderState();
   if (networkCache && Date.now() < networkExpires) return networkCache;
-  networkExpires = Date.now() + 6 * 3600_000;
+  networkExpires = Infinity;
   networkCache = loadNetwork().catch((error) => { networkCache = null; throw error; });
   return networkCache;
 }
 async function loadNetwork(): Promise<Network> {
   const operators: Operator[] = [];
-  const loaded = await Promise.allSettled(definitions.map((definition) => gtfsLoaders.get(definition.id)!()));
-  for (const [index, definition] of definitions.entries()) {
+  // Keep one load per provider alive across requests. A slow initial feed must
+  // not hold the city catalogue (or snapshots of ready providers) hostage.
+  for (const definition of definitions) {
+    if (!providerFor(definition.id)?.enabled) continue;
+    const existing = catalogTasks.get(definition.id);
+    if (existing && Date.now() < existing.expires) continue;
+    const task: CatalogTask = { promise: Promise.resolve(), expires: Infinity };
+    task.promise = Promise.resolve().then(() => gtfsLoaders.get(definition.id)!()).then(
+      (value) => { task.result = { status: 'fulfilled', value }; task.expires = Date.now() + 6 * 3600_000; },
+      (reason: unknown) => { task.result = { status: 'rejected', reason }; task.expires = Date.now() + 60_000; },
+    ).then(() => { networkCache = null; snapshotCache = null; });
+    catalogTasks.set(definition.id, task);
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.all([...catalogTasks.values()].map((task) => task.promise)),
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, options.catalogWaitMs ?? 2000); }),
+    ]);
+  } finally { clearTimeout(timer); }
+  networkExpires = Date.now() + 6 * 3600_000;
+  for (const definition of definitions) {
     try {
-      const result = loaded[index];
-      if (result.status === 'rejected') throw result.reason;
-      const gtfs = result.value;
-      if (feeds.get(definition.id) === gtfs) { operators.push({ ...definition, status: 'ok' }); continue; }
+      if (!providerFor(definition.id)?.enabled) throw new Error('Provider disabled');
+      const result = catalogTasks.get(definition.id)?.result;
+      if (result?.status === 'rejected') throw result.reason;
+      const loading = result === undefined;
+      if (loading) networkExpires = Math.min(networkExpires, Date.now() + 5000);
+      const gtfs = result?.status === 'fulfilled' ? result.value : feeds.get(definition.id);
+      if (!gtfs) { operators.push({ ...definition, status: 'degraded', loading: true }); continue; }
+      if (feeds.get(definition.id) === gtfs) { operators.push({ ...definition, status: 'ok', loading }); continue; }
       const prefix = `${encodeURIComponent(city.manifest.id)}:${encodeURIComponent(definition.id)}:`;
       for (const store of [routeMap, stopMap, stopReferences, packets, lineGeometry]) for (const key of store.keys()) if (key.startsWith(prefix)) store.delete(key);
       snapshotCache = null;
       feeds.set(definition.id, gtfs);
-      operators.push({ ...definition, status: "ok" });
+      operators.push({ ...definition, status: "ok", loading });
       for (const route of gtfs.routes.values()) {
         const counts = new Map<string, Map<string, number>>();
         for (const id of gtfs.routeTripIds.get(route.routeId) ?? []) {
@@ -113,10 +142,11 @@ async function loadNetwork(): Promise<Network> {
       networkExpires = Math.min(networkExpires, Date.now() + 60_000);
     }
   }
-  const stops = [...stopMap.values()];
+  const available = new Set(operators.filter((o) => o.status !== 'unavailable').map((o) => o.id));
+  const stops = [...stopMap.values()].filter((s) => available.has(s.operatorId));
   // Place shortcuts use coordinates supplied by the official transport network.
   const places = city.places(stops);
-  return { city: city.manifest, operators, routes: [...routeMap.values()].sort((a, b) => a.shortName.localeCompare(b.shortName, 'es', { numeric: true })), stops, places };
+  return { city: city.manifest, operators, routes: [...routeMap.values()].filter((r) => available.has(r.operatorId)).sort((a, b) => a.shortName.localeCompare(b.shortName, 'es', { numeric: true })), stops, places };
 }
 
 function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
@@ -162,10 +192,11 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
   return { ...vehicle, delaySeconds, delayEstimated, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
 }
 async function getPresentationSnapshot(): Promise<Snapshot> {
-  await getNetwork();
+  const network = await getNetwork();
   if (snapshotCache && Date.now() < snapshotExpires) return snapshotCache;
   snapshotExpires = Infinity;
-  snapshotCache = engine.getSnapshot().then((snapshot) => { snapshotExpires = Date.now() + 5000; return ({ cityId: city.manifest.id, fetchedAt: snapshot.fetchedAt, vehicles: snapshot.vehicles.map((v) => enrich(v, new Date(snapshot.fetchedAt))).filter((v): v is Vehicle => v !== null), providers: snapshot.providers.map(({ vehicles: _vehicles, ...status }) => status) }); }).catch((error) => { snapshotCache = null; throw error; });
+  const blocked = new Map(network.operators.flatMap((o): [string, 'loading' | 'unavailable'][] => o.status === 'unavailable' ? [[o.id, 'unavailable']] : !feeds.has(o.id) ? [[o.id, 'loading']] : []));
+  snapshotCache = engine.getSnapshot(new Date(), blocked).then((snapshot) => { snapshotExpires = Date.now() + 5000; return ({ cityId: city.manifest.id, fetchedAt: snapshot.fetchedAt, vehicles: snapshot.vehicles.map((v) => enrich(v, new Date(snapshot.fetchedAt))).filter((v): v is Vehicle => v !== null), providers: snapshot.providers.map(({ vehicles: _vehicles, ...status }) => status) }); }).catch((error) => { snapshotCache = null; throw error; });
   return snapshotCache;
 }
 
