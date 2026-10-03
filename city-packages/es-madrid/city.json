@@ -1,0 +1,147 @@
+{
+  "apiVersion": 1,
+  "id": "es-madrid",
+  "countryCode": "ES",
+  "name": "Madrid y Comunidad de Madrid",
+  "region": "Comunidad de Madrid",
+  "timezone": "Europe/Madrid",
+  "center": [
+    -3.7038,
+    40.4168
+  ],
+  "bounds": [
+    [
+      -4.65,
+      39.55
+    ],
+    [
+      -2.75,
+      41.2
+    ]
+  ],
+  "modes": [
+    "bus",
+    "rail",
+    "tram"
+  ],
+  "presentation": {
+    "title": "Transit 3D",
+    "mapLabel": "Mapa de transporte de Madrid y Comunidad de Madrid",
+    "searchLabel": "Buscar transporte en Madrid y Comunidad de Madrid",
+    "initialZoom": 8.7,
+    "brandMark": "t."
+  },
+  "providers": [
+    {
+      "id": "metro-madrid",
+      "name": "Metro de Madrid",
+      "color": "#0065AD",
+      "primary": true,
+      "group": "Ferrocarril",
+      "sources": {
+        "gtfs": "https://www.arcgis.com/sharing/rest/content/items/5c7f2951962540d69ffe8f640d94c246/data"
+      },
+      "appearance": {
+        "kind": "metro",
+        "composition": {
+          "count": 6,
+          "length": 15,
+          "gap": 1
+        },
+        "lateralOffsetMeters": 1.7
+      }
+    },
+    {
+      "id": "cercanias-renfe",
+      "name": "Cercanías Madrid / Renfe",
+      "color": "#E5202A",
+      "primary": true,
+      "group": "Ferrocarril",
+      "sources": {
+        "gtfs": "https://ssl.renfe.com/ftransit/Fichero_CER_FOMENTO/fomento_transit.zip",
+        "tripUpdates": "https://gtfsrt.renfe.com/trip_updates.pb",
+        "vehiclePositions": "https://gtfsrt.renfe.com/vehicle_positions.pb"
+      },
+      "routeIds": [
+        "10T0001C1",
+        "10T0002C1",
+        "10T0003C10",
+        "10T0004C10",
+        "10T0005C2",
+        "10T0006C2",
+        "10T0007C3",
+        "10T0008C3",
+        "10T0011C4",
+        "10T0012C4",
+        "10T0013C4a",
+        "10T0014C4a",
+        "10T0015C4b",
+        "10T0016C4b",
+        "10T0017C5",
+        "10T0018C5",
+        "10T0027C8a",
+        "10T0035C5",
+        "10T0047C5",
+        "10T0048C5",
+        "10T0051C7",
+        "10T0052C7",
+        "10T0053C7",
+        "10T0054C7",
+        "10T0059C7",
+        "10T0061C8a",
+        "10T0062C8a",
+        "10T0063C10",
+        "10T0064C10",
+        "10T0075C10",
+        "10T0076C10",
+        "10T0085C8a",
+        "10T0087C8b",
+        "10T0088C8b",
+        "10T0097C8b",
+        "10T0098C8b",
+        "10T0109C8b",
+        "10T0111C8b",
+        "10T0113C9",
+        "10T0115C9"
+      ],
+      "maximumGpsSpeed": 40
+    },
+    {
+      "id": "emt-madrid",
+      "name": "EMT Madrid",
+      "color": "#0178BC",
+      "primary": true,
+      "group": "Autobuses",
+      "sources": {
+        "gtfs": "https://servicios.emtmadrid.es:8443/gtfs/transitemt.zip"
+      }
+    },
+    {
+      "id": "urbanos-crtm",
+      "name": "Autobuses urbanos de la Comunidad de Madrid",
+      "color": "#E60003",
+      "group": "Autobuses",
+      "sources": {
+        "gtfs": "https://www.arcgis.com/sharing/rest/content/items/357e63c2904f43aeb5d8a267a64346d8/data"
+      }
+    },
+    {
+      "id": "interurbanos-crtm",
+      "name": "Autobuses interurbanos CRTM",
+      "color": "#8EBF42",
+      "group": "Autobuses",
+      "sources": {
+        "gtfs": "https://www.arcgis.com/sharing/rest/content/items/885399f83408473c8d815e40c5e702b7/data"
+      }
+    },
+    {
+      "id": "metro-ligero-crtm",
+      "name": "Metro Ligero y Tranvía de Parla",
+      "color": "#3A7DDA",
+      "group": "Ferrocarril ligero",
+      "sources": {
+        "gtfs": "https://www.arcgis.com/sharing/rest/content/items/aaed26cc0ff64b0c947ac0bc3e033196/data"
+      }
+    }
+  ]
+}
