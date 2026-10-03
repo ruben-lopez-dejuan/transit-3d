@@ -18,7 +18,9 @@ firmada temporal.
 3. Inspecciona un candidato con
    `npm run source:inspect -- --nap 896:1097 --kind gtfs`.
 4. Para GTFS-RT usa `--kind gtfs-rt` y revisa el timestamp de cabecera, la edad y
-   el tipo real de entidades. Una respuesta HTTP reciente no renueva ese timestamp.
+   el tipo real de entidades. Añade `--gtfs ruta/al/feed.zip` para calcular el
+   porcentaje de `trip_id` y `route_id` que encaja con el estático. Una respuesta
+   HTTP reciente no renueva el timestamp del proveedor.
 5. Compara vigencia, cobertura, geometría, joins y frescura con la fuente directa.
 6. Fija la fuente seleccionada en `city.json`, limita feeds nacionales con
    `routeIds` y ejecuta `npm run cities:check`.
