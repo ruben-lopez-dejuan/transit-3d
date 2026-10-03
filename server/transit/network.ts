@@ -49,6 +49,9 @@ let snapshotExpires = 0;
 let enabledState = providers.map((p) => p.enabled).join(',');
 type CatalogTask = { promise: Promise<void>; result?: PromiseSettledResult<BizkaibusGtfs>; expires: number };
 const catalogTasks = new Map<string, CatalogTask>();
+// Parse large GTFS feeds sequentially so transient CSV allocations do not add
+// up to the Node heap limit when a city starts.
+let catalogLoadQueue: Promise<void> = Promise.resolve();
 function checkProviderState() {
   const current = providers.map((p) => p.enabled).join(',');
   if (current !== enabledState) {
@@ -73,7 +76,9 @@ async function loadNetwork(): Promise<Network> {
     const existing = catalogTasks.get(definition.id);
     if (existing && Date.now() < existing.expires) continue;
     const task: CatalogTask = { promise: Promise.resolve(), expires: Infinity };
-    task.promise = Promise.resolve().then(() => gtfsLoaders.get(definition.id)!()).then(
+    const load = catalogLoadQueue.then(() => gtfsLoaders.get(definition.id)!());
+    catalogLoadQueue = load.then(() => undefined, () => undefined);
+    task.promise = load.then(
       (value) => { task.result = { status: 'fulfilled', value }; task.expires = Date.now() + 6 * 3600_000; },
       (reason: unknown) => { task.result = { status: 'rejected', reason }; task.expires = Date.now() + 60_000; },
     ).then(() => { networkCache = null; snapshotCache = null; });

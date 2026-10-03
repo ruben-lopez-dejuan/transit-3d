@@ -1,9 +1,9 @@
-import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
+import type { BizkaibusGtfs, GtfsTrip } from '../providers/bizkaibus/gtfs';
 import { parseGtfsTime } from './gtfsCalendar';
 
 const clock = (seconds: number) => `${Math.floor(seconds / 3600).toString().padStart(2, '0')}:${Math.floor(seconds % 3600 / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 /** Expand frequency templates into explicitly estimated timetable instances. */
-export function expandFrequencies(gtfs: BizkaibusGtfs, rows: Record<string, string>[]) {
+export function expandFrequencies(gtfs: BizkaibusGtfs, rows: Record<string, string>[], includeDeparture: (trip: GtfsTrip, seconds: number) => boolean = () => true) {
   const templates = new Set<string>();
   for (const row of rows) {
     const trip = gtfs.trips.get(row.trip_id), stops = gtfs.tripStops.get(row.trip_id);
@@ -12,6 +12,7 @@ export function expandFrequencies(gtfs: BizkaibusGtfs, rows: Record<string, stri
     if (!trip || !stops || start === null || end === null || origin === null || !Number.isInteger(headway) || headway < 30 || end <= start || end - start > 48 * 3600) continue;
     templates.add(trip.tripId);
     for (let at = start; at < end; at += headway) {
+      if (!includeDeparture(trip, at)) continue;
       const id = `${trip.tripId}@${at}`;
       if (gtfs.trips.has(id)) continue;
       gtfs.trips.set(id, { ...trip, tripId: id });

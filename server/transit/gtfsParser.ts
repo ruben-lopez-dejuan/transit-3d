@@ -4,8 +4,12 @@ import { parse as parseStream } from 'csv-parse';
 import { parse as parseSync } from 'csv-parse/sync';
 import type { BizkaibusGtfs, GtfsRoute } from '../providers/bizkaibus/gtfs';
 import { expandFrequencies } from './frequencies';
+import { isServiceActive, type ServiceDate } from './gtfsCalendar';
+import { serviceEpoch } from './plans';
 
-const tables = ['calendar', 'calendar_dates', 'routes', 'trips', 'stops', 'stop_times', 'shapes', 'frequencies'] as const;
+// Parse dependencies first so large national feeds can be filtered while they
+// are streamed instead of retaining unrelated stops and shapes until the end.
+const tables = ['calendar', 'calendar_dates', 'routes', 'trips', 'stop_times', 'stops', 'shapes', 'frequencies'] as const;
 type Table = typeof tables[number];
 const optional = new Set<Table>(['calendar', 'calendar_dates', 'frequencies']);
 const options = {
@@ -15,12 +19,15 @@ const options = {
 };
 
 /** Both readers use identical normalization; the streaming reader retains only the GTFS model. */
-function builder(includeRoute: (route: GtfsRoute) => boolean) {
+type FrequencyWindow = { from: number; to: number; timezone: string };
+function builder(includeRoute: (route: GtfsRoute) => boolean, serviceDates?: ServiceDate[], frequencyWindow?: FrequencyWindow) {
   const feed: BizkaibusGtfs = {
     routes: new Map(), trips: new Map(), shapes: new Map(), stops: new Map(),
     tripStops: new Map(), routeTripIds: new Map(), calendars: new Map(), calendarDates: new Map(),
   };
   const frequencies: Record<string, string>[] = [];
+  const referencedStops = new Set<string>();
+  const referencedShapes = new Set<string>();
   function add(table: Table, row: Record<string, string>) {
     switch (table) {
       case 'calendar':
@@ -43,16 +50,18 @@ function builder(includeRoute: (route: GtfsRoute) => boolean) {
         break;
       }
       case 'trips': {
-        if (!feed.routes.has(row.route_id)) return;
+        if (!feed.routes.has(row.route_id) || (serviceDates && !serviceDates.some(({ date, weekday }) => isServiceActive(feed, row.service_id, date, weekday)))) return;
         const trip = { tripId: row.trip_id, routeId: row.route_id, serviceId: row.service_id,
           shapeId: row.shape_id || null, headsign: row.trip_headsign || '',
           directionId: ['0', '1'].includes(row.direction_id) ? Number(row.direction_id) : null };
         feed.trips.set(trip.tripId, trip);
+        if (trip.shapeId) referencedShapes.add(trip.shapeId);
         if (!feed.routeTripIds.has(trip.routeId)) feed.routeTripIds.set(trip.routeId, []);
         feed.routeTripIds.get(trip.routeId)!.push(trip.tripId);
         break;
       }
       case 'stops': {
+        if (!referencedStops.has(row.stop_id)) return;
         const latitude = Number(row.stop_lat), longitude = Number(row.stop_lon);
         if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
         feed.stops.set(row.stop_id, { stopId: row.stop_id, stopCode: row.stop_code || '', name: row.stop_name || row.stop_id, latitude, longitude });
@@ -60,31 +69,33 @@ function builder(includeRoute: (route: GtfsRoute) => boolean) {
       }
       case 'stop_times':
         if (!feed.trips.has(row.trip_id)) return;
+        referencedStops.add(row.stop_id);
         if (!feed.tripStops.has(row.trip_id)) feed.tripStops.set(row.trip_id, []);
         feed.tripStops.get(row.trip_id)!.push({ stopId: row.stop_id, sequence: Number(row.stop_sequence),
           arrivalTime: row.arrival_time || null, departureTime: row.departure_time || null });
         break;
       case 'shapes': {
+        if (!referencedShapes.has(row.shape_id)) return;
         const longitude = Number(row.shape_pt_lon), latitude = Number(row.shape_pt_lat), sequence = Number(row.shape_pt_sequence);
         if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || !Number.isFinite(sequence)) return;
         if (!feed.shapes.has(row.shape_id)) feed.shapes.set(row.shape_id, []);
         feed.shapes.get(row.shape_id)!.push({ longitude, latitude, sequence });
         break;
       }
-      case 'frequencies': frequencies.push(row); break;
+      case 'frequencies': if (feed.trips.has(row.trip_id)) frequencies.push(row); break;
     }
   }
   function finish() {
     for (const calls of feed.tripStops.values()) calls.sort((a, b) => a.sequence - b.sequence);
     for (const points of feed.shapes.values()) points.sort((a, b) => a.sequence - b.sequence);
-    expandFrequencies(feed, frequencies);
+    expandFrequencies(feed, frequencies, (trip, seconds) => !frequencyWindow || Boolean(serviceDates?.some(({ date, weekday }) => isServiceActive(feed, trip.serviceId, date, weekday) && serviceEpoch(date, seconds, frequencyWindow.timezone) >= frequencyWindow.from && serviceEpoch(date, seconds, frequencyWindow.timezone) <= frequencyWindow.to)));
     return feed;
   }
   return { add, finish };
 }
 
-export function parseGtfsDirectory(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true): BizkaibusGtfs {
-  const model = builder(includeRoute);
+export function parseGtfsDirectory(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true, serviceDates?: ServiceDate[]): BizkaibusGtfs {
+  const model = builder(includeRoute, serviceDates);
   for (const table of tables) {
     const file = path.join(directory, `${table}.txt`);
     if (optional.has(table) && !fs.existsSync(file)) continue;
@@ -93,8 +104,8 @@ export function parseGtfsDirectory(directory: string, includeRoute: (route: Gtfs
   return model.finish();
 }
 
-export async function parseGtfsDirectoryStreaming(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true): Promise<BizkaibusGtfs> {
-  const model = builder(includeRoute);
+export async function parseGtfsDirectoryStreaming(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true, serviceDates?: ServiceDate[], frequencyWindow?: FrequencyWindow): Promise<BizkaibusGtfs> {
+  const model = builder(includeRoute, serviceDates, frequencyWindow);
   for (const table of tables) {
     const file = path.join(directory, `${table}.txt`);
     if (optional.has(table) && !fs.existsSync(file)) continue;

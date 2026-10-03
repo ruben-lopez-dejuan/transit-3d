@@ -6,6 +6,8 @@ import { readParsedFeed, writeParsedFeed } from '../lib/gtfsCache';
 import type { BizkaibusGtfs, GtfsRoute } from "./bizkaibus/gtfs";
 import { parseGtfsDirectoryStreaming } from '../transit/gtfsParser';
 import { generateScheduledVehicles } from "../transit/scheduled";
+import { formatServiceDate } from '../transit/gtfsCalendar';
+import { shiftDate } from '../transit/plans';
 import type { TransitProvider, ProviderSnapshot } from "../transit/types";
 import type { ResolvedSource, SourceSupplier } from '../sources/types';
 
@@ -33,8 +35,12 @@ export class StaticGtfsProvider implements TransitProvider {
       catch (error) { if (!fs.existsSync(zipPath)) throw error; this.stale = true; }
     }
     const parsedPath = path.join(directory, 'parsed.v8');
+    const today = formatServiceDate(new Date(), this.options.timezone);
+    const serviceDates = [-1, 0, 1].map((delta) => shiftDate(today.date, delta));
+    const now = Date.now();
+    const cacheVariant = serviceDates.map(({ date }) => date).join(',') + ':' + Math.floor(now / (3 * 3600_000));
     this.receivedTimestamp = fs.statSync(zipPath).mtimeMs;
-    const parsed = readParsedFeed(parsedPath, zipPath);
+    const parsed = readParsedFeed(parsedPath, zipPath, cacheVariant);
     if (parsed) return parsed;
     const zip = new AdmZip(zipPath);
     // Only extract the known GTFS tables into this provider's cache directory.
@@ -43,10 +49,10 @@ export class StaticGtfsProvider implements TransitProvider {
       if (entry) fs.writeFileSync(path.join(directory, `${table}.txt`), entry.getData());
       else if (["calendar", "calendar_dates", "frequencies"].includes(table)) fs.rmSync(path.join(directory, `${table}.txt`), { force: true });
     }
-    const gtfs = await parseGtfsDirectoryStreaming(directory, this.options.includeRoute);
+    const gtfs = await parseGtfsDirectoryStreaming(directory, this.options.includeRoute, serviceDates, { from: now - 2 * 3600_000, to: now + 8 * 3600_000, timezone: this.options.timezone ?? 'Europe/Madrid' });
     await this.options.prepare?.(gtfs);
     if (!gtfs.routes.size || !gtfs.trips.size || !gtfs.shapes.size) throw new Error(`Incomplete GTFS for ${this.operatorId}`);
-    writeParsedFeed(parsedPath, zipPath, gtfs);
+    writeParsedFeed(parsedPath, zipPath, gtfs, cacheVariant);
     console.log(`[${this.operatorId}] GTFS ready: ${gtfs.routes.size} routes, ${gtfs.trips.size} trips.`);
     return gtfs;
   }

@@ -46,3 +46,24 @@ test('frequency trips replace templates, preserve dwell and expand past midnight
   assert.equal(feed.trips.has('t@87600'), false);
   assert.equal(feed.routeTripIds.get('r')?.length, 3);
 });
+
+
+test('route filtering discards unrelated stops and shapes while parsing', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'filtered-gtfs-test-'));
+  const tables = {
+    routes: 'route_id,route_short_name,route_type\nr,1,3\nother,2,3\n',
+    trips: 'route_id,service_id,trip_id,shape_id\nr,s,t,shape\nother,s,x,unused\n',
+    stops: 'stop_id,stop_name,stop_lat,stop_lon\na,A,43,-2\nz,Z,44,-3\n',
+    stop_times: 'trip_id,stop_id,stop_sequence\nt,a,1\nx,z,1\n',
+    shapes: 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\nshape,43,-2,1\nshape,43.1,-2.1,2\nunused,44,-3,1\nunused,44.1,-3.1,2\n',
+  };
+  try {
+    Object.entries(tables).forEach(([name, csv]) => fs.writeFileSync(path.join(directory, `${name}.txt`), csv));
+    const feed = parseGtfsDirectory(directory, (route) => route.routeId === 'r');
+    assert.deepEqual([...feed.trips.keys()], ['t']);
+    assert.deepEqual([...feed.stops.keys()], ['a']);
+    assert.deepEqual([...feed.shapes.keys()], ['shape']);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
