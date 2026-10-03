@@ -1,0 +1,99 @@
+{
+  "apiVersion": 2,
+  "id": "es-valencia",
+  "countryCode": "ES",
+  "name": "València y núcleo urbano",
+  "region": "Comunitat Valenciana",
+  "timezone": "Europe/Madrid",
+  "center": [
+    -0.3763,
+    39.4699
+  ],
+  "bounds": [
+    [
+      -0.85,
+      38.8
+    ],
+    [
+      0.15,
+      40.05
+    ]
+  ],
+  "modes": [
+    "bus",
+    "rail",
+    "tram"
+  ],
+  "presentation": {
+    "title": "Transit 3D",
+    "mapLabel": "Mapa de transporte de València",
+    "searchLabel": "Buscar transporte en València",
+    "initialZoom": 10.6,
+    "brandMark": "t."
+  },
+  "providers": [
+    {
+      "id": "emt-valencia",
+      "name": "EMT València",
+      "color": "#E30613",
+      "primary": true,
+      "sources": {
+        "gtfs": {
+          "type": "nap",
+          "datasetId": 965,
+          "fileId": 1166
+        }
+      }
+    },
+    {
+      "id": "metrovalencia",
+      "name": "Metrovalencia (FGV)",
+      "color": "#D50032",
+      "primary": true,
+      "sources": {
+        "gtfs": {
+          "type": "nap",
+          "datasetId": 967,
+          "fileId": 1168
+        }
+      }
+    },
+    {
+      "id": "renfe-cercanias-valencia",
+      "name": "Cercanías València (Renfe)",
+      "color": "#81005E",
+      "primary": true,
+      "sources": {
+        "gtfs": {
+          "type": "nap",
+          "datasetId": 929,
+          "fileId": 1130
+        },
+        "tripUpdates": {
+          "type": "http",
+          "url": "https://gtfsrt.renfe.com/trip_updates.pb"
+        },
+        "vehiclePositions": {
+          "type": "http",
+          "url": "https://gtfsrt.renfe.com/vehicle_positions.pb"
+        }
+      },
+      "routeIds": [
+        "40T0001C1",
+        "40T0002C1",
+        "40T0005C2",
+        "40T0006C2",
+        "40T0049C2",
+        "40T0053C2",
+        "40T0025C3",
+        "40T0026C3",
+        "40T0043C3",
+        "40T0044C3",
+        "40T0057C5",
+        "40T0063C5",
+        "40T0013C6",
+        "40T0014C6"
+      ]
+    }
+  ]
+}

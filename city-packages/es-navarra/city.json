@@ -1,0 +1,79 @@
+{
+  "apiVersion": 2,
+  "id": "es-navarra",
+  "countryCode": "ES",
+  "name": "Pamplona y Navarra",
+  "region": "Comunidad Foral de Navarra",
+  "timezone": "Europe/Madrid",
+  "center": [
+    -1.644,
+    42.8125
+  ],
+  "bounds": [
+    [
+      -2.55,
+      41.85
+    ],
+    [
+      -0.7,
+      43.35
+    ]
+  ],
+  "modes": [
+    "bus"
+  ],
+  "presentation": {
+    "title": "Transit 3D",
+    "mapLabel": "Mapa de transporte de Pamplona y Navarra",
+    "searchLabel": "Buscar transporte en Pamplona y Navarra",
+    "initialZoom": 8.7,
+    "brandMark": "t."
+  },
+  "providers": [
+    {
+      "id": "tuc-pamplona",
+      "name": "Transporte Urbano Comarcal (TUC)",
+      "color": "#007A5E",
+      "primary": true,
+      "group": "Autobús urbano y comarcal",
+      "sources": {
+        "gtfs": {
+          "type": "nap",
+          "datasetId": 976,
+          "fileId": 1177
+        }
+      },
+      "appearance": {
+        "kind": "bus",
+        "composition": {
+          "count": 1,
+          "length": 12,
+          "gap": 0
+        },
+        "lateralOffsetMeters": 0
+      }
+    },
+    {
+      "id": "nbus-navarra",
+      "name": "NBus - Transporte Interurbano de Navarra",
+      "color": "#C8102E",
+      "group": "Autobús interurbano",
+      "sources": {
+        "gtfs": {
+          "type": "nap",
+          "datasetId": 963,
+          "fileId": 1164
+        }
+      },
+      "appearance": {
+        "kind": "bus",
+        "composition": {
+          "count": 1,
+          "length": 13,
+          "gap": 0
+        },
+        "lateralOffsetMeters": 0
+      }
+    }
+  ]
+}
