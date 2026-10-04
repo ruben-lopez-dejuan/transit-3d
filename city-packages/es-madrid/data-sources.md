@@ -52,7 +52,7 @@ Endpoints verificados:
 - `POST /v2/transport/busemtmad/stops/62/arrives/`: sin token, HTTP **401/code 80**. Body documentado con `cultureInfo`, flags de estimaciones/parada/incidencias; headers `accessToken`. Ninguna petición autenticada se realizó.
 - Login documenta `accessToken` y `tokenSecExpiration`; Arrive documenta `line`, `stop`, `bus`, `destination`, `estimateArrive` en segundos y geometría. El sentinel `999999` no es una ETA utilizable.
 
-Configuración de servidor: **`EMT_CLIENT_ID`** y **`EMT_PASSKEY`**, ambas necesarias. Nunca en `city.json`, variables `VITE_*`, logs o frontend. El proceso lee su entorno al arrancar; no carga `.env` automáticamente. `.env` y variantes se ignoran en Git.
+Configuración de servidor: **`EMT_CLIENT_ID`** y **`EMT_PASSKEY`**, ambas necesarias. Nunca en `city.json`, variables `VITE_*`, logs o frontend. Los scripts `npm run dev` y `npm start` cargan el `.env` local al arrancar; en despliegues las credenciales se inyectan como variables del servicio. `.env` y variantes se ignoran en Git.
 
 Se implementan autenticación, reutilización/concurrencia del token, caché de parada de 30 s, timeout de 8 s, límite de 2 consultas concurrentes/10 por minuto y hasta 100 paradas cacheadas. Se consulta una parada seleccionada o, al seleccionar un viaje, hasta cuatro siguientes; nunca toda la flota. Los errores conservan predicciones que sigan frescas y permiten volver a horario. La API documenta distintas cuotas por modalidad y sus ejemplos no coinciden: **comprobar la cuota del registro**, no dar una cifra universal por garantizada.
 

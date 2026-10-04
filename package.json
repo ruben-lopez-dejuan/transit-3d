@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "set NODE_USE_SYSTEM_CA=1&& concurrently -k -n api,web \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite",
-    "dev:api": "set NODE_USE_SYSTEM_CA=1&& node ./node_modules/tsx/dist/cli.mjs watch server/index.ts",
+    "dev:api": "set NODE_USE_SYSTEM_CA=1&& node --env-file-if-exists=.env ./node_modules/tsx/dist/cli.mjs watch server/index.ts",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "cities:check": "tsx server/check-city-packages.ts",
-    "start": "set NODE_USE_SYSTEM_CA=1&& node ./node_modules/tsx/dist/cli.mjs server/index.ts",
+    "start": "set NODE_USE_SYSTEM_CA=1&& node --env-file-if-exists=.env ./node_modules/tsx/dist/cli.mjs server/index.ts",
     "preview": "vite preview",
     "test:bizkaibus-gtfs": "tsx server/test-bizkaibus-gtfs.ts",
     "test:bizkaibus-realtime": "tsx server/test-bizkaibus-realtime.ts",

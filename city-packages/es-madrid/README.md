@@ -31,7 +31,7 @@ $env:EMT_PASSKEY = '<tu passkey>'
 npm run dev
 ```
 
-Sin ellas no se intenta el login. `.env.example` enumera las variables; el proceso no carga `.env` automáticamente. No hace falta ninguna clave para Metro o Renfe.
+Sin ellas no se intenta el login. `.env.example` enumera las variables; `npm run dev` y `npm start` cargan automáticamente el `.env` local cuando existe. No hace falta ninguna clave para Metro o Renfe.
 
 Validación sin navegador: `npm run test:madrid`, `npm run typecheck`, `npm run build`. Auditoría de una muestra: `npm run audit:madrid`; reproducción offline: `npm run audit:madrid -- --cached`. El informe distingue reproducción de muestra y validación contra reloj actual.
 
