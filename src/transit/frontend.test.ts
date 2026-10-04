@@ -11,6 +11,7 @@ import { composition, vehiclePose } from './vehiclePose';
 import { bilbaoManifest } from '../../server/cities/es-bilbao/city.manifest';
 import { migrateFavorites } from './favorites';
 import { entityId } from '../../shared/transit/ids';
+import { cityPreferencesKey, parseCityPreferences, readCityPreferences, writeCityPreferences } from './preferences';
 
 test('city selection uses URL, persistence and safe fallback for removed packages', () => {
   const cities = [{ id: 'es-bilbao' }, { id: 'es-test' }];
@@ -26,6 +27,15 @@ test('city navigation preserves debug flags, origin and hash without duplicating
   assert.equal(url.searchParams.has('debug'), true);
   assert.deepEqual(url.searchParams.getAll('city'), ['es-test']);
   assert.equal(url.hash, '#map');
+});
+test('city preferences remain isolated, validated and recover malformed local storage', () => {
+  const values = new Map<string, string>();
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+  writeCityPreferences('es-bilbao', { mode: 'rail', operators: ['metro', 'metro'], disabledLayers: ['metro:bus'], underground: false, camera: { center: [-2.93, 43.26], zoom: 14, bearing: 12, pitch: 40 } }, storage);
+  assert.deepEqual(readCityPreferences('es-bilbao', storage), { mode: 'rail', operators: ['metro'], disabledLayers: ['metro:bus'], underground: false, camera: { center: [-2.93, 43.26], zoom: 14, bearing: 12, pitch: 40 } });
+  assert.deepEqual(readCityPreferences('es-madrid', storage), {});
+  values.set(cityPreferencesKey('bad'), '{'); assert.deepEqual(readCityPreferences('bad', storage), {});
+  assert.deepEqual(parseCityPreferences({ mode: 'plane', camera: { center: [0, 0], zoom: 80, bearing: 0, pitch: 0 } }), {});
 });
 test('shell renders an accessible selector, escapes city labels and selects only the active city', () => {
   const other = { ...bilbaoManifest, id: 'es-test', name: '<script>Test</script>' };

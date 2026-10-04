@@ -12,6 +12,7 @@ import { empty, styleUrl, setData, installLayers, installVehicleIcons, stopsData
 import { createShell, configureTimezone, esc, badge, quality, eta, time, departures, positionExplanation, delayLabel } from './ui';
 import { setupPwa } from './pwa';
 import { migrateFavorites } from './transit/favorites';
+import { readCityPreferences, writeCityPreferences } from './transit/preferences';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 $('#app').textContent = 'Cargando la red de transporte…';
@@ -28,6 +29,7 @@ write(CITY_STORAGE_KEY, city.id);
 history.replaceState(history.state, '', cityUrl(location.href, city.id));
 document.title = city.presentation.title;
 $('#app').innerHTML = createShell(city, cities);
+const cityPreferences = readCityPreferences(city.id, localStorage);
 configureTimezone(city.timezone);
 setupPwa(city.presentation.title);
 $<HTMLSelectElement>('#city-picker').addEventListener('change', (event) => {
@@ -47,18 +49,32 @@ const isDark = () => theme === 'dark' || (theme === 'system' && media.matches);
 document.documentElement.dataset.theme = isDark() ? 'dark' : 'light';
 $<HTMLSelectElement>('#theme').value = theme;
 setWorkerUrl(workerUrl);
-const map = new TransitMap({ container: 'map', style: styleUrl(isDark()), center: city.center, zoom: city.presentation.initialZoom, pitch: 0, attributionControl: { compact: true }, maxPitch: 65 });
+const savedCamera = cityPreferences.camera;
+const map = new TransitMap({ container: 'map', style: styleUrl(isDark()), center: savedCamera?.center ?? city.center, zoom: savedCamera?.zoom ?? city.presentation.initialZoom, bearing: savedCamera?.bearing ?? 0, pitch: savedCamera?.pitch ?? 0, attributionControl: { compact: true }, maxPitch: 65 });
 const renderer = new TransitRenderer(map);
+renderer.showUnderground = cityPreferences.underground ?? true;
+$<HTMLInputElement>('#underground').checked = renderer.showUnderground;
 let network: Network | null = null, snapshot: Snapshot | null = null;
-let mode: TransitMode | 'all' = 'all';
+let mode: TransitMode | 'all' = cityPreferences.mode && (cityPreferences.mode === 'all' || city.modes.includes(cityPreferences.mode)) ? cityPreferences.mode : 'all';
 let selection: { kind: 'vehicle'; id: string } | { kind: 'route'; route: Route; direction: string } | { kind: 'stop'; stop: Stop } | null = null;
 let detail: LineDetail | StopDetail | TripDetail | null = null, detailVersion = 0, detailError = '';
-let following = false, lastFollow = 0, polling = false, toastTimer = 0;
+let following = false, lastFollow = 0, polling = false, toastTimer = 0, cameraSaveTimer = 0, nextNetworkRefreshAt = 0;
 let results: SearchResult[] = [], resultIndex = -1;
 const inFlightShapes = new Set<string>();
+let detailRequest: AbortController | null = null, operatorRenderKey = '';
 const operatorName = (id: string) => network?.operators.find((o) => o.id === id)?.name ?? id;
 const selectedVehicle = () => { const current = selection; return current?.kind === 'vehicle' ? snapshot?.vehicles.find((v) => v.id === current.id) : undefined; };
 const padding = () => innerWidth < 700 ? { top: 130, bottom: selection ? Math.min(innerHeight * .43, 340) : 120, left: 35, right: 35 } : { top: 150, bottom: 70, left: selection ? 410 : 70, right: 80 };
+function persistCityPreferences() {
+  const center = map.getCenter();
+  writeCityPreferences(city.id, {
+    mode,
+    operators: network ? [...renderer.operators] : cityPreferences.operators,
+    disabledLayers: network ? [...renderer.disabledLayers] : cityPreferences.disabledLayers,
+    underground: renderer.showUnderground,
+    camera: { center: [center.lng, center.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() },
+  }, localStorage);
+}
 function toast(message: string) { $('#toast').textContent = message; $('#toast').hidden = false; window.clearTimeout(toastTimer); toastTimer = window.setTimeout(() => $('#toast').hidden = true, 6000); }
 function filters() {
   renderer.mode = mode;
@@ -76,23 +92,41 @@ function updateStatus() {
   const count = renderer.getVehicles().length;
   const age = snapshot ? Date.now() + renderer.clockOffset - snapshot.fetchedAt : 0;
   const stale = !!snapshot && age > 45_000;
+  const preparing = network?.operators.filter((operator) => operator.loading).length ?? 0;
+  const available = network?.operators.filter((operator) => operator.status !== 'unavailable' && !operator.loading).length ?? 0;
   $('.map-status').classList.toggle('stale', stale || !navigator.onLine);
-  $('#status').textContent = !navigator.onLine ? 'Sin conexión · última actualización disponible' : !snapshot ? 'Cargando la red de transporte…' : stale ? 'Esperando datos recientes…' : `${count} vehículos · ${renderer.getVehicles().filter((v) => positionQuality(v, Date.now() + renderer.clockOffset) === 'live').length} con GPS reciente`;
+  const progress = preparing ? ` · ${available}/${network!.operators.length} fuentes listas` : '';
+  $('#status').textContent = !navigator.onLine ? 'Sin conexión · última actualización disponible' : !snapshot ? 'Cargando la red de transporte…' : stale ? `Esperando datos recientes…${progress}` : `${count} vehículos · ${renderer.getVehicles().filter((v) => positionQuality(v, Date.now() + renderer.clockOffset) === 'live').length} con GPS reciente${progress}`;
   $('#empty-map').hidden = !snapshot || count > 0;
   $('#empty-map').textContent = renderer.operators.size === 0 ? 'Activa un operador en Capas para ver la red.' : 'No hay vehículos activos con estos filtros. Puedes explorar las paradas.';
   renderOperators();
 }
 function renderOperators() {
   if (!network) return;
+  const counts = new Map<string, number>();
+  const gpsSources = new Set<string>();
+  for (const vehicle of snapshot?.vehicles ?? []) {
+    counts.set(vehicle.operatorId, (counts.get(vehicle.operatorId) ?? 0) + 1);
+    const layer = `${vehicle.operatorId}:${vehicle.mode}`;
+    counts.set(layer, (counts.get(layer) ?? 0) + 1);
+    if (vehicle.observationTimestamp !== null) { gpsSources.add(vehicle.operatorId); gpsSources.add(layer); }
+  }
+  const providers = new Map((snapshot?.providers ?? []).map((provider) => [provider.operatorId, provider]));
+  const key = JSON.stringify({
+    operators: network.operators.map((operator) => [operator.id, operator.loading, operator.status, providers.get(operator.id)?.status, providers.get(operator.id)?.realtimeTripCount ?? 0, providers.get(operator.id)?.realtimeArrivalCount ?? 0, counts.get(operator.id) ?? 0]),
+    gps: [...gpsSources].sort(),
+    enabled: [...renderer.operators].sort(), disabled: [...renderer.disabledLayers].sort(),
+  });
+  if (key === operatorRenderKey) return;
+  operatorRenderKey = key;
   const openGroups = new Set([...document.querySelectorAll<HTMLDetailsElement>('[data-provider-group][open]')].map((d) => d.dataset.providerGroup));
   const row = (id: string, name?: string, transport?: TransitMode) => {
     const o = network!.operators.find((o) => o.id === id); if (!o) return '';
-    const provider = snapshot?.providers.find((p) => p.operatorId === id), state = provider?.status ?? o.status;
-    const vehicles = snapshot?.vehicles.filter((v) => v.operatorId === id && (!transport || v.mode === transport)) ?? [];
-    const gps = vehicles.some((v) => v.observationTimestamp !== null), timings = (provider?.realtimeTripCount ?? 0) > 0 || (provider?.realtimeArrivalCount ?? 0) > 0;
+    const provider = providers.get(id), state = provider?.status ?? o.status;
+    const gps = gpsSources.has(transport ? `${id}:${transport}` : id), timings = (provider?.realtimeTripCount ?? 0) > 0 || (provider?.realtimeArrivalCount ?? 0) > 0;
     const label = o.loading ? 'Preparando datos…' : state === 'unavailable' ? 'Fuente no disponible' : gps && timings ? 'GPS + llegadas realtime' : timings ? 'Llegadas realtime · posición estimada' : gps ? o.capabilities.stopArrivals ? 'GPS · llegadas por parada' : 'GPS + horarios' : o.capabilities.scheduledService === false ? 'Sin predicciones recientes' : 'Según horario';
     const checked = renderer.operators.has(id) && (!transport || !renderer.disabledLayers.has(id + ':' + transport));
-    return '<label class="operator-row"><input type="checkbox" data-operator="' + esc(id) + '" ' + (transport ? 'data-transport="' + transport + '" ' : '') + (checked ? 'checked' : '') + '><span class="operator-dot" style="background:' + esc(o.color) + '"></span><span><strong>' + esc(name ?? o.name) + '</strong><small>' + label + '</small></span><span class="operator-count">' + vehicles.length + '</span></label>';
+    return '<label class="operator-row"><input type="checkbox" data-operator="' + esc(id) + '" ' + (transport ? 'data-transport="' + transport + '" ' : '') + (checked ? 'checked' : '') + '><span class="operator-dot" style="background:' + esc(o.color) + '"></span><span><strong>' + esc(name ?? o.name) + '</strong><small>' + label + '</small></span><span class="operator-count">' + (counts.get(transport ? `${id}:${transport}` : id) ?? 0) + '</span></label>';
   };
   const rowsFor = (o: Network['operators'][number]) => o.layers?.map((layer) => row(o.id, layer.name, layer.mode)).join('') ?? row(o.id);
   const groups = new Map<string, string[]>();
@@ -113,11 +147,24 @@ async function refresh() {
   if (polling || !navigator.onLine) return;
   polling = true; $('#refresh').textContent = 'Actualizando…';
   try {
-    if (!network || network.operators.some((o) => o.loading || o.status === 'unavailable')) {
+    if (!network || Date.now() >= nextNetworkRefreshAt) {
       const firstLoad = !network;
-      network = await loadNetwork(); favorites = migrateFavorites(favorites, network); write('transit:favorites', JSON.stringify([...favorites]));
-      if (firstLoad) network.operators.forEach((o) => renderer.operators.add(o.id));
-      setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network);
+      try {
+        network = await loadNetwork(); favorites = migrateFavorites(favorites, network); write('transit:favorites', JSON.stringify([...favorites]));
+        if (firstLoad) {
+          const valid = new Set(network.operators.map((operator) => operator.id));
+          const selected = cityPreferences.operators ?? [...valid];
+          selected.filter((id) => valid.has(id)).forEach((id) => renderer.operators.add(id));
+          for (const layer of cityPreferences.disabledLayers ?? []) renderer.disabledLayers.add(layer);
+        }
+        nextNetworkRefreshAt = Date.now() + (network.operators.some((operator) => operator.loading) ? 5_000 : network.operators.some((operator) => operator.status === 'unavailable') ? 60_000 : 6 * 3600_000);
+        operatorRenderKey = '';
+        setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network);
+        if (firstLoad) persistCityPreferences();
+      } catch (error) {
+        nextNetworkRefreshAt = Date.now() + 30_000;
+        if (!network) throw error;
+      }
     }
     snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); filters(); renderDetails();
   } catch (error) { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
@@ -136,30 +183,35 @@ function search() {
 function closeSearch() { $('#search-results').hidden = true; $('#search').setAttribute('aria-expanded', 'false'); $('#search').removeAttribute('aria-activedescendant'); }
 function chooseResult(index: number) { const result = results[index]; if (!result) return; closeSearch(); $('#search').blur(); if (result.type === 'route') void selectRoute(result.item); else if (result.type === 'stop') void selectStop(result.item); else { closeDetails(); map.easeTo({ center: [result.item.longitude, result.item.latitude], zoom: 15, duration: 850 }); } }
 function openPanel() { $('#details').hidden = false; $('#details').classList.remove('collapsed'); closeSearch(); $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); detailError = ''; }
+function beginDetailRequest() {
+  detailRequest?.abort();
+  detailRequest = new AbortController();
+  return { version: ++detailVersion, signal: detailRequest.signal };
+}
 function favoriteKey() { return selection?.kind === 'route' ? `route:${selection.route.key}` : selection?.kind === 'stop' ? `stop:${selection.stop.key}` : null; }
-function closeDetails() { selection = null; detail = null; detailVersion++; following = false; renderer.focusRoute = null; renderer.selectedId = null; renderer.direction = 'all'; $('#details').hidden = true; $('#debug').hidden = true; map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 300 }); setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); }
+function closeDetails() { detailRequest?.abort(); detailRequest = null; selection = null; detail = null; detailVersion++; following = false; renderer.focusRoute = null; renderer.selectedId = null; renderer.direction = 'all'; $('#details').hidden = true; $('#debug').hidden = true; map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 300 }); setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); }
 async function selectRoute(route: Route, direction = 'all', fit = true) {
   renderer.operators.add(route.operatorId); renderer.disabledLayers.delete(route.operatorId + ':' + route.mode); if (mode !== 'all' && mode !== route.mode) mode = route.mode; filters();
   selection = { kind: 'route', route, direction }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = route.key; renderer.direction = direction; openPanel(); renderDetails();
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
-  const version = ++detailVersion;
-  try { const result = await loadLine(route, direction); if (version !== detailVersion) return; detail = result; result.shapes.forEach((s) => renderer.shapes.set(s.key, s)); setData(map, 'selected-route', routeData(result.shapes, route.color)); setData(map, 'selected-stops', stopsData(result.stops)); if (fit) fitShapes(map, result.shapes, padding()); renderDetails(); }
-  catch (error) { if (version === detailVersion) { detailError = String((error as Error).message); renderDetails(); } }
+  const { version, signal } = beginDetailRequest();
+  try { const result = await loadLine(route, direction, signal); if (version !== detailVersion) return; detail = result; result.shapes.forEach((s) => renderer.shapes.set(s.key, s)); setData(map, 'selected-route', routeData(result.shapes, route.color)); setData(map, 'selected-stops', stopsData(result.stops)); if (fit) fitShapes(map, result.shapes, padding()); renderDetails(); }
+  catch (error) { if (!signal.aborted && version === detailVersion) { detailError = String((error as Error).message); renderDetails(); } }
 }
 async function selectStop(stop: Stop) {
   selection = { kind: 'stop', stop }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = null; openPanel(); setData(map, 'selected-route', empty); setData(map, 'selected-stops', stopsData([stop])); map.easeTo({ center: [stop.longitude, stop.latitude], zoom: Math.max(map.getZoom(), 15), padding: padding(), duration: 700 }); renderDetails();
-  $('#detail-content').scrollTop = 0; const version = ++detailVersion;
-  try { const result = await loadStop(stop); if (version !== detailVersion) return; detail = result; setData(map, 'selected-stops', stopsData(result.nearbyStops)); renderDetails(); }
-  catch (error) { if (version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
+  $('#detail-content').scrollTop = 0; const { version, signal } = beginDetailRequest();
+  try { const result = await loadStop(stop, signal); if (version !== detailVersion) return; detail = result; setData(map, 'selected-stops', stopsData(result.nearbyStops)); renderDetails(); }
+  catch (error) { if (!signal.aborted && version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
 }
 async function selectVehicle(vehicle: Vehicle) {
   renderer.operators.add(vehicle.operatorId); renderer.disabledLayers.delete(vehicle.operatorId + ':' + vehicle.mode); if (mode !== 'all' && mode !== vehicle.mode) mode = vehicle.mode; filters();
   selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; renderer.direction = 'all'; openPanel(); renderDetails();
   const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: 700 });
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
-  const version = ++detailVersion;
-  try { const result = await loadTrip(vehicle); if (version !== detailVersion) return; detail = result; if (result.shape) { renderer.shapes.set(result.shape.key, result.shape); setData(map, 'selected-route', routeData([result.shape], vehicle.color)); } setData(map, 'selected-stops', stopsData(result.stops)); renderDetails(); }
-  catch (error) { if (version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
+  const { version, signal } = beginDetailRequest();
+  try { const result = await loadTrip(vehicle, signal); if (version !== detailVersion) return; detail = result; if (result.shape) { renderer.shapes.set(result.shape.key, result.shape); setData(map, 'selected-route', routeData([result.shape], vehicle.color)); } setData(map, 'selected-stops', stopsData(result.stops)); renderDetails(); }
+  catch (error) { if (!signal.aborted && version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
 }
 function renderDetails() {
   if (!selection) return;
@@ -213,15 +265,15 @@ $('#search').addEventListener('focus', search);
 $('#search').addEventListener('keydown', (event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!results.length) return; resultIndex = (resultIndex + (event.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length; document.querySelectorAll('[data-result]').forEach((r, i) => { r.classList.toggle('highlight', i === resultIndex); r.setAttribute('aria-selected', String(i === resultIndex)); }); $('#search').setAttribute('aria-activedescendant', `result-${resultIndex}`); $(`#result-${resultIndex}`).scrollIntoView({ block: 'nearest' }); } if (event.key === 'Enter') { event.preventDefault(); chooseResult(Math.max(0, resultIndex)); } });
 $('#clear-search').onclick = () => { $<HTMLInputElement>('#search').value = ''; search(); $('#search').focus(); };
 $('#results').onclick = (event) => { const item = (event.target as HTMLElement).closest<HTMLElement>('[data-result]'); if (item) chooseResult(Number(item.dataset.result)); };
-document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.onclick = () => { mode = button.dataset.mode as typeof mode; filters(); if (!$('#search-results').hidden) search(); renderDetails(); });
+document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((button) => button.onclick = () => { mode = button.dataset.mode as typeof mode; filters(); persistCityPreferences(); if (!$('#search-results').hidden) search(); renderDetails(); });
 $('#layers-button').onclick = () => { $('#layers').hidden = !$('#layers').hidden; $('#layers-button').setAttribute('aria-expanded', String(!$('#layers').hidden)); closeSearch(); };
 $('[data-close-layers]').onclick = () => { $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); };
-$('#operator-list').addEventListener('change', (event) => { const input = event.target as HTMLInputElement; if (input.dataset.operator) { if (input.dataset.transport) { const key = input.dataset.operator + ':' + input.dataset.transport; renderer.operators.add(input.dataset.operator); if (input.checked) renderer.disabledLayers.delete(key); else renderer.disabledLayers.add(key); } else if (input.checked) renderer.operators.add(input.dataset.operator); else renderer.operators.delete(input.dataset.operator); filters(); renderDetails(); } });
+$('#operator-list').addEventListener('change', (event) => { const input = event.target as HTMLInputElement; if (input.dataset.operator) { if (input.dataset.transport) { const key = input.dataset.operator + ':' + input.dataset.transport; renderer.operators.add(input.dataset.operator); if (input.checked) renderer.disabledLayers.delete(key); else renderer.disabledLayers.add(key); } else if (input.checked) renderer.operators.add(input.dataset.operator); else renderer.operators.delete(input.dataset.operator); filters(); persistCityPreferences(); renderDetails(); } });
 function changeTheme() { document.documentElement.dataset.theme = isDark() ? 'dark' : 'light'; map.setStyle(styleUrl(isDark())); }
 $('#theme').addEventListener('change', () => { theme = $<HTMLSelectElement>('#theme').value; write('transit:theme', theme); changeTheme(); });
 media.addEventListener('change', () => { if (theme === 'system') changeTheme(); });
-$('#underground').onchange = () => { renderer.showUnderground = $<HTMLInputElement>('#underground').checked; };
-map.on('moveend', () => { void ensureShapes(); });
+$('#underground').onchange = () => { renderer.showUnderground = $<HTMLInputElement>('#underground').checked; persistCityPreferences(); };
+map.on('moveend', () => { void ensureShapes(); if (!following) { window.clearTimeout(cameraSaveTimer); cameraSaveTimer = window.setTimeout(persistCityPreferences, 250); } });
 $('#refresh').onclick = () => { void refresh(); };
 $('#close-details').onclick = closeDetails;
 $('#sheet-handle').onclick = () => $('#details').classList.toggle('collapsed');

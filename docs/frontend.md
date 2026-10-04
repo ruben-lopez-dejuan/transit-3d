@@ -16,11 +16,11 @@ Desktop usa panel lateral; móvil usa panel inferior con asa para reducir/expand
 
 Los detalles y la leyenda añaden etiquetas de texto, además del color. Los horarios se muestran en Europe/Madrid. Un horario o un desfase inferido no es una garantía de llegada real. La falta de datos no se oculta: Capas informa del estado de cada fuente y la barra inferior informa de conexión/frescura. Sin snapshot nuevo durante tres minutos se retiran vehículos del mapa.
 
-El mapa se actualiza independientemente de los feeds. Los recorridos se descargan por lotes, conservan distancias acumuladas y se almacenan en memoria. Los vehículos muestran rumbo al acercarse; en zoom 17 aparecen cuerpos 3D simples. Los edificios se extruyen cuando la cartografía proporciona la capa building. Los modos claro, oscuro y sistema se guardan localmente.
+El mapa se actualiza independientemente de los feeds. Los recorridos se descargan por lotes, conservan distancias acumuladas y se almacenan en memoria. Los vehículos muestran rumbo al acercarse; en zoom 17 aparecen cuerpos 3D simples. Los edificios se extruyen cuando la cartografía proporciona la capa building. Los modos claro, oscuro y sistema se guardan localmente. Cada ciudad conserva también cámara, modo, operadores, capas y visualización de túneles.
 
 ## Instalación y revisión
 
-La PWA necesita HTTPS al abrirla desde un teléfono. El build genera manifest, iconos y service worker. Solo se guarda el shell; API, datos de transporte y cartografía quedan fuera de esa caché. La instalación completa en un dispositivo físico y el perfilado de rendimiento Android quedan pendientes; Capacitor no está configurado.
+La PWA necesita HTTPS al abrirla desde un teléfono. El build genera manifest, iconos y service worker. El shell y los assets se guardan; los endpoints realtime y la cartografía quedan fuera de esa caché. Los manifiestos y catálogos estables utilizan caché HTTP revalidable. Capacitor no está configurado.
 
 Comprobaciones realizadas el 2 de octubre de 2026:
 
