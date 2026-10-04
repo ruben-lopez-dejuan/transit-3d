@@ -2,8 +2,8 @@
     "apiVersion":  1,
     "id":  "es-malaga",
     "countryCode":  "ES",
-    "name":  "MÃ¡laga",
-    "region":  "AndalucÃ­a",
+    "name":  "Málaga",
+    "region":  "Andalucía",
     "timezone":  "Europe/Madrid",
     "center":  [
                    -4.4214,
@@ -25,15 +25,15 @@
               ],
     "presentation":  {
                          "title":  "Transit 3D",
-                         "mapLabel":  "Mapa de transporte de MÃ¡laga",
-                         "searchLabel":  "Buscar transporte en MÃ¡laga",
+                         "mapLabel":  "Mapa de transporte de Málaga",
+                         "searchLabel":  "Buscar transporte en Málaga",
                          "initialZoom":  10.8,
                          "brandMark":  "t."
                      },
     "providers":  [
                       {
                           "id":  "emt-malaga",
-                          "name":  "EMT MÃ¡laga",
+                          "name":  "EMT Málaga",
                           "color":  "#00587C",
                           "primary":  true,
                           "sources":  {
@@ -42,7 +42,7 @@
                       },
                       {
                           "id":  "metro-malaga",
-                          "name":  "Metro de MÃ¡laga",
+                          "name":  "Metro de Málaga",
                           "color":  "#DC241F",
                           "primary":  true,
                           "sources":  {
@@ -51,7 +51,7 @@
                       },
                       {
                           "id":  "renfe-cercanias-malaga-c2",
-                          "name":  "Renfe CercanÃ­as MÃ¡laga â€” C2",
+                          "name":  "Renfe Cercanías Málaga — C2",
                           "color":  "#0FCF34",
                           "primary":  true,
                           "sources":  {
@@ -64,7 +64,7 @@
                       },
                       {
                           "id":  "ctmam-bus",
-                          "name":  "Consorcio de Transporte Metropolitano del Ãrea de MÃ¡laga",
+                          "name":  "Consorcio de Transporte Metropolitano del Área de Málaga",
                           "color":  "#009A44",
                           "group":  "Autobuses metropolitanos",
                           "sources":  {
