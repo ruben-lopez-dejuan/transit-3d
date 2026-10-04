@@ -8,13 +8,18 @@ function appShell(): Plugin {
     name: 'transit-app-shell', apply: 'build',
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle).filter((name) => name.startsWith('assets/')).map((name) => `/${name}`);
-      const version = createHash('sha256').update(files.join('|')).digest('hex').slice(0, 12);
+      const fingerprint = createHash('sha256');
+      for (const [name, item] of Object.entries(bundle).sort(([a], [b]) => a.localeCompare(b))) {
+        fingerprint.update(name);
+        fingerprint.update(item.type === 'chunk' ? item.code : typeof item.source === 'string' ? item.source : Buffer.from(item.source));
+      }
+      const version = fingerprint.digest('hex').slice(0, 12);
       const paths = ['/', '/index.html', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', ...files];
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: `
-const CACHE='bilbao-transit-${version}';
+const CACHE='transit-3d-${version}';
 const PATHS=${JSON.stringify(paths)};
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(PATHS))));
-self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('bilbao-transit-')&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
+self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>(key.startsWith('transit-3d-')||key.startsWith('bilbao-transit-'))&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   if(event.request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/'))return;

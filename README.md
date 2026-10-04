@@ -54,6 +54,11 @@ Abrir http://localhost:3001. Express sirve la API y el frontend de `dist/`.
 Se requiere salida HTTPS a las fuentes documentadas y espacio escribible para
 `server/cache`. No se necesitan claves privadas del frontend.
 
+El repositorio incluye `railway.toml` para despliegue. En producción conviene
+montar un volumen en `/app/server/cache`; `TRANSIT_WARM_CITY` permite preparar
+una ciudad en segundo plano. Caché HTTP, compresión, timeouts y preferencias:
+[docs/performance.md](docs/performance.md).
+
 ## Interfaz
 
 - Mapa claro/oscuro, búsqueda de líneas/paradas, favoritos y próximas llegadas.

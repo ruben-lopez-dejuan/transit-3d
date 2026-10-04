@@ -1,4 +1,5 @@
 import './loadEnvironment';
+import compression from 'compression';
 import cors from "cors";
 import express from "express";
 import fs from "node:fs";
@@ -11,6 +12,7 @@ import {
 } from "./providers/bizkaibus/service";
 import { getCityNetwork } from './transit/network';
 import { cityRegistry, defaultCityId, cityPackageReports } from './cities';
+import { CACHE_CONTROL, cacheControl, networkCacheControl } from './httpCache';
 
 const app = express();
 
@@ -18,8 +20,10 @@ const port = Number(process.env.PORT || 3001);
 const distDirectory = path.resolve("dist");
 
 app.disable("x-powered-by");
+app.set('etag', 'strong');
+app.use(compression({ threshold: 1024 }));
 app.use(express.json({ limit: "32kb" }));
-app.use("/api", (_request, response, next) => { response.setHeader("Cache-Control", "no-store"); next(); });
+app.use('/api', cacheControl(CACHE_CONTROL.live));
 app.use('/api', (request, response, next) => {
   const cityId = typeof request.query.cityId === 'string' ? request.query.cityId : defaultCityId;
   if (!cityRegistry.getCity(cityId)) { response.status(404).json({ error: 'Ciudad no registrada.' }); return; }
@@ -27,11 +31,11 @@ app.use('/api', (request, response, next) => {
   response.locals.transit = getCityNetwork(cityId);
   next();
 });
-app.get('/api/cities', (_request, response) => response.json(cityRegistry.getCities()));
-app.get('/api/cities/default', (_request, response) => response.json(cityRegistry.getCity(defaultCityId)!.manifest));
+app.get('/api/cities', cacheControl(CACHE_CONTROL.manifest), (_request, response) => response.json(cityRegistry.getCities()));
+app.get('/api/cities/default', cacheControl(CACHE_CONTROL.manifest), (_request, response) => response.json(cityRegistry.getCity(defaultCityId)!.manifest));
 app.get('/api/city-packages', (_request, response) => response.json(cityPackageReports));
-app.get('/api/cities/:cityId', (request, response) => {
-  const city = cityRegistry.getCity(request.params.cityId);
+app.get('/api/cities/:cityId', cacheControl(CACHE_CONTROL.manifest), (request, response) => {
+  const city = cityRegistry.getCity(String(request.params.cityId));
   if (!city) { response.status(404).json({ error: 'Ciudad no registrada.' }); return; }
   response.json(city.manifest);
 });
@@ -44,29 +48,14 @@ app.use(
   }),
 );
 
-app.get("/api/health", async (_request, response) => {
-  try {
-    const snapshot = await getBizkaibusSnapshot();
-
-    response.json({
-      ok: true,
-      provider: "bizkaibus",
-      feedTimestamp: snapshot.feedTimestamp,
-      rawVehicleCount: snapshot.rawVehicleCount,
-      validVehicleCount: snapshot.validVehicleCount,
-      rejectedVehicleCount: snapshot.rejectedVehicleCount,
-      unmatchedTripCount: snapshot.unmatchedTripCount,
-    });
-  } catch (error) {
-    response.status(500).json({
-      ok: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : String(error),
-    });
-  }
-});
+// Liveness never waits for an external operator. Provider health remains
+// available separately and can degrade without restarting the whole service.
+app.get('/api/health', (_request, response) => response.json({
+  ok: true,
+  service: 'transit-3d',
+  uptimeSeconds: Math.round(process.uptime()),
+  cities: cityRegistry.getCities().length,
+}));
 
 app.get("/api/routes", async (_request, response) => {
   try {
@@ -165,7 +154,11 @@ app.get("/api/transit", async (_request, response) => {
 });
 
 app.get("/api/network", async (_request, response) => {
-  try { response.json(await (response.locals.transit as ReturnType<typeof getCityNetwork>).getNetwork()); }
+  try {
+    const network = await (response.locals.transit as ReturnType<typeof getCityNetwork>).getNetwork();
+    response.setHeader('Cache-Control', networkCacheControl(network.operators));
+    response.json(network);
+  }
   catch { response.status(503).json({ error: "No se ha podido cargar la red de transporte." }); }
 });
 app.get("/api/lines/:operatorId/:routeId", async (request, response) => {
@@ -196,9 +189,14 @@ app.post("/api/geometries", async (request, response) => {
 });
 
 if (fs.existsSync(distDirectory)) {
+  app.use('/assets', express.static(path.join(distDirectory, 'assets'), {
+    maxAge: '1y',
+    immutable: true,
+  }));
   app.use(
     express.static(distDirectory, {
       extensions: ["html"],
+      setHeaders: (response) => response.setHeader('Cache-Control', CACHE_CONTROL.shell),
     }),
   );
 
@@ -217,7 +215,7 @@ if (fs.existsSync(distDirectory)) {
 app.listen(port, () => {
   console.log("");
   console.log(
-    `Bilbao Transit 3D API → http://localhost:${port}`,
+    `Transit 3D API → http://localhost:${port}`,
   );
 
   if (fs.existsSync(distDirectory)) {
@@ -228,6 +226,13 @@ app.listen(port, () => {
     console.log(
       "Development frontend → http://localhost:5173",
     );
+  }
+
+  const warmCityId = process.env.TRANSIT_WARM_CITY;
+  if (warmCityId && cityRegistry.getCity(warmCityId)) {
+    void getCityNetwork(warmCityId).getNetwork().catch((error) => {
+      console.warn(`[warmup] ${warmCityId}:`, error instanceof Error ? error.message : error);
+    });
   }
 
   console.log("");
