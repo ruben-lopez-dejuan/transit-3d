@@ -35,6 +35,12 @@ Para Madrid: `npm run audit:madrid` inspecciona una muestra sin arrancar la app;
 `npm run audit:madrid -- --cached` reproduce la copia en su instante original,
 sin afirmar que sea el estado actual. Pruebas concretas: `npm run test:madrid`.
 
+La consola de administración en `/admin` resume, por ciudad y proveedor, el
+catálogo cargado, health, timestamps y el reparto entre GPS, estimaciones,
+interpolación, horario y datos caducados. Solo inicializa la ciudad seleccionada.
+Puede protegerse con `TRANSIT_ADMIN_TOKEN`; uso y semántica:
+[docs/admin-console.md](docs/admin-console.md).
+
 ## Ejecutar localmente
 
 ```powershell
