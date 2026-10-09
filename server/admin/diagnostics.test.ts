@@ -17,7 +17,7 @@ const manifest: CityManifest = {
 };
 const health = (providerId: string, state: ProviderHealth['state'] = 'healthy'): ProviderHealth => ({ cityId: manifest.id, providerId, state, checkedTimestamp: at, sourceTimestamp: at - 20_000, receivedTimestamp: at - 2_000, lastSuccessTimestamp: at });
 const provider = (id: string, state: ProviderHealth['state'] = 'healthy') => ({ cityId: manifest.id, operatorId: id, definition: manifest.providers.find((item) => item.id === id)!, enabled: true, health: health(id, state) }) as unknown as ProviderRuntime;
-const city: RuntimeCityPackage = { manifest, providers: [provider('live'), provider('fallback', 'degraded')], places: () => [], infrastructure: () => [] };
+const city: RuntimeCityPackage = { manifest, providers: [provider('live'), provider('fallback', 'stale')], places: () => [], infrastructure: () => [] };
 const vehicle = (id: string, source: Vehicle['positionSource']): Vehicle => ({
   id, providerId: id.startsWith('fallback') ? 'fallback' : 'live', operatorId: id.startsWith('fallback') ? 'fallback' : 'live', cityId: manifest.id,
   mode: 'bus', routeShortName: '1', label: '1', destination: 'Centro', headsign: 'Centro', latitude: 40, longitude: -3,
@@ -36,7 +36,7 @@ const providerSnapshot = (id: string, state: ProviderHealth['state'], trips: num
 const snapshot: Snapshot = {
   cityId: manifest.id, fetchedAt: at,
   vehicles: [vehicle('gps-1', 'GPS'), vehicle('estimate-1', 'PROVIDER_ESTIMATED'), vehicle('fallback-1', 'SCHEDULE_SIMULATION'), vehicle('fallback-2', 'STALE')],
-  providers: [providerSnapshot('live', 'healthy', 3), providerSnapshot('fallback', 'degraded', 0, 'feed failed?apiKey=secret-value')],
+  providers: [providerSnapshot('live', 'healthy', 3), providerSnapshot('fallback', 'stale', 0, 'feed failed?apiKey=secret-value')],
 };
 const catalogs: AdminCatalogDiagnostics[] = [
   { providerId: 'live', state: 'ready', routes: 4, trips: 20, stops: 30, shapes: 5, services: 2 },
@@ -72,6 +72,14 @@ test('diagnostics preserve source semantics, timestamps, catalog counts and acti
   assert.ok(fallback.findings.some((finding) => finding.code === 'gps_missing'));
   assert.ok(fallback.findings.some((finding) => finding.code === 'trip_updates_missing'));
   assert.ok(fallback.findings.some((finding) => finding.code === 'stale_positions'));
+});
+
+test('a stale realtime provider using schedule is explained without claiming those vehicles are stale', () => {
+  const scheduleSnapshot = { ...snapshot, vehicles: [vehicle('fallback-1', 'SCHEDULE_SIMULATION')] };
+  const result = buildCityDiagnostics(city, network, scheduleSnapshot, catalogs, at + 1000);
+  const fallback = result.providers[1];
+  assert.equal(fallback.vehicles.byPositionSource.STALE, 0);
+  assert.ok(fallback.findings.some((finding) => finding.code === 'realtime_schedule_fallback'));
 });
 
 test('errors redact credentials from URLs and key-value fragments', () => {

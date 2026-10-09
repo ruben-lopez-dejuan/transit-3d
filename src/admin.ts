@@ -126,7 +126,7 @@ function timestampRow(label: string, value: number | null) {
 function capabilityLabel(value: string) {
   return ({ staticGtfs: 'GTFS', vehiclePositions: 'Posiciones', tripUpdates: 'Trip updates', serviceAlerts: 'Alertas', occupancy: 'Ocupación', speed: 'Velocidad', bearing: 'Orientación', stopArrivals: 'Llegadas', scheduledService: 'Servicio horario' } as Record<string, string>)[value] ?? value;
 }
-function statusLabel(value: AdminProviderDiagnostics['status']) { return ({ ok: 'Correcto', degraded: 'Degradado', stale: 'Caducado', unavailable: 'No disponible', not_checked: 'Sin comprobar' })[value]; }
+function statusLabel(value: AdminProviderDiagnostics['status']) { return ({ ok: 'Correcto', degraded: 'Degradado', stale: 'Realtime caducado', unavailable: 'No disponible', not_checked: 'Sin comprobar' })[value]; }
 function catalogLabel(value: AdminProviderDiagnostics['catalog']['state']) { return ({ ready: 'Listo', loading: 'Cargando', error: 'Error', disabled: 'Desactivado' })[value]; }
 function sourceTone(value: PositionSource) { return value === 'GPS' ? 'gps' : value === 'SCHEDULE_SIMULATION' ? 'scheduled' : value === 'STALE' ? 'stale' : 'estimated'; }
 

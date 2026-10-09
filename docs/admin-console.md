@@ -33,6 +33,12 @@ La consola se actualiza cada 30 segundos mientras la pestaña está visible. El
 botón **Actualizar** fuerza una nueva lectura respetando las cachés normales del
 backend. **Copiar JSON** permite adjuntar el diagnóstico en un informe.
 
+En Windows, los endpoints oficiales de Euskadi pueden depender de certificados
+instalados en el sistema. Los comandos `npm run dev`, `npm start` y las auditorías
+de fuentes arrancan Node con ese almacén de certificados. Si un servidor anterior
+se inició antes de esta configuración, hay que detenerlo y volver a ejecutar el
+comando para que los feeds de Moveuskadi puedan refrescarse.
+
 ## Protección opcional
 
 Si el servidor está expuesto a Internet, configura un token solo en el backend:

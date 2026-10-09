@@ -73,6 +73,7 @@ function providerFindings(
   if (provider.definition.capabilities.vehiclePositions && catalog.state === 'ready' && vehicles.length > 0 && gps === 0) findings.push({ severity: 'warning', code: 'gps_missing', message: 'El proveedor declara posiciones de vehículos, pero la instantánea no contiene ninguna posición GPS.' });
   if (provider.definition.capabilities.tripUpdates && catalog.state === 'ready' && realtimeTripCount === 0) findings.push({ severity: 'warning', code: 'trip_updates_missing', message: 'El proveedor declara actualizaciones de viajes, pero no se han unido actualizaciones realtime.' });
   if (stale > 0) findings.push({ severity: 'warning', code: 'stale_positions', message: `${stale} vehículo${stale === 1 ? '' : 's'} conserva${stale === 1 ? '' : 'n'} datos caducados.` });
+  if (provider.health.state === 'stale' && scheduled > 0 && stale === 0) findings.push({ severity: 'warning', code: 'realtime_schedule_fallback', message: `La señal realtime está caducada. Los ${scheduled} vehículos visibles proceden del horario y no son posiciones antiguas reutilizadas.` });
   if (vehicles.length > 0 && scheduled === vehicles.length) findings.push({ severity: 'info', code: 'schedule_only', message: 'Todas las posiciones visibles proceden del horario estático.' });
   return findings;
 }
