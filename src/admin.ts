@@ -95,10 +95,17 @@ function renderProvider(provider: AdminProviderDiagnostics) {
   const positionRows = (Object.entries(provider.vehicles.byPositionSource) as [PositionSource, number][]).filter(([, count]) => count > 0);
   const capabilities = Object.entries(provider.capabilities).filter(([, enabled]) => enabled).map(([name]) => capabilityLabel(name));
   const warningCount = provider.findings.filter((finding) => finding.severity !== 'info').length;
-  return `<details class="provider-card ${warningCount ? 'has-issues' : ''}" ${warningCount ? 'open' : ''}>
+  const estimated = provider.vehicles.byPositionSource.PROVIDER_ESTIMATED + provider.vehicles.byPositionSource.INTERPOLATED_REALTIME;
+  return `<details class="provider-card ${warningCount ? 'has-issues' : ''}">
     <summary>
       <span class="provider-color" style="--provider-color:#${escape(provider.color.replace(/^#/, ''))}"></span>
       <span class="provider-title"><strong>${escape(provider.name)}</strong><small>${escape(provider.id)}${provider.group ? ` · ${escape(provider.group)}` : ''}</small></span>
+      <span class="provider-breakdown" aria-label="Desglose de posiciones">
+        ${breakdownItem('GPS', provider.vehicles.byPositionSource.GPS, 'gps')}
+        ${breakdownItem('Estimación', estimated, 'estimated')}
+        ${breakdownItem('Simulación', provider.vehicles.byPositionSource.SCHEDULE_SIMULATION, 'scheduled')}
+        ${provider.vehicles.byPositionSource.STALE ? breakdownItem('Caducado', provider.vehicles.byPositionSource.STALE, 'stale') : ''}
+      </span>
       <span class="status ${escape(provider.status)}">${statusLabel(provider.status)}</span>
       <span class="provider-total"><strong>${number(provider.vehicles.total)}</strong><small>vehículos</small></span>
       <span class="chevron">⌄</span>
@@ -112,6 +119,10 @@ function renderProvider(provider: AdminProviderDiagnostics) {
       ${provider.samples.length ? `<section class="diagnostic-block samples"><h3>Muestra de vehículos</h3><div class="table-wrap"><table><thead><tr><th>Línea</th><th>Destino</th><th>Origen</th><th>Dato fuente</th></tr></thead><tbody>${provider.samples.map((sample) => `<tr><td><strong>${escape(sample.route || '—')}</strong></td><td>${escape(sample.destination || '—')}</td><td>${escape(SOURCE_LABELS[sample.positionSource])}</td><td title="${escape(dateTime(sample.sourceTimestamp))}">${escape(age(sample.sourceTimestamp))}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
     </div>
   </details>`;
+}
+
+function breakdownItem(label: string, value: number, tone: string) {
+  return `<span class="breakdown-item"><i class="dot ${tone}"></i><small>${escape(label)}</small><strong>${number(value)}</strong></span>`;
 }
 
 function renderFinding(finding: AdminFinding) {

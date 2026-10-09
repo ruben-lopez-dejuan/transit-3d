@@ -33,6 +33,11 @@ La consola se actualiza cada 30 segundos mientras la pestaña está visible. El
 botón **Actualizar** fuerza una nueva lectura respetando las cachés normales del
 backend. **Copiar JSON** permite adjuntar el diagnóstico en un informe.
 
+La vista inicial mantiene todos los proveedores plegados y muestra en cada fila
+el total de vehículos junto al reparto entre GPS, estimación/interpolación,
+simulación horaria y datos caducados. Al abrir una fila aparecen el catálogo,
+los timestamps, capacidades, incidencias y la muestra de vehículos.
+
 En Windows, los endpoints oficiales de Euskadi pueden depender de certificados
 instalados en el sistema. Los comandos `npm run dev`, `npm start` y las auditorías
 de fuentes arrancan Node con ese almacén de certificados. Si un servidor anterior
