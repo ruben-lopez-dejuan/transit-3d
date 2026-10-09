@@ -10,9 +10,10 @@ import {
   getActiveRoutes,
   getBizkaibusSnapshot,
 } from "./providers/bizkaibus/service";
-import { getCityNetwork } from './transit/network';
+import { getCityNetwork, isCityNetworkInitialized } from './transit/network';
 import { cityRegistry, defaultCityId, cityPackageReports } from './cities';
 import { CACHE_CONTROL, cacheControl, networkCacheControl } from './httpCache';
+import { buildCityDiagnostics, cityIndex, isAdminAuthorized } from './admin/diagnostics';
 
 const app = express();
 
@@ -24,6 +25,35 @@ app.set('etag', 'strong');
 app.use(compression({ threshold: 1024 }));
 app.use(express.json({ limit: "32kb" }));
 app.use('/api', cacheControl(CACHE_CONTROL.live));
+app.use('/api/admin', (request, response, next) => {
+  const configuredToken = process.env.TRANSIT_ADMIN_TOKEN?.trim();
+  const header = request.headers['x-admin-token'];
+  const suppliedToken = typeof header === 'string' ? header : undefined;
+  if (!isAdminAuthorized(configuredToken, suppliedToken)) {
+    response.status(401).json({ error: 'Token de administración no válido.' });
+    return;
+  }
+  next();
+});
+app.get('/api/admin/cities', (_request, response) => {
+  response.json(cityRegistry.getCities().flatMap((manifest) => {
+    const city = cityRegistry.getCity(manifest.id);
+    return city ? [cityIndex(city, isCityNetworkInitialized(manifest.id))] : [];
+  }));
+});
+app.get('/api/admin/cities/:cityId', async (request, response) => {
+  const cityId = String(request.params.cityId);
+  const city = cityRegistry.getCity(cityId);
+  if (!city) { response.status(404).json({ error: 'Ciudad no registrada.' }); return; }
+  try {
+    const runtime = getCityNetwork(cityId);
+    const [network, snapshot] = await Promise.all([runtime.getNetwork(), runtime.getPresentationSnapshot()]);
+    response.json(buildCityDiagnostics(city, network, snapshot, runtime.getCatalogDiagnostics()));
+  } catch (error) {
+    console.warn(`[admin:${cityId}] Diagnostics unavailable:`, error instanceof Error ? error.message : error);
+    response.status(503).json({ error: 'No se pudo generar el diagnóstico de la ciudad.' });
+  }
+});
 app.use('/api', (request, response, next) => {
   const cityId = typeof request.query.cityId === 'string' ? request.query.cityId : defaultCityId;
   if (!cityRegistry.getCity(cityId)) { response.status(404).json({ error: 'Ciudad no registrada.' }); return; }

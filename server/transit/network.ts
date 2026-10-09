@@ -12,6 +12,7 @@ import { passengerHeadsign } from './labels';
 import { anchorGpsTimeline } from './gpsTimeline';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape } from '../../shared/transit/network';
+import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
 
 /** Each city owns its caches, catalog and provider bindings. */
 export function createCityNetwork(city: RuntimeCityPackage, options: { catalogWaitMs?: number } = {}) {
@@ -314,9 +315,27 @@ async function getGeometries(keys: string[]): Promise<Shape[]> {
   await getNetwork();
   return keys.slice(0, 100).flatMap((id) => { const parsed = parseEntityId(id); if (!parsed || parsed.cityId !== city.manifest.id || parsed.kind !== 'shape') return []; const gtfs = feeds.get(parsed.providerId); const metric = gtfs ? shapeMetric(gtfs, parsed.externalId) : null; const shape = metric ? packet(parsed.providerId, parsed.externalId) : null; return shape ? [shape] : []; });
 }
-return { getNetwork, getPresentationSnapshot, getLine, getStop, getTrip, getGeometries };
+function getCatalogDiagnostics(): AdminCatalogDiagnostics[] {
+  return definitions.map((definition) => {
+    const provider = providerFor(definition.id), feed = feeds.get(definition.id), task = catalogTasks.get(definition.id);
+    const rejected = task?.result?.status === 'rejected' ? task.result.reason : undefined;
+    const state: AdminCatalogDiagnostics['state'] = !provider?.enabled ? 'disabled' : feed ? 'ready' : rejected ? 'error' : 'loading';
+    return {
+      providerId: definition.id,
+      state,
+      routes: feed?.routes.size ?? 0,
+      trips: feed?.trips.size ?? 0,
+      stops: feed?.stops.size ?? 0,
+      shapes: feed?.shapes.size ?? 0,
+      services: feed ? new Set([...feed.calendars.keys(), ...feed.calendarDates.keys()]).size : 0,
+      ...(rejected ? { error: rejected instanceof Error ? rejected.message : String(rejected) } : {}),
+    };
+  });
+}
+return { getNetwork, getPresentationSnapshot, getLine, getStop, getTrip, getGeometries, getCatalogDiagnostics };
 }
 const networks = new Map<string, ReturnType<typeof createCityNetwork>>();
+export const isCityNetworkInitialized = (cityId: string) => networks.has(cityId);
 export function getCityNetwork(cityId = defaultCityId) {
   let network = networks.get(cityId);
   if (!network) {
