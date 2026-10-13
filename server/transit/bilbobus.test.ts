@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bilbobusPositionTimestamp, ed50ToWgs84, parseSiriArrivals } from '../providers/bilbobus';
+import { bilbobusPositionTimestamp, bilbobusProgress, ed50ToWgs84, parseSiriArrivals } from '../providers/bilbobus';
+import { buildShapeMetric, projectOntoShape } from './motionEngine';
 import { ObservationTracker } from './observations';
 test('ED50 UTM30 coordinates convert into Bilbao WGS84, including the datum shift', () => {
   const result = ed50ToWgs84(503631, 4790217)!;
@@ -35,4 +36,23 @@ test('Observation speed uses meters and source milliseconds, rejecting actual an
   assert.equal(tracker.accept('bus', { at: 27000, progress: 2250 }, 'bus', 27000), null);
   assert.equal(tracker.accept('bus', { at: 51000, progress: 500 }, 'bus', 51000)?.speed, 10);
   assert.equal(tracker.accept('bus', { at: 250000, progress: 1500 }, 'bus', 250000)?.previous, null);
+});
+
+test('Bilbobus official route progress disambiguates nearby shape segments and is GPS-validated', () => {
+  const metric = buildShapeMetric([
+    { latitude: 43, longitude: -2.001, sequence: 0 },
+    { latitude: 43, longitude: -1.999, sequence: 1 },
+    { latitude: 43.0001, longitude: -1.999, sequence: 2 },
+    { latitude: 43.0001, longitude: -2.001, sequence: 3 },
+  ]);
+  const coordinate: [number, number] = [-2, 43.00009];
+  const officialProgress = metric.cumulativeMeters[1] / 2;
+  const nearest = projectOntoShape(metric, coordinate)!;
+  const selected = bilbobusProgress(metric, coordinate, officialProgress)!;
+  assert.ok(nearest.progressMeters > metric.cumulativeMeters[2], 'nearest point is on the return segment');
+  assert.ok(Math.abs(selected.progressMeters - officialProgress) < .01, 'official progress keeps the correct outbound segment');
+  assert.equal(selected.source, 'provider');
+  const fallback = bilbobusProgress(metric, coordinate, metric.totalMeters + 1)!;
+  assert.equal(fallback.source, 'gps');
+  assert.equal(fallback.progressMeters, nearest.progressMeters);
 });
