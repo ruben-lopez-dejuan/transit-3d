@@ -10,7 +10,7 @@ type Options = {
   stopped?: boolean;
   maximumSpeed?: number;
   realtimeTimetable?: boolean;
-  /** Timetable shifted through the GPS fix: commercial pace, already delay-free. */
+  /** Timetable shifted through the GPS fix; static timing remains provisional. */
   anchoredTimeline?: boolean;
   forecastTimestamp?: number | null;
 };
@@ -78,7 +78,7 @@ export class GpsMotion {
     this.sourceSpeed = clamp(reported ?? this.planSpeed(observation.at), 0, maximum);
     this.measuredSpeed = reported !== null;
     this.forecastTimestamp = options.forecastTimestamp ?? 0;
-    if (!options.realtimeTimetable && !options.anchoredTimeline && reported !== null && reported > 0 && this.timeline.length > 1) {
+    if (!options.realtimeTimetable && reported !== null && reported > 0 && this.timeline.length > 1) {
       // A theoretical timetable must not accelerate a late bus to scheduled pace.
       // Estimate future travel at observed pace, retaining explicit station dwell.
       let at = observation.at;
@@ -90,9 +90,11 @@ export class GpsMotion {
       });
     }
     this.rejection = null;
-    // Only the first appearance has no displayed position to preserve.
+    // With no observed pace, retroactively applying a theoretical timetable to
+    // an old first fix invents movement. Start at the physical observation.
+    // A previous real fix does justify extrapolating at its measured pace.
     if (this.lastAt === null) {
-      this.progress = this.seed?.progress ?? this.reference(now);
+      this.progress = this.seed?.progress ?? (reported !== null ? this.reference(now) : observation.progress);
       this.velocity = clamp(this.seed?.speed ?? (this.stopped ? 0 : this.referenceSpeed(now)), 0, maximum);
       this.lastAt = now;
     }

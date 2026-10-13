@@ -161,14 +161,21 @@ test('a stop report older than a dwell does not keep a bus parked for the whole 
   assert.ok(motion.position(150000)! > 300);
 });
 
-test('a timetable shifted through the GPS fix keeps commercial pace instead of the last instantaneous speed', () => {
+test('a timetable shifted through the GPS fix follows measured interval pace instead of catching up to schedule', () => {
   const observation = { at: 0, progress: 0 };
-  // Commercial pace 5 m/s (including stops); the bus was caught at 12 m/s between stops.
+  // Commercial pace is 5 m/s, but two physical fixes measured 2 m/s in traffic.
   const timeline = [observation, { at: 60000, progress: 300 }, { at: 120000, progress: 600 }];
-  const anchored = new GpsMotion(), retimed = new GpsMotion();
-  anchored.update(observation, 0, { ...options, speed: 12, anchoredTimeline: true, timeline });
-  retimed.update(observation, 0, { ...options, speed: 12, timeline });
-  advance(anchored, 0, 60000); advance(retimed, 0, 60000);
-  assert.ok(Math.abs(anchored.diagnostics.predictedProgress - 300) < 1);
-  assert.ok(retimed.diagnostics.predictedProgress >= 599, 'unanchored timetables still follow observed pace');
+  const anchored = new GpsMotion();
+  anchored.update(observation, 0, { ...options, speed: 2, anchoredTimeline: true, timeline });
+  advance(anchored, 0, 60000);
+  assert.ok(Math.abs(anchored.diagnostics.predictedProgress - 120) < 1);
+  assert.ok(anchored.diagnostics.renderedProgress <= 121, 'static schedule must not pull the bus ahead of its observed pace');
+});
+
+test('a first delayed GPS fix without observed pace starts at the fix instead of inventing schedule travel', () => {
+  const motion = new GpsMotion();
+  const observation = { at: 0, progress: 500 };
+  motion.update(observation, 90000, { mode: 'bus', timeline: [observation, { at: 120000, progress: 1700 }], speed: null, anchoredTimeline: true });
+  assert.equal(motion.position(90000), 500);
+  assert.equal(motion.diagnostics.sourceSpeed, null);
 });

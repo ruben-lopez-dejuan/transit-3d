@@ -5,7 +5,7 @@ import { StaticGtfsProvider } from './staticGtfs';
 import { formatServiceDate, getActiveTrips } from '../transit/gtfsCalendar';
 import { freshTimestamp } from '../transit/realtime';
 import { serviceEpoch, tripPlan } from '../transit/plans';
-import { positionAtProgress, projectOntoShape } from '../transit/motionEngine';
+import { distanceMeters, positionAtProgress, projectOntoShape, type Coordinate, type ShapeMetric } from '../transit/motionEngine';
 import { ObservationTracker } from '../transit/observations';
 import type { ProviderSnapshot, TransitVehicle } from '../transit/types';
 import type { Departure } from '../../shared/transit/network';
@@ -14,7 +14,7 @@ import { passengerHeadsign } from '../transit/labels';
 export const BILBOBUS_POSITIONS = 'https://api.bilbao.eus/bilbobus/Ultimas_posiciones';
 export const BILBOBUS_SIRI = 'https://api.bilbao.eus/sae/SIRI.svc';
 const ED50 = '+proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs';
-export type BilbobusPosition = { Vehiculo: number; LineaCodigoOriginal: number | string; lineIdPerm: number; CoordX: number; CoordY: number; Instante: string; Ruta: number; Viaje: number; Velocidad: number };
+export type BilbobusPosition = { Vehiculo: number; LineaCodigoOriginal: number | string; lineIdPerm: number; CoordX: number; CoordY: number; Instante: string; Ruta: number; Viaje: number; Velocidad: number; Posicion?: number | string };
 export function ed50ToWgs84(x: number, y: number): [number, number] | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   const coordinate = proj4(ED50, 'EPSG:4326', [x, y]) as [number, number];
@@ -34,6 +34,26 @@ export function bilbobusPositionTimestamp(value: string, receivedAt = Date.now()
   // In the repeated autumn hour choose the most recent possible observation before receipt.
   candidates.sort((a, b) => (a > receivedAt ? 1 : 0) - (b > receivedAt ? 1 : 0) || Math.abs(a - receivedAt) - Math.abs(b - receivedAt));
   return candidates[0] ?? null;
+}
+
+const MAX_OFFICIAL_PROGRESS_GPS_DISTANCE_METERS = 200;
+const MAX_NEAREST_SHAPE_DISTANCE_METERS = 120;
+/**
+ * Bilbobus publishes both a GPS coordinate and Posicion, its linear reference
+ * along the route. The latter disambiguates loops, roundabouts and nearby
+ * parallel segments, but is accepted only when the shape puts it near the GPS.
+ */
+export function bilbobusProgress(metric: ShapeMetric, coordinate: Coordinate, providerProgress: unknown) {
+  const nearest = projectOntoShape(metric, coordinate);
+  const fallback = nearest ? { ...nearest, source: 'gps' as const } : null;
+  const progress = typeof providerProgress === 'number' ? providerProgress : typeof providerProgress === 'string' && providerProgress.trim() ? Number(providerProgress) : NaN;
+  if (!Number.isFinite(progress) || progress < 0 || progress > metric.totalMeters) return fallback;
+  const official = positionAtProgress(metric, progress);
+  if (!official) return fallback;
+  const distance = distanceMeters(official.coordinate, coordinate);
+  return distance <= MAX_OFFICIAL_PROGRESS_GPS_DISTANCE_METERS
+    ? { ...official, distanceMeters: distance, source: 'provider' as const }
+    : fallback;
 }
 
 export type SiriArrival = { vehicleId: string; journeyId: string; line: string; directionId: number | null; stopCode: string; destination: string; arrival: number; departure: number; recordedAt: number };
@@ -122,17 +142,19 @@ export class BilbobusProvider extends StaticGtfsProvider {
       if (!coordinate || observedAt === null || freshTimestamp(observedAt / 1000, now.getTime()) === null || seen.has(vehicleId)) continue;
       const directionId = row.Ruta === 1 ? 0 : row.Ruta === 2 ? 1 : null;
       const candidates = (byRoute.get(routeId) ?? []).filter((t) => t.directionId === directionId && t.shapeId);
-      const projections = new Map<string, ReturnType<typeof projectOntoShape>>();
+      const projections = new Map<string, ReturnType<typeof bilbobusProgress>>();
       let best: { trip: GtfsTrip; progress: number; score: number; distance: number } | null = null;
       for (const trip of candidates) {
         const plan = tripPlan(gtfs, trip.tripId); if (!plan) continue;
-        if (!projections.has(trip.shapeId!)) projections.set(trip.shapeId!, projectOntoShape(plan.metric, coordinate));
+        if (!projections.has(trip.shapeId!)) projections.set(trip.shapeId!, bilbobusProgress(plan.metric, coordinate, row.Posicion));
         const projected = projections.get(trip.shapeId!)!;
-        if (!projected || projected.distanceMeters > 120) continue;
+        const maximumDistance = projected?.source === 'provider' ? MAX_OFFICIAL_PROGRESS_GPS_DISTANCE_METERS : MAX_NEAREST_SHAPE_DISTANCE_METERS;
+        if (!projected || projected.distanceMeters > maximumDistance) continue;
         const next = plan.anchors.findIndex((a) => a.progress >= projected.progressMeters);
         const a = plan.anchors[Math.max(0, next - 1)], b = plan.anchors[next < 0 ? plan.anchors.length - 1 : next];
         const scheduledSeconds = a.seconds + (b.seconds - a.seconds) * ((projected.progressMeters - a.progress) / Math.max(1, b.progress - a.progress));
-        const score = projected.distanceMeters + Math.abs(seconds - scheduledSeconds) * .2;
+        const observedSeconds = (observedAt - origin) / 1000;
+        const score = projected.distanceMeters + Math.abs(observedSeconds - scheduledSeconds) * .2;
         if (!best || score < best.score) best = { trip, progress: projected.progressMeters, distance: projected.distanceMeters, score };
       }
       if (!best) continue;
