@@ -21,6 +21,14 @@ export function freshTimestamp(seconds: number | undefined, now: number): number
   return now - timestamp <= REALTIME_MAX_AGE_MS && timestamp - now <= 60_000 ? timestamp : null;
 }
 
+const stoppedStatus = (status: unknown) => status === 'STOPPED_AT' || status === 1;
+/** A feed that marks every vehicle STOPPED_AT (Bizkaibus, audited 13 Oct 2026:
+ * 235/235) carries no stop information; trusting it freezes moving buses. */
+export function stopStatusIsInformative(statuses: unknown[]): boolean {
+  const reported = statuses.filter((status) => status !== undefined && status !== null);
+  return reported.length < 5 || !reported.every(stoppedStatus);
+}
+
 function matchStop(stops: GtfsTripStop[], update: StopUpdate): GtfsTripStop | null {
   if (update.stopSequence !== undefined) {
     const stop = stops.find((s) => s.sequence === update.stopSequence);

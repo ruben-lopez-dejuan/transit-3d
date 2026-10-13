@@ -8,6 +8,7 @@ import {
   BIZKAIBUS_REALTIME_URL,
   REALTIME_REFRESH_MS,
 } from "./config";
+import { stopStatusIsInformative } from "../../transit/realtime";
 
 export type RawRealtimeVehicle = {
   entityId: string;
@@ -115,6 +116,10 @@ export function decodeBizkaibusRealtime(raw: Buffer, receivedTimestamp: number |
       timestamp: toNumber(vehicle.timestamp),
       currentStatus: Object.hasOwn(vehicle, 'currentStatus') ? toNumber(vehicle.currentStatus) : null,
     });
+  }
+
+  if (!stopStatusIsInformative(vehicles.map((vehicle) => vehicle.currentStatus))) {
+    for (const vehicle of vehicles) vehicle.currentStatus = null;
   }
 
   return {

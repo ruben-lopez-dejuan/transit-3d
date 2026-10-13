@@ -1,5 +1,5 @@
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
-import { freshTimestamp, normalizeTripUpdates, resolveServiceDate, tripInstanceKey, updatedTimeline, type UpdatedTrip, type RealtimeMessage } from '../transit/realtime';
+import { freshTimestamp, stopStatusIsInformative, normalizeTripUpdates, resolveServiceDate, tripInstanceKey, updatedTimeline, type UpdatedTrip, type RealtimeMessage } from '../transit/realtime';
 import { modeFor, timelineFor, tripPlan } from '../transit/plans';
 import { positionAtProgress, projectOntoShape } from '../transit/motionEngine';
 import type { TransitVehicle } from '../transit/types';
@@ -45,6 +45,7 @@ export function applyRealtime(gtfs: BizkaibusGtfs, base: TransitVehicle[], opera
     vehicles.set(id, { ...current, id, operatorId, tripId: trip.tripId, routeId: trip.routeId, directionId: trip.directionId, mode: modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1), shapeId: trip.shapeId, progressMetersAlongShape: position.progressMeters, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, positionQuality: current?.observationTimestamp ? current.positionQuality : realtime ? 'predicted' : 'scheduled', observationTimestamp: current?.observationTimestamp ?? null, predictionTimestamp: now.getTime(), timetableTimestamp: update.updatedAt, positionSource: current?.observationTimestamp ? 'gps' : realtime ? 'trip-updates' : 'schedule', delaySeconds: realtime ? (next.arrival - next.scheduledArrival) / 1000 : null });
   }
   if (!gps || freshTimestamp(gps.header?.timestamp, now.getTime()) === null) return [...vehicles.values()];
+  const trustStatus = stopStatusIsInformative((gps.entity ?? []).map((entity) => entity.vehicle && Object.hasOwn(entity.vehicle, 'currentStatus') ? entity.vehicle.currentStatus : undefined));
   for (const entity of gps.entity ?? []) {
     const observation = entity.vehicle;
     if (!observation?.trip || entity.isDeleted) continue;
@@ -63,7 +64,7 @@ export function applyRealtime(gtfs: BizkaibusGtfs, base: TransitVehicle[], opera
     const timeline = update ? updatedTimeline(gtfs, update) : timelineFor(plan, date, 0, timezone);
     const mode = modeFor(gtfs.routes.get(trip.routeId)?.routeType ?? -1);
     const key = `${operatorId}:${date}:${trip.tripId}:${trip.shapeId}`;
-    const stoppedAtStop = Object.hasOwn(observation, 'currentStatus') ? observation.currentStatus === 'STOPPED_AT' || observation.currentStatus === 1 : undefined;
+    const stoppedAtStop = trustStatus && Object.hasOwn(observation, 'currentStatus') ? observation.currentStatus === 'STOPPED_AT' || observation.currentStatus === 1 : undefined;
     const history = gpsObservations.accept(key, { at: observedAt, progress: projection.progressMeters, stoppedAtStop }, mode, now.getTime(), maximumGpsSpeed) ?? gpsObservations.latest(key, now.getTime());
     if (!history) continue;
     const progress = history.current.progress, acceptedAt = history.current.at;

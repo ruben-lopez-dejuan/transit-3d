@@ -170,16 +170,24 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
   let shiftSeconds = vehicle.delaySeconds ?? 0;
   let delaySeconds = vehicle.delaySeconds;
   let delayEstimated = false;
-  if (!update && vehicle.tripIdentityQuality !== 'estimated' && plan && vehicle.positionQuality !== "scheduled" && vehicle.observationTimestamp !== null) {
+  let gpsAnchoredTimeline = false;
+  if (!update && plan && vehicle.positionQuality !== "scheduled" && vehicle.observationTimestamp !== null) {
     const interval = plan.anchors.find((a, i) => i > 0 && a.progress > plan.anchors[i - 1].progress && vehicle.progressMetersAlongShape >= plan.anchors[i - 1].progress - 2 && vehicle.progressMetersAlongShape <= a.progress + 2);
     if (interval) {
       const index = plan.anchors.indexOf(interval);
       const previous = plan.anchors[index - 1];
       const fraction = Math.max(0, Math.min(1, (vehicle.progressMetersAlongShape - previous.progress) / (interval.progress - previous.progress)));
       const scheduleAt = serviceEpoch(serviceDate, previous.seconds + fraction * (interval.seconds - previous.seconds), city.manifest.timezone);
-      const positionAt = vehicle.observationTimestamp;
-      shiftSeconds = Math.round((positionAt - scheduleAt) / 1000);
-      if (Math.abs(shiftSeconds) <= 3600) { delaySeconds = shiftSeconds; delayEstimated = true; }
+      let shift = Math.round((vehicle.observationTimestamp - scheduleAt) / 1000);
+      // A bus waiting at its first stop does not leave before its departure time.
+      if (index === 1 && vehicle.progressMetersAlongShape <= previous.progress + 30) shift = Math.max(0, shift);
+      if (Math.abs(shift) <= 3600) {
+        // The shifted timetable passes through the GPS fix, so it supplies the
+        // commercial pace (including stops) from the observed position onwards.
+        shiftSeconds = shift; gpsAnchoredTimeline = true;
+        // An estimated trip identity cannot justify publishing a delay.
+        if (vehicle.tripIdentityQuality !== 'estimated') { delaySeconds = shift; delayEstimated = true; }
+      }
     }
   }
   let fullTimeline = vehicle.motionTimeline ?? (update ? updatedTimeline(gtfs, update) ?? (plan ? timelineFor(plan, serviceDate, 0, city.manifest.timezone) : []) : plan ? timelineFor(plan, serviceDate, shiftSeconds, city.manifest.timezone) : []);
@@ -199,7 +207,7 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
   const destination = passengerHeadsign(vehicle.destination || trip.headsign || route.longName, route.longName);
   const nativeArrival = next ? vehicle.arrivalPredictions?.find((a) => Math.abs(a.progress - next.progress) < 2)?.at : undefined;
   const nextArrival = siri?.arrival ?? nativeArrival ?? nextUpdate?.arrival ?? (vehicle.motionTimeline ? null : next ? serviceEpoch(serviceDate, next.arrival + shiftSeconds, city.manifest.timezone) : null);
-  return { ...vehicle, delaySeconds, delayEstimated, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
+  return { ...vehicle, delaySeconds, delayEstimated, gpsAnchoredTimeline: gpsAnchoredTimeline && !vehicle.motionTimeline, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
 }
 async function getPresentationSnapshot(): Promise<Snapshot> {
   const network = await getNetwork();
