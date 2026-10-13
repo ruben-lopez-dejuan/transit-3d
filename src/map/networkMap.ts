@@ -33,14 +33,14 @@ export function installLayers(map: Map, network: Network | null, dark: boolean) 
   map.addLayer({ id: 'location-halo', type: 'circle', source: 'user-location', paint: { 'circle-radius': 18, 'circle-color': '#3185e6', 'circle-opacity': .15 } });
   map.addLayer({ id: 'location-dot', type: 'circle', source: 'user-location', paint: { 'circle-radius': 6, 'circle-color': '#3185e6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
 }
-export function fitShapes(map: Map, shapes: Shape[], padding: { top: number; bottom: number; left: number; right: number }) {
+export function fitShapes(map: Map, shapes: Shape[], padding: { top: number; bottom: number; left: number; right: number }, duration = 850) {
   map.resize();
   const width = map.getContainer().clientWidth, height = map.getContainer().clientHeight;
   const x = Math.min(1, Math.max(0, width - 100) / (padding.left + padding.right));
   const y = Math.min(1, Math.max(0, height - 100) / (padding.top + padding.bottom));
   padding = { left: padding.left * x, right: padding.right * x, top: padding.top * y, bottom: padding.bottom * y };
   const bounds = new LngLatBounds(); shapes.forEach((s) => s.coordinates.forEach((c) => bounds.extend(c)));
-  if (!bounds.isEmpty()) map.fitBounds(bounds, { padding, maxZoom: 15, duration: 850 });
+  if (!bounds.isEmpty()) map.fitBounds(bounds, { padding, maxZoom: 15, duration });
 }
 
 export function installVehicleIcons(map: Map, network: Network | null) {

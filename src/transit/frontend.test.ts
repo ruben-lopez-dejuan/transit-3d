@@ -42,6 +42,7 @@ test('shell renders an accessible selector, escapes city labels and selects only
   const html = createShell(other, [bilbaoManifest, other]);
   assert.match(html, /aria-label="Ciudad o núcleo urbano"/);
   assert.match(html, /value="es-test" selected/);
+  assert.match(html, /id="sheet-handle"[^>]+aria-expanded="true"/);
   assert.match(html, /&lt;script&gt;Test&lt;\/script&gt;/);
   assert.equal((html.match(/ selected/g) ?? []).length, 1);
   assert.match(createShell(bilbaoManifest), /id="city-picker"/);

@@ -10,11 +10,18 @@ import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind
 import { renderedPositionSource } from '../../shared/transit/freshness';
 
 type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion };
+/** Keep normal mobile motion fluid, but protect slower phones with very large fleets. */
+export function renderInterval(viewportWidth: number, fleetSize: number, focused: boolean, reducedMotion: boolean) {
+  if (reducedMotion) return 250;
+  if (viewportWidth < 700 && fleetSize > 300 && !focused) return 80;
+  return 48;
+}
 export class TransitRenderer {
   private states = new Map<string, State>();
   readonly shapes = new Map<string, Shape>();
   private animation = 0;
   private lastFrame = 0;
+  private readonly reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   private snapshotAt = 0;
   clockOffset = 0;
   mode: TransitMode | "all" = "all";
@@ -85,7 +92,7 @@ export class TransitRenderer {
   start() {
     if (this.animation) return;
     const tick = (frame: number) => {
-      if (frame - this.lastFrame >= (window.innerWidth < 700 ? 85 : 65)) { this.lastFrame = frame; this.render(); }
+      if (frame - this.lastFrame >= renderInterval(window.innerWidth, this.states.size, !!this.focusRoute, this.reducedMotion)) { this.lastFrame = frame; this.render(); }
       this.animation = requestAnimationFrame(tick);
     };
     this.animation = requestAnimationFrame(tick);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
-import { TransitRenderer } from './transitRenderer';
+import { renderInterval, TransitRenderer } from './transitRenderer';
 import type { Vehicle } from '../transit/networkTypes';
 import type { Map as TransitMap } from 'maplibre-gl';
 import type { VehicleModels } from './vehicleModels';
@@ -36,6 +36,14 @@ test('minimum representation smoothly approaches physical scale, independently o
   const metersPerPixel = 40075016.686 * Math.cos(43.26 * Math.PI / 180) / (512 * 2 ** 11);
   assert.ok(Math.abs(vehicleScale(bus, 11, 43.26).length * 12 / metersPerPixel - 18) < .01);
   assert.ok(Math.abs(vehicleScale({ mode: 'rail', appearance: trainStyle }, 11, 43.26).length * 71 / metersPerPixel - 36) < .01);
+});
+
+test('mobile animation stays fluid and protects large unfocused fleets or reduced-motion users', () => {
+  assert.equal(renderInterval(390, 120, false, false), 48);
+  assert.equal(renderInterval(390, 500, false, false), 80);
+  assert.equal(renderInterval(390, 500, true, false), 48);
+  assert.equal(renderInterval(1200, 500, false, false), 48);
+  assert.equal(renderInterval(390, 20, true, true), 250);
 });
 
 test('render preparation hides icons before enabling models and selection keeps other vehicle LOD unchanged', () => {
