@@ -45,6 +45,8 @@ try { const saved = JSON.parse(read('transit:favorites', '[]')); if (Array.isArr
 let theme = read('transit:theme', 'system');
 if (!['system', 'light', 'dark'].includes(theme)) theme = 'system';
 const media = matchMedia('(prefers-color-scheme: dark)');
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const duration = (milliseconds: number) => reducedMotion.matches ? 0 : milliseconds;
 const isDark = () => theme === 'dark' || (theme === 'system' && media.matches);
 document.documentElement.dataset.theme = isDark() ? 'dark' : 'light';
 $<HTMLSelectElement>('#theme').value = theme;
@@ -58,13 +60,18 @@ let network: Network | null = null, snapshot: Snapshot | null = null;
 let mode: TransitMode | 'all' = cityPreferences.mode && (cityPreferences.mode === 'all' || city.modes.includes(cityPreferences.mode)) ? cityPreferences.mode : 'all';
 let selection: { kind: 'vehicle'; id: string } | { kind: 'route'; route: Route; direction: string } | { kind: 'stop'; stop: Stop } | null = null;
 let detail: LineDetail | StopDetail | TripDetail | null = null, detailVersion = 0, detailError = '';
-let following = false, lastFollow = 0, polling = false, toastTimer = 0, cameraSaveTimer = 0, nextNetworkRefreshAt = 0;
+let following = false, lastFollow = 0, polling = false, toastTimer = 0, cameraSaveTimer = 0, sheetTimer = 0, nextNetworkRefreshAt = 0;
 let results: SearchResult[] = [], resultIndex = -1;
 const inFlightShapes = new Set<string>();
 let detailRequest: AbortController | null = null, operatorRenderKey = '';
 const operatorName = (id: string) => network?.operators.find((o) => o.id === id)?.name ?? id;
 const selectedVehicle = () => { const current = selection; return current?.kind === 'vehicle' ? snapshot?.vehicles.find((v) => v.id === current.id) : undefined; };
-const padding = () => innerWidth < 700 ? { top: 130, bottom: selection ? Math.min(innerHeight * .43, 340) : 120, left: 35, right: 35 } : { top: 150, bottom: 70, left: selection ? 410 : 70, right: 80 };
+const padding = () => {
+  if (innerWidth >= 700) return { top: 150, bottom: 70, left: selection ? 410 : 70, right: 80 };
+  const panel = $('#details');
+  const covered = selection && !panel.hidden ? Math.max(0, innerHeight - panel.getBoundingClientRect().top) : 0;
+  return { top: 125, bottom: Math.max(105, covered + 12), left: 24, right: 24 };
+};
 function persistCityPreferences() {
   const center = map.getCenter();
   writeCityPreferences(city.id, {
@@ -96,7 +103,9 @@ function updateStatus() {
   const available = network?.operators.filter((operator) => operator.status !== 'unavailable' && !operator.loading).length ?? 0;
   $('.map-status').classList.toggle('stale', stale || !navigator.onLine);
   const progress = preparing ? ` · ${available}/${network!.operators.length} fuentes listas` : '';
-  $('#status').textContent = !navigator.onLine ? 'Sin conexión · última actualización disponible' : !snapshot ? 'Cargando la red de transporte…' : stale ? `Esperando datos recientes…${progress}` : `${count} vehículos · ${renderer.getVehicles().filter((v) => positionQuality(v, Date.now() + renderer.clockOffset) === 'live').length} con GPS reciente${progress}`;
+  const gps = renderer.getVehicles().filter((v) => positionQuality(v, Date.now() + renderer.clockOffset) === 'live').length;
+  const ready = innerWidth < 700 ? `${count} vehículos · ${gps} GPS${progress}` : `${count} vehículos · ${gps} con GPS reciente${progress}`;
+  $('#status').textContent = !navigator.onLine ? 'Sin conexión · última actualización disponible' : !snapshot ? 'Cargando la red de transporte…' : stale ? `Esperando datos recientes…${progress}` : ready;
   $('#empty-map').hidden = !snapshot || count > 0;
   $('#empty-map').textContent = renderer.operators.size === 0 ? 'Activa un operador en Capas para ver la red.' : 'No hay vehículos activos con estos filtros. Puedes explorar las paradas.';
   renderOperators();
@@ -181,25 +190,33 @@ function search() {
   $('#search-results').hidden = false; $('#search').setAttribute('aria-expanded', 'true'); $('#clear-search').hidden = !query;
 }
 function closeSearch() { $('#search-results').hidden = true; $('#search').setAttribute('aria-expanded', 'false'); $('#search').removeAttribute('aria-activedescendant'); }
-function chooseResult(index: number) { const result = results[index]; if (!result) return; closeSearch(); $('#search').blur(); if (result.type === 'route') void selectRoute(result.item); else if (result.type === 'stop') void selectStop(result.item); else { closeDetails(); map.easeTo({ center: [result.item.longitude, result.item.latitude], zoom: 15, duration: 850 }); } }
-function openPanel() { $('#details').hidden = false; $('#details').classList.remove('collapsed'); closeSearch(); $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); detailError = ''; }
+function chooseResult(index: number) { const result = results[index]; if (!result) return; closeSearch(); $('#search').blur(); if (result.type === 'route') void selectRoute(result.item); else if (result.type === 'stop') void selectStop(result.item); else { closeDetails(); map.easeTo({ center: [result.item.longitude, result.item.latitude], zoom: 15, duration: duration(850) }); } }
+function setSheetCollapsed(collapsed: boolean, adjustMap = true) {
+  const panel = $('#details'), handle = $('#sheet-handle');
+  panel.classList.toggle('collapsed', collapsed);
+  handle.setAttribute('aria-expanded', String(!collapsed));
+  handle.setAttribute('aria-label', collapsed ? 'Expandir panel' : 'Reducir panel');
+  window.clearTimeout(sheetTimer);
+  if (adjustMap && selection && innerWidth < 700) sheetTimer = window.setTimeout(() => map.easeTo({ padding: padding(), duration: duration(220) }), duration(220));
+}
+function openPanel() { $('#details').hidden = false; setSheetCollapsed(false, false); closeSearch(); $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); detailError = ''; }
 function beginDetailRequest() {
   detailRequest?.abort();
   detailRequest = new AbortController();
   return { version: ++detailVersion, signal: detailRequest.signal };
 }
 function favoriteKey() { return selection?.kind === 'route' ? `route:${selection.route.key}` : selection?.kind === 'stop' ? `stop:${selection.stop.key}` : null; }
-function closeDetails() { detailRequest?.abort(); detailRequest = null; selection = null; detail = null; detailVersion++; following = false; renderer.focusRoute = null; renderer.selectedId = null; renderer.direction = 'all'; $('#details').hidden = true; $('#debug').hidden = true; map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 300 }); setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); }
+function closeDetails() { detailRequest?.abort(); detailRequest = null; window.clearTimeout(sheetTimer); selection = null; detail = null; detailVersion++; following = false; renderer.focusRoute = null; renderer.selectedId = null; renderer.direction = 'all'; $('#details').hidden = true; $('#debug').hidden = true; map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: duration(300) }); setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); }
 async function selectRoute(route: Route, direction = 'all', fit = true) {
   renderer.operators.add(route.operatorId); renderer.disabledLayers.delete(route.operatorId + ':' + route.mode); if (mode !== 'all' && mode !== route.mode) mode = route.mode; filters();
   selection = { kind: 'route', route, direction }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = route.key; renderer.direction = direction; openPanel(); renderDetails();
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
   const { version, signal } = beginDetailRequest();
-  try { const result = await loadLine(route, direction, signal); if (version !== detailVersion) return; detail = result; result.shapes.forEach((s) => renderer.shapes.set(s.key, s)); setData(map, 'selected-route', routeData(result.shapes, route.color)); setData(map, 'selected-stops', stopsData(result.stops)); if (fit) fitShapes(map, result.shapes, padding()); renderDetails(); }
+  try { const result = await loadLine(route, direction, signal); if (version !== detailVersion) return; detail = result; result.shapes.forEach((s) => renderer.shapes.set(s.key, s)); setData(map, 'selected-route', routeData(result.shapes, route.color)); setData(map, 'selected-stops', stopsData(result.stops)); if (fit) fitShapes(map, result.shapes, padding(), duration(850)); renderDetails(); }
   catch (error) { if (!signal.aborted && version === detailVersion) { detailError = String((error as Error).message); renderDetails(); } }
 }
 async function selectStop(stop: Stop) {
-  selection = { kind: 'stop', stop }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = null; openPanel(); setData(map, 'selected-route', empty); setData(map, 'selected-stops', stopsData([stop])); map.easeTo({ center: [stop.longitude, stop.latitude], zoom: Math.max(map.getZoom(), 15), padding: padding(), duration: 700 }); renderDetails();
+  selection = { kind: 'stop', stop }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = null; openPanel(); setData(map, 'selected-route', empty); setData(map, 'selected-stops', stopsData([stop])); map.easeTo({ center: [stop.longitude, stop.latitude], zoom: Math.max(map.getZoom(), 15), padding: padding(), duration: duration(700) }); renderDetails();
   $('#detail-content').scrollTop = 0; const { version, signal } = beginDetailRequest();
   try { const result = await loadStop(stop, signal); if (version !== detailVersion) return; detail = result; setData(map, 'selected-stops', stopsData(result.nearbyStops)); renderDetails(); }
   catch (error) { if (!signal.aborted && version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
@@ -207,7 +224,7 @@ async function selectStop(stop: Stop) {
 async function selectVehicle(vehicle: Vehicle) {
   renderer.operators.add(vehicle.operatorId); renderer.disabledLayers.delete(vehicle.operatorId + ':' + vehicle.mode); if (mode !== 'all' && mode !== vehicle.mode) mode = vehicle.mode; filters();
   selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; renderer.direction = 'all'; openPanel(); renderDetails();
-  const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: 700 });
+  const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: duration(700) });
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
   const { version, signal } = beginDetailRequest();
   try { const result = await loadTrip(vehicle, signal); if (version !== detailVersion) return; detail = result; if (result.shape) { renderer.shapes.set(result.shape.key, result.shape); setData(map, 'selected-route', routeData([result.shape], vehicle.color)); } setData(map, 'selected-stops', stopsData(result.stops)); renderDetails(); }
@@ -215,6 +232,7 @@ async function selectVehicle(vehicle: Vehicle) {
 }
 function renderDetails() {
   if (!selection) return;
+  $('#details').dataset.kind = selection.kind;
   const key = favoriteKey(); $('#favorite').hidden = !key; $('#favorite').textContent = key && favorites.has(key) ? '★' : '☆'; $('#favorite').setAttribute('aria-pressed', String(!!key && favorites.has(key)));
   $('#back').hidden = selection.kind !== 'vehicle';
   const loading = detailError ? `<div class="detail-error">${esc(detailError)}<button class="text-button" data-retry>Reintentar</button></div>` : '<p class="loading-copy">Consultando servicios…</p>';
@@ -251,14 +269,14 @@ map.on('error', (event) => { if (event.error.message.includes('WebGL')) toast('E
 map.on('click', async (event) => {
   const layers = ['vehicle-dot', 'clusters', 'selected-stops-dot', 'stations', 'bus-stops'].filter((l) => map.getLayer(l)); if (!layers.length) return;
   const feature = map.queryRenderedFeatures(event.point, { layers })[0];
-  if (!feature) { closeSearch(); return; }
+  if (!feature) { closeSearch(); if (selection && innerWidth < 700) setSheetCollapsed(true); return; }
   if (feature.properties?.cluster_id !== undefined) { const source = map.getSource('vehicles') as import('maplibre-gl').GeoJSONSource; const zoom = await source.getClusterExpansionZoom(Number(feature.properties.cluster_id)); if (feature.geometry.type === 'Point') map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom }); }
   else if (feature.properties?.id) { const v = snapshot?.vehicles.find((v) => v.id === feature.properties.id); if (v) void selectVehicle(v); }
   else if (feature.properties?.key) { const s = network?.stops.find((s) => s.key === feature.properties.key); if (s) void selectStop(s); }
 });
 map.on('mousemove', (event) => { const layers = ['vehicle-dot', 'clusters', 'stations', 'bus-stops', 'selected-stops-dot'].filter((l) => map.getLayer(l)); if (layers.length) map.getCanvas().style.cursor = map.queryRenderedFeatures(event.point, { layers }).length ? 'pointer' : ''; });
 map.on('dragstart', (event) => { if (event.originalEvent && following) { following = false; renderDetails(); } });
-renderer.onSelectedPosition = (coordinate) => { if (following && Date.now() - lastFollow > 700) { lastFollow = Date.now(); map.easeTo({ center: coordinate, duration: 750, padding: padding() }); } };
+renderer.onSelectedPosition = (coordinate) => { if (following && Date.now() - lastFollow > 700) { lastFollow = Date.now(); map.easeTo({ center: coordinate, duration: duration(750), padding: padding() }); } };
 renderer.start();
 $<HTMLInputElement>('#search').addEventListener('input', search);
 $('#search').addEventListener('focus', search);
@@ -276,9 +294,10 @@ $('#underground').onchange = () => { renderer.showUnderground = $<HTMLInputEleme
 map.on('moveend', () => { void ensureShapes(); if (!following) { window.clearTimeout(cameraSaveTimer); cameraSaveTimer = window.setTimeout(persistCityPreferences, 250); } });
 $('#refresh').onclick = () => { void refresh(); };
 $('#close-details').onclick = closeDetails;
-$('#sheet-handle').onclick = () => $('#details').classList.toggle('collapsed');
-let touchY = 0; $('#sheet-handle').addEventListener('touchstart', (event) => touchY = event.touches[0].clientY, { passive: true });
-$('#sheet-handle').addEventListener('touchend', (event) => { const delta = event.changedTouches[0].clientY - touchY; if (Math.abs(delta) > 30) $('#details').classList.toggle('collapsed', delta > 0); }, { passive: true });
+let touchY = 0, ignoreSheetClick = false;
+$('#sheet-handle').onclick = () => { if (ignoreSheetClick) { ignoreSheetClick = false; return; } setSheetCollapsed(!$('#details').classList.contains('collapsed')); };
+$('#sheet-handle').addEventListener('touchstart', (event) => touchY = event.touches[0].clientY, { passive: true });
+$('#sheet-handle').addEventListener('touchend', (event) => { const delta = event.changedTouches[0].clientY - touchY; if (Math.abs(delta) > 30) { ignoreSheetClick = true; setSheetCollapsed(delta > 0); window.setTimeout(() => { ignoreSheetClick = false; }, 500); } }, { passive: true });
 $('#favorite').onclick = () => { const key = favoriteKey(); if (!key) return; if (favorites.has(key)) favorites.delete(key); else favorites.add(key); write('transit:favorites', JSON.stringify([...favorites])); renderDetails(); };
 $('#back').onclick = () => { const v = selectedVehicle(), route = network?.routes.find((r) => r.key === v?.routeKey); if (route) void selectRoute(route, 'all', false); };
 $('#detail-content').onclick = (event) => {
@@ -287,13 +306,13 @@ $('#detail-content').onclick = (event) => {
   if (target.dataset.route) { const r = network?.routes.find((r) => r.key === target.dataset.route); if (r) void selectRoute(r); }
   if (target.dataset.vehicle) { const v = snapshot?.vehicles.find((v) => v.id === target.dataset.vehicle); if (v) void selectVehicle(v); }
   if (target.hasAttribute('data-follow')) { following = !following; lastFollow = 0; renderDetails(); }
-  if (target.hasAttribute('data-fit') && detail && 'shape' in detail && detail.shape) { following = false; fitShapes(map, [detail.shape], padding()); renderDetails(); }
+  if (target.hasAttribute('data-fit') && detail && 'shape' in detail && detail.shape) { following = false; fitShapes(map, [detail.shape], padding(), duration(850)); renderDetails(); }
   if (target.hasAttribute('data-full-line')) $('#back').click();
   if (target.hasAttribute('data-retry')) { if (selection?.kind === 'route') void selectRoute(selection.route, selection.direction, false); else if (selection?.kind === 'stop') void selectStop(selection.stop); else { const v = selectedVehicle(); if (v) void selectVehicle(v); } }
 };
 $('#detail-content').addEventListener('change', (event) => { const select = event.target as HTMLSelectElement; if (select.id === 'direction' && selection?.kind === 'route') void selectRoute(selection.route, select.value); });
 $('#zoom-in').onclick = () => map.zoomIn(); $('#zoom-out').onclick = () => map.zoomOut(); $('#north').onclick = () => map.easeTo({ bearing: 0 });
-$('#perspective').onclick = () => { const enabled = map.getPitch() < 20; map.easeTo({ pitch: enabled ? 50 : 0, duration: 650 }); $('#perspective').classList.toggle('active', enabled); $('#perspective').setAttribute('aria-pressed', String(enabled)); };
+$('#perspective').onclick = () => { const enabled = map.getPitch() < 20; map.easeTo({ pitch: enabled ? 50 : 0, duration: duration(650) }); $('#perspective').classList.toggle('active', enabled); $('#perspective').setAttribute('aria-pressed', String(enabled)); };
 $('#locate').onclick = () => { if (!navigator.geolocation) { toast('Este navegador no ofrece ubicación.'); return; } navigator.geolocation.getCurrentPosition((p) => { const coordinates: [number, number] = [p.coords.longitude, p.coords.latitude]; setData(map, 'user-location', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates } }] }); map.easeTo({ center: coordinates, zoom: 15, padding: padding() }); }, () => toast('No se pudo obtener tu ubicación. Comprueba los permisos del navegador.'), { timeout: 12000, maximumAge: 30000 }); };
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { if (!$('#search-results').hidden) closeSearch(); else if (!$('#layers').hidden) $('[data-close-layers]').click(); else closeDetails(); } if (event.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes((event.target as HTMLElement).tagName)) { event.preventDefault(); $('#search').focus(); } });
 document.addEventListener('pointerdown', (event) => { const target = event.target as HTMLElement; if (!target.closest('.search-shell')) closeSearch(); if (!target.closest('#layers, #layers-button')) { $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); } });
