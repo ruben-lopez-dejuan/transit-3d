@@ -105,11 +105,11 @@ test('missing package root leaves the registry untouched', () => {
   assert.deepEqual(loadFolderCities(registry, path.join(os.tmpdir(), 'transit-missing-' + crypto.randomUUID())), []);
   assert.equal(registry.getCities().length, 0);
 });
-test('a copied GTFS package produces catalog, geometry and scheduled vehicles without touching Bilbao', async () => {
+test('a copied GTFS package tolerates retired route variants and produces scheduled vehicles', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'transit-city-test-')), previous = process.cwd();
   try {
     process.chdir(root);
-    const config = parseCityPackage({ ...fixture(), providers: [{ ...fixture().providers[0], routeIds: ['r1'] }] });
+    const config = parseCityPackage({ ...fixture(), providers: [{ ...fixture().providers[0], routeIds: ['r1', 'retired-route'] }] });
     const seed = (cityId: string) => {
       const settings = config.providers[0];
       const sources = Object.fromEntries(Object.entries(settings.sources).map(([key, value]) => [key, sourceIdentity(typeof value === 'string' ? { type: 'http', url: value } : value)]));

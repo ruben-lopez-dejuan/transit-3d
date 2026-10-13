@@ -42,7 +42,10 @@ export function madridExtensions(config: CityPackageConfig): ReadonlyMap<string,
   }
   if (config.providers.some((p) => p.id === 'emt-madrid')) {
     const client = new EmtClient(process.env.EMT_CLIENT_ID && process.env.EMT_PASSKEY ? { clientId: process.env.EMT_CLIENT_ID, passKey: process.env.EMT_PASSKEY } : undefined);
-    extensions.set('emt-madrid', { cacheVersion: 'emt-arrivals-v1', capabilities: { stopArrivals: client.configured }, create: ({ base }) => {
+    // EMT already enumerates each scheduled departure in trips/stop_times while
+    // also attaching broad frequency windows to every trip. Expanding those
+    // windows duplicates the timetable hundreds of times and can exhaust RAM.
+    extensions.set('emt-madrid', { cacheVersion: 'emt-arrivals-v2', expandFrequencies: false, capabilities: { stopArrivals: client.configured }, create: ({ base }) => {
       const adapter = new EmtArrivalProvider('emt-madrid', base, client, config.id);
       return { adapter, ...(client.configured ? { arrivals: adapter.arrivals } : {}) };
     } });

@@ -16,7 +16,7 @@ export class StaticGtfsProvider implements TransitProvider {
   private expires = 0;
   private stale = false;
   private receivedTimestamp: number | null = null;
-  constructor(readonly operatorId: string, source: string | SourceSupplier, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; timezone?: string; cacheNamespace?: string; filterActiveServices?: boolean } = {}) { this.source = typeof source === 'string' ? async (): Promise<ResolvedSource> => ({ url: source, identity: `http:${source}`, temporary: false }) : source; }
+  constructor(readonly operatorId: string, source: string | SourceSupplier, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; timezone?: string; cacheNamespace?: string; filterActiveServices?: boolean; expandFrequencies?: boolean } = {}) { this.source = typeof source === 'string' ? async (): Promise<ResolvedSource> => ({ url: source, identity: `http:${source}`, temporary: false }) : source; }
   private readonly source: SourceSupplier;
   getGtfs(): Promise<BizkaibusGtfs> {
     if (!this.data || Date.now() >= this.expires) {
@@ -31,10 +31,12 @@ export class StaticGtfsProvider implements TransitProvider {
     fs.mkdirSync(directory, { recursive: true });
     const fresh = fs.existsSync(zipPath) && Date.now() - fs.statSync(zipPath).mtimeMs < 6 * 3600_000;
     if (!fresh) {
-      try { const source = await this.source(); await downloadFile({ url: source.url, headers: source.headers }, zipPath); this.stale = false; }
+      try { const source = await this.source(); await downloadFile({ url: source.url, headers: source.headers, timeoutMs: 120_000 }, zipPath); this.stale = false; }
       catch (error) { if (!fs.existsSync(zipPath)) throw error; this.stale = true; }
     }
-    const parsedPath = path.join(directory, 'parsed.v8');
+    // Keep the parser generation in the file name so an old multi-gigabyte
+    // cache is never synchronously deserialized merely to discover its version.
+    const parsedPath = path.join(directory, 'parsed-v6.v8');
     const today = formatServiceDate(new Date(), this.options.timezone);
     const serviceDates = this.options.filterActiveServices === false ? undefined : [-1, 0, 1].map((delta) => shiftDate(today.date, delta));
     const now = Date.now();
@@ -49,7 +51,7 @@ export class StaticGtfsProvider implements TransitProvider {
       if (entry) fs.writeFileSync(path.join(directory, `${table}.txt`), entry.getData());
       else if (["calendar", "calendar_dates", "frequencies"].includes(table)) fs.rmSync(path.join(directory, `${table}.txt`), { force: true });
     }
-    const gtfs = await parseGtfsDirectoryStreaming(directory, this.options.includeRoute, serviceDates, serviceDates ? { from: now - 2 * 3600_000, to: now + 8 * 3600_000, timezone: this.options.timezone ?? 'Europe/Madrid' } : undefined);
+    const gtfs = await parseGtfsDirectoryStreaming(directory, this.options.includeRoute, serviceDates, serviceDates ? { from: now - 2 * 3600_000, to: now + 8 * 3600_000, timezone: this.options.timezone ?? 'Europe/Madrid' } : undefined, this.options.expandFrequencies ?? true);
     await this.options.prepare?.(gtfs);
     if (!gtfs.routes.size || !gtfs.trips.size || !gtfs.shapes.size) throw new Error(`Incomplete GTFS for ${this.operatorId}`);
     writeParsedFeed(parsedPath, zipPath, gtfs, cacheVariant);

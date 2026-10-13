@@ -6,6 +6,7 @@ import path from 'node:path';
 import { parseGtfsDirectory } from '../providers/bizkaibus/gtfs';
 import { isServiceActive } from './gtfsCalendar';
 import { expandFrequencies } from './frequencies';
+import { parseGtfsDirectoryStreaming } from './gtfsParser';
 
 test('GTFS parser handles quoted labels, missing optional calendar and unsorted rows', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bilbao-gtfs-test-'));
@@ -45,6 +46,26 @@ test('frequency trips replace templates, preserve dwell and expand past midnight
   assert.equal(feed.tripStops.get('t@86400')?.[1].departureTime, '24:04:00');
   assert.equal(feed.trips.has('t@87600'), false);
   assert.equal(feed.routeTripIds.get('r')?.length, 3);
+});
+
+test('streaming parser can preserve explicitly enumerated trips from frequency-heavy feeds', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'frequency-gtfs-test-'));
+  const tables = {
+    routes: 'route_id,route_short_name,route_type\nr,1,3\n',
+    trips: 'route_id,service_id,trip_id,shape_id\nr,s,t,shape\n',
+    stops: 'stop_id,stop_name,stop_lat,stop_lon\na,A,43,-3\nb,B,43,-2.99\n',
+    stop_times: 'trip_id,stop_id,stop_sequence,arrival_time,departure_time\nt,a,1,06:00:00,06:00:00\nt,b,2,06:10:00,06:10:00\n',
+    shapes: 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\nshape,43,-3,1\nshape,43,-2.99,2\n',
+    frequencies: 'trip_id,start_time,end_time,headway_secs\nt,06:00:00,07:00:00,600\n',
+  };
+  try {
+    Object.entries(tables).forEach(([name, csv]) => fs.writeFileSync(path.join(directory, `${name}.txt`), csv));
+    const feed = await parseGtfsDirectoryStreaming(directory, () => true, undefined, undefined, false);
+    assert.deepEqual([...feed.trips.keys()], ['t']);
+    assert.equal(feed.tripStops.get('t')?.[0].departureTime, '06:00:00');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 

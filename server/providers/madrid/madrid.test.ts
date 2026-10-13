@@ -176,6 +176,7 @@ test('Madrid extensions remain code-owned; topology capabilities are honest and 
   const extensions = madridExtensions(config);
   const city = createFolderCity(config, extensions);
   assert.equal(extensions.get('metro-madrid')!.filterActiveServices, false);
+  assert.equal(extensions.get('emt-madrid')!.expandFrequencies, false);
   assert.equal(city.manifest.providers.find((p) => p.id === 'metro-madrid')!.capabilities.scheduledService, false);
   assert.equal(city.manifest.providers.find((p) => p.id === 'metro-madrid')!.capabilities.vehiclePositions, false);
   assert.equal(city.manifest.providers.find((p) => p.id === 'cercanias-renfe')!.capabilities.vehiclePositions, true);

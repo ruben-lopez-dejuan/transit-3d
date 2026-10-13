@@ -4,12 +4,12 @@ import { parse as parseStream } from 'csv-parse';
 import { parse as parseSync } from 'csv-parse/sync';
 import type { BizkaibusGtfs, GtfsRoute } from '../providers/bizkaibus/gtfs';
 import { expandFrequencies } from './frequencies';
-import { isServiceActive, type ServiceDate } from './gtfsCalendar';
+import { isServiceActive, parseGtfsTime, type ServiceDate } from './gtfsCalendar';
 import { serviceEpoch } from './plans';
 
 // Parse dependencies first so large national feeds can be filtered while they
 // are streamed instead of retaining unrelated stops and shapes until the end.
-const tables = ['calendar', 'calendar_dates', 'routes', 'trips', 'stop_times', 'stops', 'shapes', 'frequencies'] as const;
+const tables = ['calendar', 'calendar_dates', 'routes', 'trips', 'frequencies', 'stop_times', 'stops', 'shapes'] as const;
 type Table = typeof tables[number];
 const optional = new Set<Table>(['calendar', 'calendar_dates', 'frequencies']);
 const options = {
@@ -20,7 +20,7 @@ const options = {
 
 /** Both readers use identical normalization; the streaming reader retains only the GTFS model. */
 type FrequencyWindow = { from: number; to: number; timezone: string };
-function builder(includeRoute: (route: GtfsRoute) => boolean, serviceDates?: ServiceDate[], frequencyWindow?: FrequencyWindow) {
+function builder(includeRoute: (route: GtfsRoute) => boolean, serviceDates?: ServiceDate[], frequencyWindow?: FrequencyWindow, expandFrequencyTrips = true) {
   const feed: BizkaibusGtfs = {
     routes: new Map(), trips: new Map(), shapes: new Map(), stops: new Map(),
     tripStops: new Map(), routeTripIds: new Map(), calendars: new Map(), calendarDates: new Map(),
@@ -85,27 +85,55 @@ function builder(includeRoute: (route: GtfsRoute) => boolean, serviceDates?: Ser
       case 'frequencies': if (feed.trips.has(row.trip_id)) frequencies.push(row); break;
     }
   }
+  function finishTable(table: Table) {
+    if (table !== 'stop_times' || !frequencyWindow || !serviceDates) return;
+    const frequencyTrips = new Set(frequencies.map((row) => row.trip_id));
+    const retained = new Set<string>();
+    for (const trip of feed.trips.values()) {
+      // A genuine frequency template is expanded against the bounded window in
+      // finish(). Feeds whose explicit trips are authoritative opt out and are
+      // filtered like a normal timetable.
+      if (expandFrequencyTrips && frequencyTrips.has(trip.tripId)) { retained.add(trip.tripId); continue; }
+      const calls = feed.tripStops.get(trip.tripId);
+      const first = parseGtfsTime(calls?.[0]?.departureTime ?? calls?.[0]?.arrivalTime ?? null);
+      const lastCall = calls?.at(-1);
+      const last = parseGtfsTime(lastCall?.arrivalTime ?? lastCall?.departureTime ?? null);
+      if (first === null || last === null) continue;
+      const intersects = serviceDates.some(({ date, weekday }) => isServiceActive(feed, trip.serviceId, date, weekday)
+        && serviceEpoch(date, last, frequencyWindow.timezone) >= frequencyWindow.from
+        && serviceEpoch(date, first, frequencyWindow.timezone) <= frequencyWindow.to);
+      if (intersects) retained.add(trip.tripId);
+    }
+    referencedStops.clear(); referencedShapes.clear();
+    for (const [id, trip] of feed.trips) {
+      if (!retained.has(id)) { feed.trips.delete(id); feed.tripStops.delete(id); continue; }
+      if (trip.shapeId) referencedShapes.add(trip.shapeId);
+      for (const call of feed.tripStops.get(id) ?? []) referencedStops.add(call.stopId);
+    }
+    for (const [routeId, ids] of feed.routeTripIds) feed.routeTripIds.set(routeId, ids.filter((id) => retained.has(id)));
+  }
   function finish() {
     for (const calls of feed.tripStops.values()) calls.sort((a, b) => a.sequence - b.sequence);
     for (const points of feed.shapes.values()) points.sort((a, b) => a.sequence - b.sequence);
-    expandFrequencies(feed, frequencies, (trip, seconds) => !frequencyWindow || Boolean(serviceDates?.some(({ date, weekday }) => isServiceActive(feed, trip.serviceId, date, weekday) && serviceEpoch(date, seconds, frequencyWindow.timezone) >= frequencyWindow.from && serviceEpoch(date, seconds, frequencyWindow.timezone) <= frequencyWindow.to)));
+    if (expandFrequencyTrips) expandFrequencies(feed, frequencies, (trip, seconds) => !frequencyWindow || Boolean(serviceDates?.some(({ date, weekday }) => isServiceActive(feed, trip.serviceId, date, weekday) && serviceEpoch(date, seconds, frequencyWindow.timezone) >= frequencyWindow.from && serviceEpoch(date, seconds, frequencyWindow.timezone) <= frequencyWindow.to)));
     return feed;
   }
-  return { add, finish };
+  return { add, finishTable, finish };
 }
 
-export function parseGtfsDirectory(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true, serviceDates?: ServiceDate[]): BizkaibusGtfs {
-  const model = builder(includeRoute, serviceDates);
+export function parseGtfsDirectory(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true, serviceDates?: ServiceDate[], expandFrequencyTrips = true): BizkaibusGtfs {
+  const model = builder(includeRoute, serviceDates, undefined, expandFrequencyTrips);
   for (const table of tables) {
     const file = path.join(directory, `${table}.txt`);
     if (optional.has(table) && !fs.existsSync(file)) continue;
     for (const row of parseSync(fs.readFileSync(file, 'utf8'), options) as Record<string, string>[]) model.add(table, row);
+    model.finishTable(table);
   }
   return model.finish();
 }
 
-export async function parseGtfsDirectoryStreaming(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true, serviceDates?: ServiceDate[], frequencyWindow?: FrequencyWindow): Promise<BizkaibusGtfs> {
-  const model = builder(includeRoute, serviceDates, frequencyWindow);
+export async function parseGtfsDirectoryStreaming(directory: string, includeRoute: (route: GtfsRoute) => boolean = () => true, serviceDates?: ServiceDate[], frequencyWindow?: FrequencyWindow, expandFrequencyTrips = true): Promise<BizkaibusGtfs> {
+  const model = builder(includeRoute, serviceDates, frequencyWindow, expandFrequencyTrips);
   for (const table of tables) {
     const file = path.join(directory, `${table}.txt`);
     if (optional.has(table) && !fs.existsSync(file)) continue;
@@ -113,10 +141,17 @@ export async function parseGtfsDirectoryStreaming(directory: string, includeRout
     source.on('error', (error) => parser.destroy(error));
     source.pipe(parser);
     try {
-      for await (const row of parser) model.add(table, row as Record<string, string>);
+      let processed = 0;
+      for await (const row of parser) {
+        model.add(table, row as Record<string, string>);
+        // csv-parse can keep thousands of already-decoded rows buffered. Yield
+        // cooperatively so large city feeds never starve API requests.
+        if (++processed % 2048 === 0) await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     } finally {
       source.destroy(); parser.destroy();
     }
+    model.finishTable(table);
   }
   return model.finish();
 }

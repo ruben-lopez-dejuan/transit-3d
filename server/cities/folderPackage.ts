@@ -22,6 +22,7 @@ export type ProviderExtension = {
   cacheVersion: string;
   capabilities?: Partial<CityManifest['providers'][number]['capabilities']>;
   filterActiveServices?: boolean;
+  expandFrequencies?: boolean;
   prepareGtfs?(gtfs: BizkaibusGtfs): void | Promise<void>;
   create(context: { base: StaticGtfsProvider; getGtfs: () => Promise<BizkaibusGtfs>; timetable?: RealtimeFeedClient; gps?: RealtimeFeedClient; timezone: string; maximumGpsSpeed?: number }): { adapter: SourceAdapter; getUpdates?: () => ReadonlyMap<string, UpdatedTrip>; arrivals?: StopArrivalsAdapter };
 };
@@ -41,10 +42,16 @@ export function createFolderCity(config: CityPackageConfig, extensions: Readonly
     const hash = createHash('sha256').update(JSON.stringify({ ...settings, sources }) + (extension?.cacheVersion ?? '')).digest('hex');
     const routeIds = settings.routeIds ? new Set(settings.routeIds) : null;
     const base = new StaticGtfsProvider(settings.id, sourceSupplier(descriptor(settings.sources.gtfs), resolver), {
-      timezone: config.timezone, cacheNamespace: `${config.id}-${hash}`, filterActiveServices: extension?.filterActiveServices,
+      timezone: config.timezone, cacheNamespace: `${config.id}-${hash}`, filterActiveServices: extension?.filterActiveServices, expandFrequencies: extension?.expandFrequencies,
       includeRoute: routeIds ? (route) => routeIds.has(route.routeId) : undefined,
       prepare: async (gtfs) => {
-        if (routeIds) for (const id of routeIds) if (!gtfs.routes.has(id)) throw new Error(`routeId no encontrado en GTFS: ${id}`);
+        if (routeIds) {
+          const missing = [...routeIds].filter((id) => !gtfs.routes.has(id));
+          // Public GTFS publishers occasionally retire individual route variants.
+          // Keep the routes that still match instead of taking down the provider.
+          if (missing.length === routeIds.size) throw new Error('Ningún routeId configurado está disponible en el GTFS');
+          if (missing.length) console.warn(`[${settings.id}] ${missing.length} routeId configurado${missing.length === 1 ? '' : 's'} no disponible${missing.length === 1 ? '' : 's'}; se mantienen ${gtfs.routes.size} rutas válidas.`);
+        }
         // Keep only geometry and stops referenced by selected trips, especially for national feeds.
         const shapes = new Set([...gtfs.trips.values()].map((trip) => trip.shapeId));
         const stops = new Set([...gtfs.tripStops.values()].flatMap((times) => times.map((stop) => stop.stopId)));
