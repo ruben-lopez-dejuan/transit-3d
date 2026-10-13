@@ -28,6 +28,11 @@ export function isAdminAuthorized(configuredToken: string | undefined, suppliedT
   return configured.length === supplied.length && timingSafeEqual(configured, supplied);
 }
 
+export function isDevelopmentAdminLoopback(nodeEnvironment: string | undefined, remoteAddress: string | undefined) {
+  if (nodeEnvironment === 'production' || !remoteAddress) return false;
+  return remoteAddress === '::1' || remoteAddress === '127.0.0.1' || remoteAddress === '::ffff:127.0.0.1';
+}
+
 export function sanitizedAdminError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error);
   return raw

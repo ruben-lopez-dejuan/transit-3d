@@ -5,7 +5,7 @@ import type { CityManifest, NormalizedProviderSnapshot, ProviderDefinition, Prov
 import type { Network, Snapshot, Vehicle } from '../../shared/transit/network';
 import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
 import type { ProviderRuntime, RuntimeCityPackage } from '../transit/cityPackage';
-import { buildCityDiagnostics, cityIndex, isAdminAuthorized, sanitizedAdminError } from './diagnostics';
+import { buildCityDiagnostics, cityIndex, isAdminAuthorized, isDevelopmentAdminLoopback, sanitizedAdminError } from './diagnostics';
 
 const at = Date.parse('2026-10-09T12:00:00Z');
 const capabilities = { staticGtfs: true, vehiclePositions: true, tripUpdates: true, serviceAlerts: false, occupancy: false, speed: true, bearing: true, stopArrivals: false };
@@ -49,6 +49,14 @@ test('admin token comparison permits local open mode and rejects absent or incor
   assert.equal(isAdminAuthorized('correct', undefined), false);
   assert.equal(isAdminAuthorized('correct', 'wrong'), false);
   assert.equal(isAdminAuthorized('correct', 'correct'), true);
+});
+
+test('only local development requests may bypass a configured admin token', () => {
+  assert.equal(isDevelopmentAdminLoopback(undefined, '::1'), true);
+  assert.equal(isDevelopmentAdminLoopback('development', '::ffff:127.0.0.1'), true);
+  assert.equal(isDevelopmentAdminLoopback('production', '::1'), false);
+  assert.equal(isDevelopmentAdminLoopback(undefined, '192.168.1.20'), false);
+  assert.equal(isDevelopmentAdminLoopback(undefined, undefined), false);
 });
 
 test('city index is lightweight and reports existing health without loading feeds', () => {

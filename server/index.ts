@@ -13,7 +13,7 @@ import {
 import { getCityNetwork, isCityNetworkInitialized } from './transit/network';
 import { cityRegistry, defaultCityId, cityPackageReports } from './cities';
 import { CACHE_CONTROL, cacheControl, networkCacheControl } from './httpCache';
-import { buildCityDiagnostics, cityIndex, isAdminAuthorized } from './admin/diagnostics';
+import { buildCityDiagnostics, cityIndex, isAdminAuthorized, isDevelopmentAdminLoopback } from './admin/diagnostics';
 
 const app = express();
 
@@ -29,7 +29,8 @@ app.use('/api/admin', (request, response, next) => {
   const configuredToken = process.env.TRANSIT_ADMIN_TOKEN?.trim();
   const header = request.headers['x-admin-token'];
   const suppliedToken = typeof header === 'string' ? header : undefined;
-  if (!isAdminAuthorized(configuredToken, suppliedToken)) {
+  const localDevelopment = isDevelopmentAdminLoopback(process.env.NODE_ENV, request.socket.remoteAddress);
+  if (!localDevelopment && !isAdminAuthorized(configuredToken, suppliedToken)) {
     response.status(401).json({ error: 'Token de administración no válido.' });
     return;
   }

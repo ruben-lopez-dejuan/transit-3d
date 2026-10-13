@@ -44,6 +44,10 @@ de fuentes arrancan Node con ese almacén de certificados. Si un servidor anteri
 se inició antes de esta configuración, hay que detenerlo y volver a ejecutar el
 comando para que los feeds de Moveuskadi puedan refrescarse.
 
+El proceso de desarrollo supervisa la API y la reinicia después de un cambio o
+una caída. Si el puerto 3001 estaba ocupado durante el arranque, sigue
+reintentando hasta recuperarlo en vez de dejar Vite funcionando sin backend.
+
 ## Protección opcional
 
 Si el servidor está expuesto a Internet, configura un token solo en el backend:
@@ -56,7 +60,9 @@ npm start
 El navegador lo pide al abrir la consola, lo conserva únicamente en
 `sessionStorage` y lo envía en `X-Admin-Token`. No se incluye en URLs, paquetes de
 ciudad, logs ni respuestas. Si la variable no está configurada, la vista de solo
-lectura queda abierta, que es el comportamiento cómodo para desarrollo local.
+lectura queda abierta. En desarrollo, las peticiones desde `localhost` tampoco
+requieren token; el acceso por LAN y cualquier ejecución con `NODE_ENV=production`
+sí respetan el token configurado.
 
 ## Semántica
 
