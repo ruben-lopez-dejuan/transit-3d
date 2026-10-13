@@ -111,7 +111,7 @@ export class TransitRenderer {
         if (this.animation && this.map.getLayer('selected-halo') && !this.map.getLayer('transit-models')) { this.models = models; this.map.addLayer(models, 'selected-halo'); }
       }).catch((error) => { this.modelsFailed = true; console.warn('[transit-models] Model loading failed; using mode silhouettes.', error); }).finally(() => { this.modelsLoading = false; });
     }
-    const vehicles = this.getVehicles();
+    const vehicles = this.getVehicles().filter((vehicle) => !this.focusRoute || (vehicle.routeKey === this.focusRoute && (this.direction === "all" || String(vehicle.directionId ?? "unknown") === this.direction)));
     const modelsReady = !!this.models?.ready && !!this.map.getLayer('transit-models');
     const prepareModels = zoom >= MODEL_MIN_ZOOM && modelsReady;
     if (now - this.snapshotAt > 180_000) {
@@ -130,11 +130,10 @@ export class TransitRenderer {
       const position = shape ? vehiclePose(shape, progress, vehicle, zoom >= MODEL_MIN_ZOOM ? scale.width : 1) : null;
       const coordinate = position?.coordinate ?? [vehicle.longitude, vehicle.latitude] as [number, number];
       if (!bounds.contains(coordinate) && this.selectedId !== vehicle.id) continue;
-      const focused = !this.focusRoute || (vehicle.routeKey === this.focusRoute && (this.direction === "all" || String(vehicle.directionId ?? "unknown") === this.direction));
       const bearing = position?.bearing ?? vehicle.bearing;
       const underground = position?.underground ?? false;
       if (underground && !this.showUnderground) continue;
-      const properties = { id: vehicle.id, label: vehicle.label, destination: vehicle.headsign.length > 27 ? vehicle.headsign.slice(0, 26) + '…' : vehicle.headsign, mode: vehicle.mode, kind: vehicleKind(vehicle), color: vehicle.color, bearing, quality: this.dataQuality(vehicle.id), underground, focused, selected: this.selectedId === vehicle.id };
+      const properties = { id: vehicle.id, label: vehicle.label, destination: vehicle.headsign.length > 27 ? vehicle.headsign.slice(0, 26) + '…' : vehicle.headsign, mode: vehicle.mode, kind: vehicleKind(vehicle), color: vehicle.color, bearing, quality: this.dataQuality(vehicle.id), underground, focused: true, selected: this.selectedId === vehicle.id };
       features.push({ type: "Feature" as const, properties, geometry: { type: "Point" as const, coordinates: coordinate } });
       if (this.selectedId === vehicle.id) { selected.push(features.at(-1)!); this.onSelectedPosition?.(coordinate); }
       if (prepareModels && bounds.contains(coordinate)) {

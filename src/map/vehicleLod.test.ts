@@ -94,6 +94,13 @@ test('render preparation hides icons before enabling models and selection keeps 
   assert.equal(items.length, 5);
   zoom = 10; render();
   assert.equal(enabled, false); assert.equal(items.length, 0); assert.equal(layouts.get('vehicle-icon'), 'visible');
+  const renderedIds = () => (sources.get('vehicles') as { features: { properties: { id: string } }[] }).features.map((feature) => feature.properties.id);
+  renderer.focusRoute = 'b';
+  render(); assert.deepEqual(renderedIds(), ['b'], 'selecting a route isolates its vehicles');
+  renderer.direction = '1';
+  render(); assert.deepEqual(renderedIds(), [], 'the selected direction also limits the isolated route');
+  renderer.focusRoute = null; renderer.direction = 'all';
+  render(); assert.deepEqual(renderedIds(), ['b', 'm'], 'closing route focus restores the full fleet');
 });
 
 test('animation start is idempotent and stop releases the only frame request', () => {
