@@ -55,7 +55,7 @@ export class TransitRenderer {
     const now = Date.now() + this.clockOffset;
     const next = new Map<string, State>();
     for (const vehicle of vehicles) {
-      if (vehicle.mode === 'bus' && vehicle.observationTimestamp === null) vehicle.timeline = estimatedBusDwell(vehicle.timeline);
+      if (vehicle.mode === 'bus' && (vehicle.observationTimestamp === null || vehicle.gpsAnchoredTimeline)) vehicle.timeline = estimatedBusDwell(vehicle.timeline);
       const previous = this.states.get(vehicle.id);
       const compatible = previous?.vehicle.shapeKey === vehicle.shapeKey ? previous : undefined;
       const displayed = compatible ? this.progress(compatible, now) : undefined;
@@ -63,7 +63,7 @@ export class TransitRenderer {
       if (vehicle.observationTimestamp !== null) {
         const motion = compatible?.motion ?? new GpsMotion(displayed === undefined ? undefined : { progress: displayed, speed });
         motion.setEnd(this.shapes.get(vehicle.shapeKey)?.total ?? Infinity);
-        motion.update({ at: vehicle.observationTimestamp, progress: vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape }, now, { mode: vehicle.mode, timeline: vehicle.timeline, previous: vehicle.previousObservation, speed: vehicle.speedMetersPerSecond, stopped: vehicle.stoppedAtStop, maximumSpeed: vehicle.maximumSpeedMetersPerSecond, realtimeTimetable: vehicle.timetableTimestamp != null, forecastTimestamp: vehicle.timetableTimestamp });
+        motion.update({ at: vehicle.observationTimestamp, progress: vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape }, now, { mode: vehicle.mode, timeline: vehicle.timeline, previous: vehicle.previousObservation, speed: vehicle.speedMetersPerSecond, stopped: vehicle.stoppedAtStop, maximumSpeed: vehicle.maximumSpeedMetersPerSecond, realtimeTimetable: vehicle.timetableTimestamp != null, anchoredTimeline: !!vehicle.gpsAnchoredTimeline, forecastTimestamp: vehicle.timetableTimestamp });
         next.set(vehicle.id, { vehicle, progress: displayed ?? vehicle.progressMetersAlongShape, speed, at: now, motion });
         if (vehicle.id === this.selectedId && previous?.vehicle.observationTimestamp !== vehicle.observationTimestamp && new URLSearchParams(location.search).has('debug')) console.debug('[transit-motion]', { id: vehicle.id, fetchedAt, ...motion.diagnostics });
         continue;

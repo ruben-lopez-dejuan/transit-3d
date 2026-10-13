@@ -150,3 +150,25 @@ test('schedule/GPS handovers preserve displayed progress; fallback also limits a
   assert.ok(next.speed <= 6.120001);
   assert.ok(next.correction > 8 && next.correction <= 30);
 });
+
+test('a stop report older than a dwell does not keep a bus parked for the whole freshness window', () => {
+  const motion = new GpsMotion();
+  const observation = { at: 0, progress: 50 };
+  // Fix published 90 s late, as Bizkaibus does: the bus already left the stop.
+  motion.update(observation, 90000, { ...options, speed: null, stopped: true, realtimeTimetable: true, timeline: [observation, { at: 100000, progress: 1050 }] });
+  advance(motion, 90000, 150000);
+  assert.ok(motion.diagnostics.predictedProgress > 600, `expected the plan to resume after the dwell, got ${motion.diagnostics.predictedProgress}`);
+  assert.ok(motion.position(150000)! > 300);
+});
+
+test('a timetable shifted through the GPS fix keeps commercial pace instead of the last instantaneous speed', () => {
+  const observation = { at: 0, progress: 0 };
+  // Commercial pace 5 m/s (including stops); the bus was caught at 12 m/s between stops.
+  const timeline = [observation, { at: 60000, progress: 300 }, { at: 120000, progress: 600 }];
+  const anchored = new GpsMotion(), retimed = new GpsMotion();
+  anchored.update(observation, 0, { ...options, speed: 12, anchoredTimeline: true, timeline });
+  retimed.update(observation, 0, { ...options, speed: 12, timeline });
+  advance(anchored, 0, 60000); advance(retimed, 0, 60000);
+  assert.ok(Math.abs(anchored.diagnostics.predictedProgress - 300) < 1);
+  assert.ok(retimed.diagnostics.predictedProgress >= 599, 'unanchored timetables still follow observed pace');
+});

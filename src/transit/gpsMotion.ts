@@ -10,10 +10,14 @@ type Options = {
   stopped?: boolean;
   maximumSpeed?: number;
   realtimeTimetable?: boolean;
+  /** Timetable shifted through the GPS fix: commercial pace, already delay-free. */
+  anchoredTimeline?: boolean;
   forecastTimestamp?: number | null;
 };
 const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n));
 const freshness = 180_000;
+/** A stop report is a dwell, not a parking: after this the bus is predicted to leave. */
+const stopHold = (mode: TransitMode) => mode === 'bus' ? 30_000 : 45_000;
 
 /** One-dimensional prediction. Source timestamps set pace; HTTP timestamps never do. */
 export class GpsMotion {
@@ -31,6 +35,7 @@ export class GpsMotion {
   private measuredSpeed = false;
   private lastInterval: number | null = null;
   private stopped = false;
+  private hold = 30_000;
   private target = 0;
   private correction = 0;
   private rejection: string | null = null;
@@ -66,13 +71,14 @@ export class GpsMotion {
     }
     this.previous = previous;
     this.observation = observation;
+    this.hold = stopHold(options.mode);
     this.stopped = !!options.stopped || options.speed === 0 || (measured !== null && Math.abs(observation.progress - previous!.progress) < 2);
     this.timeline = options.timeline;
     const reported = options.speed != null && Number.isFinite(options.speed) && options.speed >= 0 && options.speed <= maximum ? options.speed : measured;
     this.sourceSpeed = clamp(reported ?? this.planSpeed(observation.at), 0, maximum);
     this.measuredSpeed = reported !== null;
     this.forecastTimestamp = options.forecastTimestamp ?? 0;
-    if (!options.realtimeTimetable && reported !== null && reported > 0 && this.timeline.length > 1) {
+    if (!options.realtimeTimetable && !options.anchoredTimeline && reported !== null && reported > 0 && this.timeline.length > 1) {
       // A theoretical timetable must not accelerate a late bus to scheduled pace.
       // Estimate future travel at observed pace, retaining explicit station dwell.
       let at = observation.at;
@@ -107,8 +113,13 @@ export class GpsMotion {
   }
   private reference(at: number) {
     const observation = this.observation!;
-    const time = clamp(at, observation.at, observation.at + freshness);
-    if (this.stopped) return Math.min(this.end, observation.progress);
+    let time = clamp(at, observation.at, observation.at + freshness);
+    if (this.stopped) {
+      // Feeds publish fixes up to minutes late; holding a STOPPED_AT for the whole
+      // freshness window left buses parked while they were already driving away.
+      if (time <= observation.at + this.hold) return Math.min(this.end, observation.progress);
+      time -= this.hold;
+    }
     const plan = this.timeline;
     const planned = plan.length > 1 ? progressAt(plan, time) : null;
     const pace = this.planSpeed(time);
@@ -118,7 +129,7 @@ export class GpsMotion {
     return clamp(target, 0, this.end);
   }
   private referenceSpeed(at: number) {
-    if (this.stopped || !this.observation || at >= this.observation.at + freshness) return 0;
+    if (!this.observation || at >= this.observation.at + freshness || (this.stopped && at < this.observation.at + this.hold)) return 0;
     return clamp((this.reference(at + 250) - this.reference(at)) * 4, 0, this.maximumSpeed);
   }
 

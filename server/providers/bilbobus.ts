@@ -143,7 +143,9 @@ export class BilbobusProvider extends StaticGtfsProvider {
       // Remove only the timetable stand-in actually associated with this physical bus.
       for (const [id, v] of vehicles) if (v.tripId === best.trip.tripId && !v.vehicleId) vehicles.delete(id);
       const id = `bilbobus:${day.date}:vehicle-${vehicleId}`;
-      vehicles.set(id, { id, operatorId: 'bilbobus', tripId: best.trip.tripId, vehicleId, routeId, mode: 'bus', directionId, shapeId: best.trip.shapeId!, progressMetersAlongShape: position.progressMeters, observationProgressMeters: position.progressMeters, previousObservation: history.previous, speedMetersPerSecond: Number.isFinite(row.Velocidad) ? row.Velocidad / 3.6 : history.speed, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, observationTimestamp: observedAt, predictionTimestamp: now.getTime(), positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', delaySeconds: null, tripIdentityQuality: 'estimated', positionSource: 'gps' });
+      vehicles.set(id, { id, operatorId: 'bilbobus', tripId: best.trip.tripId, vehicleId, routeId, mode: 'bus', directionId, shapeId: best.trip.shapeId!, progressMetersAlongShape: position.progressMeters, observationProgressMeters: position.progressMeters, previousObservation: history.previous, // Velocidad is instantaneous: 0 at a light or 30 km/h between stops. Neither
+      // predicts the next minute, so motion uses the pace between real fixes.
+      speedMetersPerSecond: history.speed, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, observationTimestamp: observedAt, predictionTimestamp: now.getTime(), positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', delaySeconds: null, tripIdentityQuality: 'estimated', positionSource: 'gps' });
     }
     const real = [...vehicles.values()].filter((v) => v.vehicleId);
     const observedDirections = new Set(real.map((v) => `${v.routeId}:${v.directionId}`));

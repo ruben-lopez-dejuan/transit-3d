@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
 import { applyRealtime } from '../providers/realtimeProvider';
-import { normalizeTripUpdates, resolveServiceDate, updatedTimeline, type TripUpdate, type RealtimeMessage } from './realtime';
+import { normalizeTripUpdates, resolveServiceDate, stopStatusIsInformative, updatedTimeline, type TripUpdate, type RealtimeMessage } from './realtime';
 import { serviceEpoch } from './plans';
 import { generateScheduledVehicles } from './scheduled';
 import { anchorGpsTimeline } from './gpsTimeline';
@@ -159,4 +159,12 @@ test('a provider speed limit rejects an impossible GPS hop without renewing the 
   const recovered = applyRealtime(data, [], 'bounded', new Map(), gps, recoveredAt, 40)[0];
   assert.equal(recovered.observationTimestamp, recoveredAt.getTime());
   assert.ok(recovered.speedMetersPerSecond! < 40);
+});
+
+test('a feed marking every vehicle STOPPED_AT carries no stop information', () => {
+  assert.equal(stopStatusIsInformative(Array(235).fill(1)), false);
+  assert.equal(stopStatusIsInformative(Array(20).fill('STOPPED_AT')), false);
+  assert.equal(stopStatusIsInformative([1, 1, 1, 1, 1, 2]), true);
+  assert.equal(stopStatusIsInformative([1, 1]), true, 'too few reports to judge the feed');
+  assert.equal(stopStatusIsInformative([undefined, null]), true);
 });
