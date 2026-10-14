@@ -43,7 +43,7 @@ Para actualizarlo explícitamente desde PowerShell en la raíz del repo:
 ```powershell
 $tunnelQuery = '[out:json][timeout:20];way["railway"~"^(rail|narrow_gauge|subway)$"]["tunnel"]["tunnel"!="no"](43.0,-3.05,43.46,-1.74);out tags geom;'
 Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -UserAgent 'transit-3d/infrastructure-audit' -Method Post -Uri 'https://overpass-api.de/api/interpreter' -Body @{data=$tunnelQuery} -OutFile server/cache/euskotren/tunnels-osm.raw.json
-npx tsx server/import-euskotren-tunnels.ts server/cache/euskotren/tunnels-osm.raw.json
+npx tsx server/import-rail-tunnels.ts euskotren server/cache/euskotren/tunnels-osm.raw.json
 npx tsx server/test-euskotren-tunnels.ts
 npm test
 npm run build
@@ -68,3 +68,13 @@ necesita los archivos GTFS cacheados; no descarga feeds ni inicia servidor.
   estación aproximada y `/?debug=1` (trip, shape, progress, LOD, fallback).
   Para movimiento, incluir source/received timestamps, motion y mensajes
   `[transit-motion]` de consola.
+
+## Cercanías (Renfe)
+
+`server/cities/es-bilbao/renfe-tunnels.json` aplica el mismo emparejamiento a las
+formas ferroviarias de Renfe: túneles OSM de Adif en ancho ibérico (C1–C3 de
+Bilbao, C1 de Donostia) y en ancho métrico (antigua FEVE, C4/C5). Se generan con
+`npx tsx server/import-rail-tunnels.ts renfe <respuesta-overpass.json>` y la
+consulta que figura en el propio fichero. Auditoría 14 oct 2026: 133 ways; la C1
+y la C2 bajan en Abando y recorren unos 2,3 km soterradas hacia Zabalburu y
+Ametzola, y la C4 sale de Concordia con 3,5 km de túnel.
