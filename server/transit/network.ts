@@ -168,6 +168,15 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
   const serviceDate = vehicle.serviceDate;
   const plan = tripPlan(gtfs, trip.tripId);
   const update = updateFor(vehicle.operatorId, serviceDate, trip.tripId);
+  const firstServiceStop = plan?.stops.find((stop) => !update?.stops.get(stop.sequence)?.skipped);
+  if (firstServiceStop) {
+    const changed = update?.stops.get(firstServiceStop.sequence);
+    const startsAt = changed?.departure ?? serviceEpoch(serviceDate, firstServiceStop.departure, city.manifest.timezone);
+    // A physical vehicle may already be moving as deadhead or may be assigned
+    // prematurely to its next block. Do not present that future public trip as
+    // being in service before its first advertised departure.
+    if (now.getTime() < startsAt) return null;
+  }
   let shiftSeconds = vehicle.delaySeconds ?? 0;
   let delaySeconds = vehicle.delaySeconds;
   let delayEstimated = false;

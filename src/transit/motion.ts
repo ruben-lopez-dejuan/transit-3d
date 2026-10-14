@@ -32,3 +32,7 @@ export function correctionOffset(offset: number, startedAt: number, duration: nu
   const t = Math.max(0, Math.min(1, (now - startedAt) / duration));
   return offset * (1 - t * t * (3 - 2 * t));
 }
+
+export function nextStopAhead<T extends { progress: number }>(stops: readonly T[], renderedProgress: number, toleranceMeters = 10): T | undefined {
+  return stops.find((stop) => stop.progress > renderedProgress + toleranceMeters);
+}

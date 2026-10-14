@@ -127,6 +127,23 @@ test('fresh arrival forecasts can change the estimate without changing its GPS t
   assert.ok(motion.diagnostics.renderedSpeed > 8 && motion.diagnostics.renderedSpeed < 10);
 });
 
+test('an overshot realtime stop recovers towards the following stop instead of reversing or parking mid-route', () => {
+  const observation = { at: 0, progress: 0 };
+  const motion = new GpsMotion();
+  motion.update(observation, 0, { ...options, realtimeTimetable: true, forecastTimestamp: 1, timeline: [observation, { at: 100000, progress: 1000 }] });
+  advance(motion, 0, 50000);
+  const before = motion.position(50000)!;
+  motion.update(observation, 50000, { ...options, realtimeTimetable: true, forecastTimestamp: 2, timeline: [observation, { at: 100000, progress: 300 }, { at: 200000, progress: 800 }] });
+  advance(motion, 50000, 65000);
+  const after = motion.position(65000)!;
+  assert.ok(after >= before, 'the vehicle must not reverse towards the revised anchor');
+  assert.ok(after - before < 60, `the vehicle travelled ${after - before} m while its ETA target was behind`);
+  assert.ok(motion.diagnostics.renderedSpeed > 0 && motion.diagnostics.renderedSpeed < 4);
+  assert.equal(motion.diagnostics.recoveringToRealtimeAnchor, true);
+  assert.equal(motion.diagnostics.holdingForRealtimeAnchor, false);
+  assert.ok(motion.diagnostics.correctionErrorMeters < 0);
+});
+
 test('stale recovery is not retroactively applied over the missing interval and shape end is respected', () => {
   const motion = new GpsMotion();
   motion.setEnd(10000); motion.update({ at: 0, progress: 0 }, 0, options);
