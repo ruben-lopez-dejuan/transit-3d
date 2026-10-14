@@ -126,6 +126,13 @@ test('Realtime predictions keep delayed trips active, with the same identity and
   assert.equal(vehicles[0].observationTimestamp, null);
   assert.equal(vehicles[0].delaySeconds, 600);
 });
+test('the unit named in a TripUpdate becomes the vehicle id (Metro Bilbao 607 is a five-car train)', () => {
+  const data = fixture(), late = new Date(serviceEpoch(date, 10 * 3600 + 35 * 60));
+  const input = feed({ vehicle: { id: '607' }, delay: 600, stopTimeUpdate: [{ stopSequence: 2, arrival: { delay: 600 } }] }); input.header!.timestamp = late.getTime() / 1000;
+  const updates = normalizeTripUpdates(data, input, late);
+  assert.equal(updates.get(`${date}:t`)?.vehicleId, '607');
+  assert.equal(applyRealtime(data, [], 'metro-bilbao', updates, null, late)[0].vehicleId, '607');
+});
 test('Cancellations remove scheduled vehicles and also suppress GPS observations', () => {
   const data = fixture(), updates = normalizeTripUpdates(data, feed({ trip: { tripId: 't', startDate: date, scheduleRelationship: 'CANCELED' }, stopTimeUpdate: [] }), now);
   const gps: RealtimeMessage = { header: feed().header, entity: [{ vehicle: { trip: { tripId: 't', startDate: date }, timestamp: now.getTime() / 1000, position: { latitude: 43.26, longitude: -2.935 } } }] };

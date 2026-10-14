@@ -13,7 +13,8 @@ export type ProviderRuntime = RegisteredProvider & {
   getGtfs(): Promise<BizkaibusGtfs>;
   getUpdates?(): ReadonlyMap<string, UpdatedTrip>;
   arrivals?: StopArrivalsAdapter;
-  appearanceFor?(vehicle: Pick<AdapterVehicle, 'mode' | 'routeId'>, shortName: string): VehicleAppearance;
+  /** `unit` is the operator's vehicle number when known, for fleets whose consist varies by unit. */
+  appearanceFor?(vehicle: Pick<AdapterVehicle, 'mode' | 'routeId'>, shortName: string, unit?: string | null): VehicleAppearance;
 };
 export interface RuntimeCityPackage extends CityPackage {
   readonly providers: readonly ProviderRuntime[];

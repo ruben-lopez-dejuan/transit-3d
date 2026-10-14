@@ -48,31 +48,32 @@ const LIVERIES: Record<string, VehicleLivery> = {
   'funicular-artxanda': { body: '#d22b2b', accent: '#f4f4f4' },
 };
 /**
- * Consists per fleet: Metro Bilbao series 500/550/600 run 4 cars (72 m; 22 of the 46 trains
- * have a fifth car, not identified per trip); Euskotren 950 has 3 cars (L3, Txorierri E3/E3a)
+ * Consists per fleet: Metro Bilbao series 500 runs 4 cars (72 m) and series 550/600 five, told
+ * apart by the unit its TripUpdates name; Euskotren 950 has 3 cars (L3, Txorierri E3/E3a)
  * and 900 has 4; Bilbao trams (series 400) 3 modules, 24.4 m; Vitoria trams (500) 5 modules,
  * 31.4 m; Renfe Cercanías 446/447, 3 cars.
  */
-function consistFor(providerId: string, mode: AdapterVehicle['mode'], shortName: string): VehicleAppearance['composition'] {
+function consistFor(providerId: string, mode: AdapterVehicle['mode'], shortName: string, unit?: string | null): VehicleAppearance['composition'] {
   if (mode === 'bus' || mode === 'funicular') return { count: 1, length: 12, gap: 0 };
   if (mode === 'tram') return providerId === 'euskotren' && /^(TG|4\d)/.test(shortName) ? { count: 5, length: 6.1, gap: .2 } : { count: 3, length: 8, gap: .2 };
-  if (providerId === 'metro-bilbao') return { count: 4, length: 17.8, gap: .3 };
+  // Units 551–563 (series 550) and 601–609 (series 600) run five cars: the 22 five-car trains of the 46.
+  if (providerId === 'metro-bilbao') return { count: /^(55[1-9]|56[0-3]|60[1-9])$/.test(unit ?? '') ? 5 : 4, length: 17.8, gap: .3 };
   if (providerId === 'euskotren') return /^(L3|E3)/.test(shortName) ? { count: 3, length: 19, gap: .4 } : { count: 4, length: 19, gap: .4 };
   if (providerId === 'renfe') return { count: 3, length: 23, gap: 1 };
   return { count: 4, length: 17, gap: 1 };
 }
-export function bilbaoAppearance(providerId: string, vehicle: Pick<AdapterVehicle, 'mode' | 'routeId'>, shortName: string): VehicleAppearance {
+export function bilbaoAppearance(providerId: string, vehicle: Pick<AdapterVehicle, 'mode' | 'routeId'>, shortName: string, unit?: string | null): VehicleAppearance {
   const kind = vehicle.mode === 'rail' ? providerId === 'metro-bilbao' ? 'metro' : 'train' : vehicle.mode;
   const lateralOffsetMeters = (vehicle.mode === 'rail' || vehicle.mode === 'tram') && !(providerId === 'renfe' && /^C[45]/.test(shortName)) ? 1.7 : 0;
   const livery = LIVERIES[`${providerId}:${vehicle.mode}`] ?? LIVERIES[providerId];
-  return { kind, composition: consistFor(providerId, vehicle.mode, shortName), lateralOffsetMeters, ...(livery ? { livery } : {}) };
+  return { kind, composition: consistFor(providerId, vehicle.mode, shortName, unit), lateralOffsetMeters, ...(livery ? { livery } : {}) };
 }
 export const providers: ProviderRuntime[] = sourceAdapters.map((adapter) => {
   const provider = new RegisteredProvider(bilbaoManifest, definitions.find((d) => d.id === adapter.operatorId)!, adapter) as ProviderRuntime;
   provider.getGtfs = gtfsLoaders.get(adapter.operatorId)!;
   const realtime = realtimeProviders.find((p) => p.operatorId === adapter.operatorId);
   if (realtime) provider.getUpdates = () => realtime.updates;
-  provider.appearanceFor = (vehicle, shortName) => bilbaoAppearance(adapter.operatorId, vehicle, shortName);
+  provider.appearanceFor = (vehicle, shortName, unit) => bilbaoAppearance(adapter.operatorId, vehicle, shortName, unit);
   if (adapter.operatorId === 'bilbobus') provider.arrivals = {
     departures: async (gtfs, stopId) => (await bilbobusProvider.departures(gtfs, gtfs.stops.get(stopId)?.stopCode ?? '')).map((row) => ({ ...row, routeKey: entityId(bilbaoManifest.id, adapter.operatorId, 'route', row.routeKey.slice('bilbobus:'.length)), tripId: entityId(bilbaoManifest.id, adapter.operatorId, 'trip', row.tripId) })),
     warm: async (gtfs, stopIds) => { await Promise.allSettled(stopIds.map((id) => bilbobusProvider.getArrivals(gtfs.stops.get(id)?.stopCode ?? ''))); },

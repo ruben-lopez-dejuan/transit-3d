@@ -26,7 +26,7 @@ export function installLayers(map: Map, network: Network | null, dark: boolean) 
   map.addLayer({ id: 'selected-stops-label', type: 'symbol', source: 'selected-stops', minzoom: 13, layout: { 'text-field': ['get', 'name'], 'text-size': 12, 'text-font': ['Noto Sans Regular'], 'text-offset': [0, 1.2], 'text-anchor': 'top' }, paint: { 'text-color': dark ? '#eff5f7' : '#253b43', 'text-halo-color': white, 'text-halo-width': 2 } });
   map.addLayer({ id: 'clusters', type: 'circle', source: 'vehicles', maxzoom: 11, filter: ['has', 'point_count'], paint: { 'circle-color': '#226b59', 'circle-radius': ['step', ['get', 'point_count'], 19, 20, 24, 100, 29], 'circle-stroke-color': white, 'circle-stroke-width': 3 } });
   map.addLayer({ id: 'cluster-count', type: 'symbol', source: 'vehicles', maxzoom: 11, filter: ['has', 'point_count'], layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': '#ffffff' } });
-  installVehicleIcons(map, network);
+  installVehicleIcons(map, network?.routes ?? []);
   map.addLayer({ id: 'selected-halo', type: 'circle', source: 'selected-vehicle', paint: { 'circle-radius': 8, 'circle-opacity': 0, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 1.2, 'circle-stroke-opacity': .6 } });
   map.addLayer({ id: 'vehicle-dot', type: 'circle', source: 'vehicles', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': 12, 'circle-opacity': 0 } });
   map.addLayer({ id: 'vehicle-icon', type: 'symbol', source: 'vehicles', filter: ['!', ['has', 'point_count']], layout: { 'icon-image': ['get', 'icon'], 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .25, 13, .38, 16, .52, 18, .7], 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-opacity': ['case', ['get', 'underground'], .45, 1], 'icon-opacity-transition': { duration: 0, delay: 0 } } });
@@ -83,8 +83,9 @@ function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, { count, length }
   }
   return ctx.getImageData(0, 0, 48, height);
 }
-export function installVehicleIcons(map: Map, network: Network | null) {
-  for (const route of network?.routes ?? []) {
+/** Images for every kind/consist/livery among these routes or vehicles (a vehicle may differ from its route, e.g. a five-car metro). */
+export function installVehicleIcons(map: Map, items: readonly IconVehicle[]) {
+  for (const route of items) {
     const id = vehicleIconId(route); if (map.hasImage(id)) continue;
     const livery = liveryFor(route);
     map.addImage(id, drawVehicleIcon(vehicleKind(route), compositionFor(route), livery.body, livery.accent), { pixelRatio: 1 });

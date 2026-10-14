@@ -72,6 +72,9 @@ test('built-in Bilbao remains registered with honest capabilities and existing s
 test('vehicles carry their fleet livery and real consist, not the line colour', () => {
   const look = (id: string, mode: 'rail' | 'tram' | 'bus', line: string) => bilbaoAppearance(id, { mode, routeId: 'x' }, line);
   assert.deepEqual(look('metro-bilbao', 'rail', 'MB').composition.count, 4);
+  assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'MB', '607').composition.count, 5, 'series 600: five cars');
+  assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'MB', '555').composition.count, 5, 'series 550: five cars');
+  assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'MB', '512').composition.count, 4, 'series 500: four cars');
   assert.deepEqual(look('metro-bilbao', 'rail', 'MB').livery, { body: '#c3c9ce', accent: '#f08419' }, 'grey with orange');
   assert.equal(look('euskotren', 'rail', 'L3').composition.count, 3, 'L3 runs 950 series, three cars');
   assert.equal(look('euskotren', 'rail', 'E1').composition.count, 4, 'the 900 series has four');

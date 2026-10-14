@@ -175,14 +175,14 @@ async function refresh() {
         }
         nextNetworkRefreshAt = Date.now() + (network.operators.some((operator) => operator.loading) ? 5_000 : network.operators.some((operator) => operator.status === 'unavailable') ? 60_000 : 6 * 3600_000);
         operatorRenderKey = '';
-        setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network);
+        setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network.routes);
         if (firstLoad) persistCityPreferences();
       } catch (error) {
         nextNetworkRefreshAt = Date.now() + 30_000;
         if (!network) throw error;
       }
     }
-    snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); debugInspector?.updateVehicles(snapshot.vehicles); filters(); renderDetails();
+    snapshot = await loadSnapshot(); if (map.isStyleLoaded()) installVehicleIcons(map, snapshot.vehicles); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); debugInspector?.updateVehicles(snapshot.vehicles); filters(); renderDetails();
   } catch (error) { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
   finally { polling = false; $('#refresh').textContent = '↻ Actualizar datos'; }
 }
@@ -275,7 +275,7 @@ function drawSelection() {
   if (selection.kind === 'stop') setData(map, 'selected-stops', stopsData((detail as StopDetail).nearbyStops));
   if (selection.kind === 'vehicle') { const d = detail as TripDetail, v = selectedVehicle(); if (d.shape && v) setData(map, 'selected-route', routeData([d.shape], v.color)); setData(map, 'selected-stops', stopsData(d.stops)); }
 }
-map.on('style.load', () => { installLayers(map, network, isDark()); debugInspector?.installMapLayers(); filters(); drawSelection(); });
+map.on('style.load', () => { installLayers(map, network, isDark()); if (snapshot) installVehicleIcons(map, snapshot.vehicles); debugInspector?.installMapLayers(); filters(); drawSelection(); });
 map.on('error', (event) => { if (event.error.message.includes('WebGL')) toast('El mapa necesita un navegador con WebGL activado.'); });
 map.on('click', async (event) => {
   const layers = ['vehicle-dot', 'clusters', 'selected-stops-dot', 'stations', 'bus-stops'].filter((l) => map.getLayer(l)); if (!layers.length) return;

@@ -6,11 +6,12 @@ import type { MotionAnchor } from '../../shared/transit/network';
 export type RealtimeEvent = { time?: number; delay?: number };
 export type TripDescriptor = { tripId?: string; routeId?: string; startDate?: string; startTime?: string; scheduleRelationship?: string };
 export type StopUpdate = { stopId?: string; stopSequence?: number; scheduleRelationship?: string; arrival?: RealtimeEvent; departure?: RealtimeEvent };
-export type TripUpdate = { trip: TripDescriptor; timestamp?: number; delay?: number; stopTimeUpdate?: StopUpdate[] };
+export type TripUpdate = { trip: TripDescriptor; vehicle?: { id?: string; label?: string }; timestamp?: number; delay?: number; stopTimeUpdate?: StopUpdate[] };
 export type VehicleObservation = { trip?: TripDescriptor; timestamp?: number; vehicle?: { id?: string; label?: string }; position?: { latitude?: number; longitude?: number; speed?: number }; stopId?: string; currentStopSequence?: number; currentStatus?: string | number };
 export type RealtimeMessage = { header?: { timestamp?: number; incrementality?: string; gtfsRealtimeVersion?: string }; entity?: { isDeleted?: boolean; tripUpdate?: TripUpdate; vehicle?: VehicleObservation }[] };
 export type UpdatedStop = { stopId: string; sequence: number; arrival: number; departure: number; scheduledArrival: number; scheduledDeparture: number; arrivalRealtime: boolean; departureRealtime: boolean; skipped: boolean };
-export type UpdatedTrip = { tripId: string; serviceDate: string; updatedAt: number; canceled: boolean; stops: Map<number, UpdatedStop> };
+/** `vehicleId` is the unit the operator names in the update (Metro Bilbao: 555, 607…), when it does. */
+export type UpdatedTrip = { tripId: string; serviceDate: string; updatedAt: number; canceled: boolean; stops: Map<number, UpdatedStop>; vehicleId?: string };
 export { REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 import { REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 export const tripInstanceKey = (date: string, tripId: string) => `${date}:${tripId}`;
@@ -135,7 +136,8 @@ export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage 
     }
     // An update that only repeats the timetable is not a prediction: it must
     // not outrank GPS or be labelled realtime (Bizkaibus, most of Euskotren).
-    if (valid && stops.size && predictive) result.set(key, { tripId, serviceDate: date, updatedAt, canceled: false, stops });
+    const vehicleId = update.vehicle?.id || update.vehicle?.label || undefined;
+    if (valid && stops.size && predictive) result.set(key, { tripId, serviceDate: date, updatedAt, canceled: false, stops, ...(vehicleId ? { vehicleId } : {}) });
   }
   return result;
 }
