@@ -7,11 +7,11 @@ import { normalizeRoute, normalizeStop, normalizeTrip } from './normalization';
 import { freshTimestamp, tripInstanceKey, updatedTimeline } from './realtime';
 import { TransitEngine } from "./engine";
 import { formatServiceDate, isServiceActive, parseGtfsTime } from "./gtfsCalendar";
-import { distanceMeters } from "./motionEngine";
 import { passengerHeadsign } from './labels';
 import { anchorGpsTimeline } from './gpsTimeline';
 import { mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
 import { withStationDwell } from './stationDwell';
+import { bearingDegrees, sameSpotStops } from './sameSpotStops';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape, MotionAnchor, TimelineSource } from '../../shared/transit/network';
 import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
@@ -344,10 +344,25 @@ async function getLine(operatorId: string, routeId: string, direction?: string):
   }
   return { route, shapes, stops, departures: rows };
 }
+/** The directions a stop's trips leave in, towards their next stop (from the previous one at a terminus), one per route and direction. */
+function departureBearings(stop: Stop): number[] {
+  const gtfs = feeds.get(stop.operatorId), here = gtfs?.stops.get(stop.stopId);
+  if (!gtfs || !here) return [];
+  const seen = new Set<string>(), bearings: number[] = [];
+  for (const reference of stopReferences.get(stop.key) ?? []) {
+    const trip = gtfs.trips.get(reference.tripId), pattern = `${trip?.routeId}:${trip?.directionId}`;
+    if (!trip || seen.has(pattern)) continue;
+    seen.add(pattern);
+    const times = gtfs.tripStops.get(reference.tripId) ?? [], index = times.findIndex((time) => time.sequence === reference.sequence);
+    const next = gtfs.stops.get(times[index + 1]?.stopId ?? ''), previous = gtfs.stops.get(times[index - 1]?.stopId ?? '');
+    if (next) bearings.push(bearingDegrees(here, next)); else if (previous) bearings.push(bearingDegrees(previous, here));
+  }
+  return bearings;
+}
 async function getStop(operatorId: string, stopId: string): Promise<StopDetail | null> {
   const network = await getNetwork(); const stop = stopMap.get(key(operatorId, 'stop', stopId));
   if (!stop) return null;
-  const nearbyStops = network.stops.filter((s) => distanceMeters([s.longitude, s.latitude], [stop.longitude, stop.latitude]) <= 80);
+  const nearbyStops = sameSpotStops(stop, network.stops, departureBearings);
   const rows = await Promise.all(nearbyStops.map(async (s) => {
     const scheduled = await departures(s.operatorId, stopReferences.get(s.key) ?? [], new Date());
     const provider = providerFor(s.operatorId);
