@@ -14,6 +14,7 @@ import { getCityNetwork, isCityNetworkInitialized } from './transit/network';
 import { cityRegistry, defaultCityId, cityPackageReports } from './cities';
 import { CACHE_CONTROL, cacheControl, networkCacheControl } from './httpCache';
 import { buildCityDiagnostics, cityIndex, isAdminAuthorized, isDevelopmentAdminLoopback } from './admin/diagnostics';
+import { transitDebugTraceStore } from './admin/traceStore';
 
 const app = express();
 
@@ -55,6 +56,23 @@ app.get('/api/admin/cities/:cityId', async (request, response) => {
     response.status(503).json({ error: 'No se pudo generar el diagnóstico de la ciudad.' });
   }
 });
+app.get('/api/admin/debug/cities/:cityId/vehicles/:vehicleId', async (request, response) => {
+  const cityId = String(request.params.cityId);
+  if (!cityRegistry.getCity(cityId)) { response.status(404).json({ error: 'Ciudad no registrada.' }); return; }
+  try {
+    transitDebugTraceStore.enable(cityId);
+    const snapshot = await getCityNetwork(cityId).getPresentationSnapshot();
+    const vehicleId = String(request.params.vehicleId);
+    const vehicle = snapshot.vehicles.find((candidate) => candidate.id === vehicleId) ?? null;
+    if (!vehicle) { response.status(404).json({ error: 'Vehiculo no disponible en la ultima captura.' }); return; }
+    response.setHeader('Cache-Control', 'no-store');
+    response.json(transitDebugTraceStore.get(cityId, vehicleId, vehicle));
+  } catch (error) {
+    console.warn('[debug:' + cityId + '] Trace unavailable:', error instanceof Error ? error.message : error);
+    response.status(503).json({ error: 'No se pudo generar la traza del vehiculo.' });
+  }
+});
+
 app.use('/api', (request, response, next) => {
   const cityId = typeof request.query.cityId === 'string' ? request.query.cityId : defaultCityId;
   if (!cityRegistry.getCity(cityId)) { response.status(404).json({ error: 'Ciudad no registrada.' }); return; }

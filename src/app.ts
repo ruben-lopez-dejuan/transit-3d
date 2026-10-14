@@ -15,6 +15,8 @@ import { migrateFavorites } from './transit/favorites';
 import { readCityPreferences, writeCityPreferences } from './transit/preferences';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+const debugMode = location.pathname === '/debug' || location.pathname.startsWith('/debug/');
+const DebugInspectorClass = debugMode ? (await import('./debugInspector')).DebugInspector : null;
 $('#app').textContent = 'Cargando la red de transporte…';
 const read = (key: string, fallback: string) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const write = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Private browsing can deny persistence. */ } };
@@ -66,6 +68,7 @@ const inFlightShapes = new Set<string>();
 let detailRequest: AbortController | null = null, operatorRenderKey = '';
 const operatorName = (id: string) => network?.operators.find((o) => o.id === id)?.name ?? id;
 const selectedVehicle = () => { const current = selection; return current?.kind === 'vehicle' ? snapshot?.vehicles.find((v) => v.id === current.id) : undefined; };
+const debugInspector = DebugInspectorClass ? new DebugInspectorClass({ map, renderer, cityId: city.id, selectVehicle: (vehicle) => { void selectVehicle(vehicle); } }) : null;
 const padding = () => {
   if (innerWidth >= 700) return { top: 150, bottom: 70, left: selection ? 410 : 70, right: 80 };
   const panel = $('#details');
@@ -175,7 +178,7 @@ async function refresh() {
         if (!network) throw error;
       }
     }
-    snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); filters(); renderDetails();
+    snapshot = await loadSnapshot(); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); debugInspector?.updateVehicles(snapshot.vehicles); filters(); renderDetails();
   } catch (error) { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
   finally { polling = false; $('#refresh').textContent = '↻ Actualizar datos'; }
 }
@@ -223,7 +226,7 @@ async function selectStop(stop: Stop) {
 }
 async function selectVehicle(vehicle: Vehicle) {
   renderer.operators.add(vehicle.operatorId); renderer.disabledLayers.delete(vehicle.operatorId + ':' + vehicle.mode); if (mode !== 'all' && mode !== vehicle.mode) mode = vehicle.mode; filters();
-  selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; renderer.direction = 'all'; openPanel(); renderDetails();
+  selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; debugInspector?.select(vehicle); renderer.direction = 'all'; openPanel(); renderDetails();
   const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: duration(700) });
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
   const { version, signal } = beginDetailRequest();
@@ -264,7 +267,7 @@ function drawSelection() {
   if (selection.kind === 'stop') setData(map, 'selected-stops', stopsData((detail as StopDetail).nearbyStops));
   if (selection.kind === 'vehicle') { const d = detail as TripDetail, v = selectedVehicle(); if (d.shape && v) setData(map, 'selected-route', routeData([d.shape], v.color)); setData(map, 'selected-stops', stopsData(d.stops)); }
 }
-map.on('style.load', () => { installLayers(map, network, isDark()); filters(); drawSelection(); });
+map.on('style.load', () => { installLayers(map, network, isDark()); debugInspector?.installMapLayers(); filters(); drawSelection(); });
 map.on('error', (event) => { if (event.error.message.includes('WebGL')) toast('El mapa necesita un navegador con WebGL activado.'); });
 map.on('click', async (event) => {
   const layers = ['vehicle-dot', 'clusters', 'selected-stops-dot', 'stations', 'bus-stops'].filter((l) => map.getLayer(l)); if (!layers.length) return;

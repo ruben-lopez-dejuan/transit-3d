@@ -1,6 +1,7 @@
 import type { CityManifest, SourceAdapter, ProviderDefinition, ProviderHealth, TransitProvider, NormalizedProviderSnapshot } from '../../shared/transit/contracts';
 import { isFresh } from '../../shared/transit/freshness';
 import { normalizeVehicle } from './normalization';
+import { transitDebugTraceStore } from '../admin/traceStore';
 /** Wrap existing adapters without changing their GPS or timetable algorithms. */
 export class RegisteredProvider implements TransitProvider {
   readonly cityId: string; readonly operatorId: string; enabled = true; health: ProviderHealth;
@@ -19,7 +20,7 @@ export class RegisteredProvider implements TransitProvider {
       if (raw.receivedTimestamp != null && (!Number.isFinite(raw.receivedTimestamp) || raw.receivedTimestamp <= 0)) throw new Error('Invalid provider receipt timestamp');
       const sourceTimestamp = raw.sourceTimestamp === null ? null : raw.sourceTimestamp < 1e12 ? raw.sourceTimestamp * 1000 : raw.sourceTimestamp;
       const receivedTimestamp = raw.receivedTimestamp ?? null;
-      const vehicles = raw.vehicles.flatMap((v) => { const normalized = normalizeVehicle(v, { cityId: this.cityId, providerId: this.operatorId, timezone: this.city.timezone }, receivedTimestamp, at); return normalized ? [normalized] : []; });
+      const vehicles = raw.vehicles.flatMap((v) => { const normalized = normalizeVehicle(v, { cityId: this.cityId, providerId: this.operatorId, timezone: this.city.timezone }, receivedTimestamp, at); transitDebugTraceStore.recordAdapter(this.cityId, raw.fetchedAt, v, normalized, at); return normalized ? [normalized] : []; });
       const invalid = vehicles.length !== raw.vehicles.length;
       const stale = sourceTimestamp !== null && !isFresh(sourceTimestamp, at) || vehicles.some((v) => v.positionSource === 'STALE');
       const state = raw.status === 'unavailable' ? 'unavailable' : stale ? 'stale' : raw.status === 'degraded' || invalid ? 'degraded' : 'healthy';

@@ -13,6 +13,7 @@ import { anchorGpsTimeline } from './gpsTimeline';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape } from '../../shared/transit/network';
 import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
+import { transitDebugTraceStore } from '../admin/traceStore';
 
 /** Each city owns its caches, catalog and provider bindings. */
 export function createCityNetwork(city: RuntimeCityPackage, options: { catalogWaitMs?: number } = {}) {
@@ -207,7 +208,9 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
   const destination = passengerHeadsign(vehicle.destination || trip.headsign || route.longName, route.longName);
   const nativeArrival = next ? vehicle.arrivalPredictions?.find((a) => Math.abs(a.progress - next.progress) < 2)?.at : undefined;
   const nextArrival = siri?.arrival ?? nativeArrival ?? nextUpdate?.arrival ?? (vehicle.motionTimeline ? null : next ? serviceEpoch(serviceDate, next.arrival + shiftSeconds, city.manifest.timezone) : null);
-  return { ...vehicle, delaySeconds, delayEstimated, gpsAnchoredTimeline: gpsAnchoredTimeline && !vehicle.motionTimeline, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
+  const presented: Vehicle = { ...vehicle, delaySeconds, delayEstimated, gpsAnchoredTimeline: gpsAnchoredTimeline && !vehicle.motionTimeline, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
+  transitDebugTraceStore.recordPresentation(presented, now.getTime());
+  return presented;
 }
 async function getPresentationSnapshot(): Promise<Snapshot> {
   const network = await getNetwork();
