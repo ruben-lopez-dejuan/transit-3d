@@ -24,12 +24,12 @@ export function positionExplanation(v: Vehicle, now = Date.now()) {
   const reliability = vehicleReliability(v, now);
   const seconds = reliability.ageMs === null ? null : Math.floor(reliability.ageMs / 1000);
   const ago = seconds === null ? '' : seconds < 120 ? `hace ${seconds} s` : `hace ${Math.floor(seconds / 60)} min`;
-  const identity = reliability.identityEstimated ? ' No se sabe con certeza qué servicio realiza.' : '';
-  if (reliability.basis === 'schedule') return 'Sin datos en tiempo real para este servicio: la posición sigue el horario previsto.';
-  if (reliability.level === 'low') return `Los últimos datos en tiempo real son de ${ago}: la posición puede no ser exacta.`;
-  if (reliability.basis === 'gps') return `Último GPS ${ago}. ${v.timelineSource === 'siri' || v.timelineSource === 'gtfs-rt' ? 'El avance sigue las llegadas previstas por el operador.' : 'Entre lecturas, el avance es una estimación.'}${identity}`;
-  if (reliability.basis === 'operator-estimate') return `Posición aproximada, calculada con los tiempos de llegada que anuncia el operador${ago ? `, actualizados ${ago}` : ''}.`;
-  return `Sin GPS: la posición se calcula con las llegadas previstas por el operador${ago ? `, actualizadas ${ago}` : ''}.`;
+  // The badge above already gives the level; this line only says what the position rests on and how old it is.
+  const identity = reliability.identityEstimated ? ' · servicio sin confirmar' : '';
+  if (reliability.basis === 'schedule') return 'Sin datos en tiempo real';
+  if (reliability.level === 'low') return ago ? `Último dato ${ago}` : 'Sin datos recientes';
+  if (reliability.basis === 'gps') return `GPS ${ago}${identity}`;
+  return `Sin GPS · previsión ${ago || 'del operador'}`;
 }
 export const departures = (items: Departure[], operatorName: (id: string) => string, now = Date.now()) => items.length ? `<div class="departures">${items.map((d) => {
   const reliability = arrivalReliability(d.source, d.updatedAt, now);

@@ -157,14 +157,14 @@ test('Realtime timetables show freshness, delay and cancellation, reverting stal
 });
 test('A position predicted from TripUpdates does not claim to have a GPS signal', () => {
   const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000 } as Vehicle;
-  assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
-  assert.ok(!positionExplanation(v, 16000).includes('Último GPS'));
+  assert.equal(positionExplanation(v, 16000), 'Sin GPS · previsión hace 15 s');
 });
 
-test('a position driven by operator forecasts says so in plain words and keeps their age', () => {
+test('the position line is short and always gives the age of its data in seconds', () => {
   const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000, timelineSource: 'siri' } as Vehicle;
-  assert.ok(positionExplanation(v, 16000).includes('llegadas previstas por el operador')); assert.ok(!positionExplanation(v, 16000).includes('SIRI')); assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
-  assert.ok(positionExplanation({ ...v, observationTimestamp: 6000 }, 16000).startsWith('Último GPS hace 10 s. El avance sigue las llegadas previstas'));
+  assert.equal(positionExplanation(v, 16000), 'Sin GPS · previsión hace 15 s');
+  assert.equal(positionExplanation({ ...v, observationTimestamp: 6000 }, 77000), 'GPS hace 71 s');
+  assert.equal(positionExplanation({ ...v, observationTimestamp: 6000, tripIdentityQuality: 'estimated' } as Vehicle, 77000), 'GPS hace 71 s · servicio sin confirmar');
 });
 
 test('a next-stop forecast already due reads as arriving, not as a time in the past', () => {
