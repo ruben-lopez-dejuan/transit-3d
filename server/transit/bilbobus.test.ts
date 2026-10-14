@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bilbobusPositionTimestamp, bilbobusProgress, ed50ToWgs84, parseSiriArrivals } from '../providers/bilbobus';
+import { bilbobusPositionTimestamp, bilbobusProgress, ed50ToWgs84, keepRecentlyPlaced, parseSiriArrivals } from '../providers/bilbobus';
+import type { TransitVehicle } from './types';
 import { buildShapeMetric, projectOntoShape } from './motionEngine';
 import { ObservationTracker } from './observations';
 test('ED50 UTM30 coordinates convert into Bilbao WGS84, including the datum shift', () => {
@@ -36,6 +37,17 @@ test('Observation speed uses meters and source milliseconds, rejecting actual an
   assert.equal(tracker.accept('bus', { at: 27000, progress: 2250 }, 'bus', 27000), null);
   assert.equal(tracker.accept('bus', { at: 51000, progress: 500 }, 'bus', 51000)?.speed, 10);
   assert.equal(tracker.accept('bus', { at: 330000, progress: 1500 }, 'bus', 330000)?.previous, null);
+});
+
+test('a bus without a usable fix in this poll stays where it was while its GPS is fresh', () => {
+  // 14 Oct 2026: 779 rejected for 212 m backwards, 783/798/776 lost to a failed line request,
+  // 745 left out of one reply. Each vanished from the map until a later poll.
+  const at = Date.parse('2026-10-14T15:55:00Z');
+  const bus = (vehicleId: string, observationTimestamp: number) => ({ id: `bilbobus:20261014:vehicle-${vehicleId}`, vehicleId, tripId: `t-${vehicleId}`, observationTimestamp, positionQuality: 'live' }) as TransitVehicle;
+  const placed = new Map([['779', bus('779', at)], ['745', bus('745', at - 200_000)], ['611', bus('611', at - 280_000)], ['900', bus('900', at)]]);
+  const kept = keepRecentlyPlaced(placed, new Set(['900']), at + 60_000);
+  assert.deepEqual(kept.map((v) => [v.vehicleId, v.positionQuality, v.predictionTimestamp]), [['779', 'predicted', at + 60_000], ['745', 'predicted', at + 60_000]]);
+  assert.ok(!placed.has('611'), 'a stale bus is forgotten');
 });
 
 test('Bilbobus official route progress disambiguates nearby shape segments and is GPS-validated', () => {

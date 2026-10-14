@@ -71,6 +71,22 @@ export function parseSiriArrivals(xml: string, stopCode: string, now = Date.now(
   });
 }
 
+/**
+ * A bus placed before but without a usable fix now (its line request failed, the
+ * reply left it out, or the fix was rejected or fits no trip) stays where it last
+ * was while that fix is fresh, instead of vanishing. Stale ones are forgotten.
+ */
+export function keepRecentlyPlaced(placed: Map<string, TransitVehicle>, seen: ReadonlySet<string>, now: number): TransitVehicle[] {
+  const kept: TransitVehicle[] = [];
+  for (const [vehicleId, vehicle] of placed) {
+    if (seen.has(vehicleId)) continue;
+    const at = vehicle.observationTimestamp;
+    if (at == null || freshTimestamp(at / 1000, now) === null) { placed.delete(vehicleId); continue; }
+    kept.push({ ...vehicle, predictionTimestamp: now, positionQuality: now - at <= 45_000 ? 'live' : 'predicted' });
+  }
+  return kept;
+}
+
 export class BilbobusProvider extends StaticGtfsProvider {
   private rows: BilbobusPosition[] = [];
   private positionsReceivedTimestamp: number | null = null;
@@ -78,6 +94,7 @@ export class BilbobusProvider extends StaticGtfsProvider {
   private pending: Promise<void> | null = null;
   private failures = 0;
   private observations = new ObservationTracker();
+  private placed = new Map<string, TransitVehicle>();
   private siri = new Map<string, { expires: number; promise: Promise<SiriArrival[]>; rows?: SiriArrival[] }>();
   constructor() { super('bilbobus', 'https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfs_bilbobus.zip', { prepare: (gtfs) => gtfs.routes.forEach((r) => { r.color = 'C33B42'; }) }); }
   private async poll(gtfs: BizkaibusGtfs, now: Date) {
@@ -165,9 +182,14 @@ export class BilbobusProvider extends StaticGtfsProvider {
       // Remove only the timetable stand-in actually associated with this physical bus.
       for (const [id, v] of vehicles) if (v.tripId === best.trip.tripId && !v.vehicleId) vehicles.delete(id);
       const id = `bilbobus:${day.date}:vehicle-${vehicleId}`;
-      vehicles.set(id, { id, operatorId: 'bilbobus', tripId: best.trip.tripId, vehicleId, routeId, mode: 'bus', directionId, shapeId: best.trip.shapeId!, progressMetersAlongShape: position.progressMeters, observationProgressMeters: position.progressMeters, previousObservation: history.previous, // Velocidad is instantaneous: 0 at a light or 30 km/h between stops. Neither
+      const vehicle: TransitVehicle = { id, operatorId: 'bilbobus', tripId: best.trip.tripId, vehicleId, routeId, mode: 'bus', directionId, shapeId: best.trip.shapeId!, progressMetersAlongShape: position.progressMeters, observationProgressMeters: position.progressMeters, previousObservation: history.previous, // Velocidad is instantaneous: 0 at a light or 30 km/h between stops. Neither
       // predicts the next minute, so motion uses the pace between real fixes.
-      speedMetersPerSecond: history.speed, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, observationTimestamp: observedAt, predictionTimestamp: now.getTime(), positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', delaySeconds: null, tripIdentityQuality: 'estimated', positionSource: 'gps' });
+      speedMetersPerSecond: history.speed, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, observationTimestamp: observedAt, predictionTimestamp: now.getTime(), positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', delaySeconds: null, tripIdentityQuality: 'estimated', positionSource: 'gps' };
+      vehicles.set(id, vehicle); this.placed.set(vehicleId, vehicle);
+    }
+    for (const vehicle of keepRecentlyPlaced(this.placed, seen, now.getTime())) {
+      for (const [id, v] of vehicles) if (v.tripId === vehicle.tripId && !v.vehicleId) vehicles.delete(id);
+      vehicles.set(vehicle.id, vehicle);
     }
     const real = [...vehicles.values()].filter((v) => v.vehicleId);
     const observedDirections = new Set(real.map((v) => `${v.routeId}:${v.directionId}`));
