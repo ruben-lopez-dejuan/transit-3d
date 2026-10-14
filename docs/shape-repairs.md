@@ -31,3 +31,5 @@ Los descartes quedan en el propio fichero con su motivo y no se vuelven a pedir.
 Auditoría 14 oct 2026: La Unión dibujaba sus 259 formas como rectas entre paradas
 (la 3714 Bilbao – Vitoria eran 4 puntos, con un salto de 49,7 km); Alavabus tenía
 saltos de 12 a 19 km y PESA más de un centenar de saltos de más de 1 km.
+
+Resultado (14 oct 2026): 1042 tramos enrutados y 123 descartados (97 por ruta demasiado larga, 26 por quedar lejos de una carretera); unos 51 000 puntos. La peor recta de La Unión baja de 49,7 km a unos 2,6 km, tramos rectos de autopista; la 3717 Leioa – Vitoria sigue la carretera por Murgia.
