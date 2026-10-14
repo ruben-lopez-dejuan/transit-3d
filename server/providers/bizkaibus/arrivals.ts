@@ -44,8 +44,11 @@ const DESTINATION_MISMATCH_METERS = 500;
 /** Pair passing times with GPS vehicles by line, destination and distance along the trip to the stop. */
 export function matchPassingTimes(gtfs: BizkaibusGtfs, stopId: string, rows: PassingTime[], vehicles: LiveVehicle[], recordedAt: number): MatchedPassingTime[] {
   const candidates = vehicles.flatMap((vehicle) => {
-    const stop = tripPlan(gtfs, vehicle.tripId)?.stops.find((s) => s.stopId === stopId && s.progress >= vehicle.progressMetersAlongShape - 30);
-    return stop && vehicle.vehicleId ? [{ vehicle, line: gtfs.routes.get(vehicle.routeId)?.shortName ?? '', headsign: normalize(vehicle.headsign), distance: Math.max(0, stop.progress - vehicle.progressMetersAlongShape) }] : [];
+    const stops = tripPlan(gtfs, vehicle.tripId)?.stops ?? [];
+    const stop = stops.find((s) => s.stopId === stopId && s.progress >= vehicle.progressMetersAlongShape - 30);
+    // At a terminal the service lists only departures: for a bus finishing its trip there it
+    // gives the meters still to go but the minutes until it leaves again, never its arrival.
+    return stop && stop !== stops.at(-1) && vehicle.vehicleId ? [{ vehicle, line: gtfs.routes.get(vehicle.routeId)?.shortName ?? '', headsign: normalize(vehicle.headsign), distance: Math.max(0, stop.progress - vehicle.progressMetersAlongShape) }] : [];
   });
   const pairs = rows.flatMap((row, index) => candidates.flatMap((candidate) => {
     if (candidate.line !== row.line) return [];
@@ -86,7 +89,8 @@ export function coveringStops(gtfs: BizkaibusGtfs, vehicles: Pick<LiveVehicle, '
   const ids = new Set<string>();
   for (const vehicle of vehicles) {
     if (!vehicle.vehicleId || ids.has(vehicle.vehicleId)) continue;
-    const ahead = tripPlan(gtfs, vehicle.tripId)?.stops.filter((s) => s.progress > vehicle.progressMetersAlongShape + 10).slice(0, STOPS_AHEAD) ?? [];
+    // The last stop gives no forecast for a bus ending its trip there (see matchPassingTimes).
+    const ahead = tripPlan(gtfs, vehicle.tripId)?.stops.slice(0, -1).filter((s) => s.progress > vehicle.progressMetersAlongShape + 10).slice(0, STOPS_AHEAD) ?? [];
     if (!ahead.length) continue;
     ids.add(vehicle.vehicleId);
     for (const stop of ahead) {

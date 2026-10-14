@@ -19,13 +19,14 @@ test('official passing times keep both buses per line and skip empty slots', () 
   assert.throws(() => parsePassingTimes('<html></html>'));
 });
 
+/** One line along stops a–e, about 810 m apart; e is the terminal. */
 function fixture(): BizkaibusGtfs {
   return {
     routes: new Map([['r', { routeId: 'r', shortName: 'A1', longName: 'A – D', color: '', textColor: '', routeType: 3 }]]),
     trips: new Map([['t1', { tripId: 't1', routeId: 'r', serviceId: 's', shapeId: 'shape', headsign: 'Dénia', directionId: 0 }], ['t2', { tripId: 't2', routeId: 'r', serviceId: 's', shapeId: 'shape', headsign: 'DENIA', directionId: 0 }]]),
-    stops: new Map(['a', 'b', 'c', 'd'].map((stopId, i) => [stopId, { stopId, stopCode: `4800${i}`, name: stopId, latitude: 43.26, longitude: -2.94 + i * 0.01 }])),
-    shapes: new Map([['shape', [0, 1, 2, 3].map((i) => ({ latitude: 43.26, longitude: -2.94 + i * 0.01, sequence: i }))]]),
-    tripStops: new Map(['t1', 't2'].map((tripId) => [tripId, ['a', 'b', 'c', 'd'].map((stopId, i) => ({ stopId, sequence: i + 1, arrivalTime: `10:${String(i * 10).padStart(2, '0')}:00`, departureTime: `10:${String(i * 10).padStart(2, '0')}:00` }))])),
+    stops: new Map(['a', 'b', 'c', 'd', 'e'].map((stopId, i) => [stopId, { stopId, stopCode: `4800${i}`, name: stopId, latitude: 43.26, longitude: -2.94 + i * 0.01 }])),
+    shapes: new Map([['shape', [0, 1, 2, 3, 4].map((i) => ({ latitude: 43.26, longitude: -2.94 + i * 0.01, sequence: i }))]]),
+    tripStops: new Map(['t1', 't2'].map((tripId) => [tripId, ['a', 'b', 'c', 'd', 'e'].map((stopId, i) => ({ stopId, sequence: i + 1, arrivalTime: `10:${String(i * 10).padStart(2, '0')}:00`, departureTime: `10:${String(i * 10).padStart(2, '0')}:00` }))])),
     routeTripIds: new Map([['r', ['t1', 't2']]]), calendars: new Map([['s', { serviceId: 's', startDate: '20260101', endDate: '20261231', weekdays: [true, true, true, true, true, true, true] }]]), calendarDates: new Map(),
   };
 }
@@ -54,6 +55,15 @@ test('a passing time far from every GPS distance is not attributed to a bus', ()
 test('a differently named official destination still pairs by distance, preferring the matching name', () => {
   const rows = matchPassingTimes(fixture(), 'd', [{ line: 'A1', destination: 'EHU/UPV', minutes: 2, meters: 600 }], [vehicle('near', 't2', 1700, 'DENIA')], 0);
   assert.equal(rows[0].vehicleId, 'near');
+});
+
+test('at its terminal a bus is not given the minutes until its next departure', () => {
+  // Palado, A3517: «BILBAO 41 min, 8266 m» is a bus still heading to Mungia, timed by its return trip.
+  const gtfs = fixture(), arriving = vehicle('arriving', 't1', 1700, 'DENIA');
+  const rows = matchPassingTimes(gtfs, 'e', [{ line: 'A1', destination: 'ORIGEN', minutes: 41, meters: 1550 }], [arriving], 0);
+  assert.equal(rows[0].vehicleId, null);
+  assert.equal(rows[0].routeId, 'r', 'the row is still listed as a departure of the line');
+  assert.ok(!coveringStops(gtfs, [vehicle('last-leg', 't1', 2500, 'DENIA')]).stopIds.includes('e'));
 });
 
 test('the fleet is covered with the fewest stops, two buses per line and destination each', () => {
