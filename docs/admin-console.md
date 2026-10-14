@@ -87,8 +87,21 @@ Cada operador separa dos preguntas.
   según la última posición GPS.
 - **Horario GTFS sin ajustes**: solo GTFS estático.
 
-La vista pública no usa estos términos: muestra «Tiempo real» u «Horario» y
-explica la posición en lenguaje llano.
+**Fiabilidad pública** (`shared/transit/reliability.ts`)
+
+La vista pública no usa estos términos. Muestra un único nivel de confianza,
+igual para posiciones y horas de llegada, sea cual sea el método:
+
+- **Tiempo real**: GPS fresco, o llegadas en tiempo real frescas sin GPS
+  (Metro Bilbao). Un viaje deducido (Bilbobus) no rebaja la posición GPS.
+- **Aproximado**: estimación de posición del operador (paneles de Metro Madrid);
+  en llegadas, horario desplazado según el GPS.
+- **Horario**: horario GTFS, o datos en tiempo real de más de 270 s.
+
+Internamente se clasifican el tipo de alimentación del proveedor (posiciones,
+solo predicciones de llegada, solo horario) y la base de cada posición (GPS,
+llegadas en tiempo real, estimación del operador, horario). La consola muestra
+ambos junto al nivel público.
 
 La consola muestra por separado la hora del dato de la fuente, la hora de
 recepción en el backend y la última comprobación. No usa la hora de la petición

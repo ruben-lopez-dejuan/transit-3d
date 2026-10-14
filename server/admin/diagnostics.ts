@@ -11,6 +11,7 @@ import type {
 import type { PositionQuality, PositionSource, TransitMode } from '../../shared/transit/contracts';
 import type { Network, Snapshot, Vehicle } from '../../shared/transit/network';
 import type { RuntimeCityPackage } from '../transit/cityPackage';
+import { feedKind, vehicleReliability, type PositionBasis, type ReliabilityLevel } from '../../shared/transit/reliability';
 
 const POSITION_SOURCES: PositionSource[] = [
   'GPS',
@@ -21,6 +22,8 @@ const POSITION_SOURCES: PositionSource[] = [
 ];
 const POSITION_QUALITIES: PositionQuality[] = ['live', 'predicted', 'scheduled'];
 const TIMELINE_SOURCES: AdminTimelineSource[] = ['siri', 'gtfs-rt', 'provider', 'gps-schedule', 'schedule', 'none'];
+const RELIABILITY_LEVELS: ReliabilityLevel[] = ['high', 'medium', 'low'];
+const POSITION_BASES: PositionBasis[] = ['gps', 'realtime-arrivals', 'operator-estimate', 'schedule'];
 
 export function isAdminAuthorized(configuredToken: string | undefined, suppliedToken: string | undefined) {
   if (!configuredToken) return true;
@@ -109,6 +112,7 @@ export function buildCityDiagnostics(
     const health = status?.health ?? provider.health;
     const byMode: Partial<Record<TransitMode, number>> = {};
     for (const vehicle of vehicles) byMode[vehicle.mode] = (byMode[vehicle.mode] ?? 0) + 1;
+    const reliability = vehicles.map((vehicle) => vehicleReliability(vehicle, generatedAt));
     const findings = providerFindings(provider, catalog, vehicles, status?.realtimeTripCount ?? 0, status?.error ?? health.error);
     return {
       id: provider.operatorId,
@@ -120,12 +124,15 @@ export function buildCityDiagnostics(
       loading: operator?.loading ?? catalog.state === 'loading',
       status: health.checkedTimestamp <= 0 ? 'not_checked' : health.state === 'healthy' ? 'ok' : health.state,
       capabilities: definition.capabilities,
+      feedKind: feedKind(definition.capabilities),
       catalog,
       vehicles: {
         total: vehicles.length,
         byPositionSource: counts(vehicles.map((vehicle) => vehicle.positionSource), POSITION_SOURCES),
         byTimelineSource: counts(vehicles.map((vehicle) => vehicle.timelineSource ?? 'none'), TIMELINE_SOURCES),
         byQuality: counts(vehicles.map((vehicle) => vehicle.positionQuality), POSITION_QUALITIES),
+        byReliability: counts(reliability.map((item) => item.level), RELIABILITY_LEVELS),
+        byPositionBasis: counts(reliability.map((item) => item.basis), POSITION_BASES),
         byMode,
       },
       realtimeTripCount: status?.realtimeTripCount ?? 0,
@@ -169,6 +176,7 @@ export function buildCityDiagnostics(
       scheduled: providers.reduce((total, provider) => total + provider.vehicles.byPositionSource.SCHEDULE_SIMULATION, 0),
       stale: providers.reduce((total, provider) => total + provider.vehicles.byPositionSource.STALE, 0),
       issues: providers.reduce((total, provider) => total + provider.findings.filter((finding) => finding.severity !== 'info').length, 0),
+      reliability: Object.fromEntries(RELIABILITY_LEVELS.map((level) => [level, providers.reduce((total, provider) => total + provider.vehicles.byReliability[level], 0)])) as Record<ReliabilityLevel, number>,
     },
     process: {
       uptimeSeconds: Math.round(process.uptime()),

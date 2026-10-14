@@ -1,5 +1,6 @@
 import type { AdminCityDiagnostics, AdminCityIndex, AdminFinding, AdminProviderDiagnostics, AdminTimelineSource } from '../shared/transit/admin';
 import type { PositionSource } from '../shared/transit/contracts';
+import { RELIABILITY_LABELS, type FeedKind, type PositionBasis, type ReliabilityLevel } from '../shared/transit/reliability';
 import './admin.css';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
@@ -12,6 +13,20 @@ const SOURCE_LABELS: Record<PositionSource, string> = {
   SCHEDULE_SIMULATION: 'Simulado con horario GTFS',
   STALE: 'Caducado',
 };
+/** How a provider feeds the map. */
+const FEED_LABELS: Record<FeedKind, string> = {
+  'vehicle-positions': 'Posiciones de vehículos (GPS/AVL)',
+  'arrival-predictions': 'Solo predicciones de llegada (GTFS-RT TripUpdates, SIRI o API)',
+  'schedule-only': 'Solo horario GTFS',
+};
+/** What the public trust level of a vehicle rests on. */
+const BASIS_LABELS: Record<PositionBasis, string> = {
+  gps: 'GPS del vehículo',
+  'realtime-arrivals': 'Llegadas en tiempo real, sin GPS',
+  'operator-estimate': 'Estimación del operador',
+  schedule: 'Horario',
+};
+const RELIABILITY_TONES: Record<ReliabilityLevel, string> = { high: 'gps', medium: 'estimated', low: 'scheduled' };
 /** What computes a vehicle's arrival times and its progress between stops. */
 const TIMELINE_LABELS: Record<AdminTimelineSource, string> = {
   siri: 'Previsiones por parada · SIRI o tiempos de paso oficiales',
@@ -88,11 +103,12 @@ function renderContent() {
     <section class="summary-grid">
       ${summary('Proveedores', diagnostics.totals.providers, `${diagnostics.totals.readyCatalogs} catálogos listos`)}
       ${summary('Vehículos', diagnostics.totals.vehicles, 'instantánea actual')}
-      ${summary('GPS real', diagnostics.totals.gps, 'coordenadas del proveedor', 'gps')}
-      ${summary('Estimados', diagnostics.totals.providerEstimated, 'proveedor o interpolación', 'estimated')}
-      ${summary('Horario', diagnostics.totals.scheduled, 'simulación GTFS', 'scheduled')}
+      ${summary(`Público: ${RELIABILITY_LABELS.high}`, diagnostics.totals.reliability.high, `${number(diagnostics.totals.gps)} con GPS, el resto con llegadas realtime`, 'gps')}
+      ${summary(`Público: ${RELIABILITY_LABELS.medium}`, diagnostics.totals.reliability.medium, 'estimación de posición del operador', 'estimated')}
+      ${summary(`Público: ${RELIABILITY_LABELS.low}`, diagnostics.totals.reliability.low, `${number(diagnostics.totals.scheduled)} simulados con GTFS, o realtime caducado`, 'scheduled')}
       ${summary('Incidencias', diagnostics.totals.issues, `${diagnostics.totals.stale} posiciones caducadas`, diagnostics.totals.issues ? 'problem' : 'ok')}
     </section>
+    <section class="admin-legend" aria-label="Fiabilidad pública"><strong>Etiqueta en el mapa</strong><span><i class="dot gps"></i>${RELIABILITY_LABELS.high}: GPS fresco o llegadas realtime frescas</span><span><i class="dot estimated"></i>${RELIABILITY_LABELS.medium}: estimación de posición del operador; en llegadas, horario desplazado con GPS</span><span><i class="dot scheduled"></i>${RELIABILITY_LABELS.low}: horario GTFS o realtime de más de 270 s</span></section>
     <section class="admin-legend" aria-label="Significado de la calidad"><strong>Cómo leer las posiciones</strong><span><i class="dot gps"></i>GPS: coordenada física publicada</span><span><i class="dot estimated"></i>Estimado: predicción o interpolación realtime</span><span><i class="dot scheduled"></i>Horario: simulación desde GTFS</span><span><i class="dot stale"></i>Caducado: última señal demasiado antigua</span></section>
     <section class="provider-grid">${visible.length ? visible.map(renderProvider).join('') : '<div class="admin-empty compact"><h2>No hay incidencias activas</h2><p>Desactiva el filtro para ver todos los proveedores.</p></div>'}</section>`;
 }
@@ -106,15 +122,14 @@ function renderProvider(provider: AdminProviderDiagnostics) {
   const timelineRows = (Object.entries(provider.vehicles.byTimelineSource ?? {}) as [AdminTimelineSource, number][]).filter(([, count]) => count > 0);
   const capabilities = Object.entries(provider.capabilities).filter(([, enabled]) => enabled).map(([name]) => capabilityLabel(name));
   const warningCount = provider.findings.filter((finding) => finding.severity !== 'info').length;
-  const estimated = provider.vehicles.byPositionSource.PROVIDER_ESTIMATED + provider.vehicles.byPositionSource.INTERPOLATED_REALTIME;
   return `<details class="provider-card ${warningCount ? 'has-issues' : ''}">
     <summary>
       <span class="provider-color" style="--provider-color:#${escape(provider.color.replace(/^#/, ''))}"></span>
       <span class="provider-title"><strong>${escape(provider.name)}</strong><small>${escape(provider.id)}${provider.group ? ` · ${escape(provider.group)}` : ''}</small></span>
       <span class="provider-breakdown" aria-label="Desglose de posiciones">
-        ${breakdownItem('GPS', provider.vehicles.byPositionSource.GPS, 'gps')}
-        ${breakdownItem('Estimación', estimated, 'estimated')}
-        ${breakdownItem('Simulación', provider.vehicles.byPositionSource.SCHEDULE_SIMULATION, 'scheduled')}
+        ${breakdownItem(RELIABILITY_LABELS.high, provider.vehicles.byReliability.high, 'gps')}
+        ${breakdownItem(RELIABILITY_LABELS.medium, provider.vehicles.byReliability.medium, 'estimated')}
+        ${breakdownItem(RELIABILITY_LABELS.low, provider.vehicles.byReliability.low, 'scheduled')}
         ${provider.vehicles.byPositionSource.STALE ? breakdownItem('Caducado', provider.vehicles.byPositionSource.STALE, 'stale') : ''}
       </span>
       <span class="status ${escape(provider.status)}">${statusLabel(provider.status)}</span>
@@ -123,6 +138,7 @@ function renderProvider(provider: AdminProviderDiagnostics) {
     </summary>
     <div class="provider-body">
       <section class="diagnostic-block"><h3>Catálogo GTFS</h3><div class="catalog-state ${escape(provider.catalog.state)}">${catalogLabel(provider.catalog.state)}</div><dl class="metric-list"><div><dt>Rutas</dt><dd>${number(provider.catalog.routes)}</dd></div><div><dt>Viajes</dt><dd>${number(provider.catalog.trips)}</dd></div><div><dt>Paradas</dt><dd>${number(provider.catalog.stops)}</dd></div><div><dt>Shapes</dt><dd>${number(provider.catalog.shapes)}</dd></div><div><dt>Servicios</dt><dd>${number(provider.catalog.services)}</dd></div></dl></section>
+      <section class="diagnostic-block"><h3>Fiabilidad pública</h3><p class="muted">${escape(FEED_LABELS[provider.feedKind])}</p><ul class="source-list">${(Object.entries(provider.vehicles.byReliability) as [ReliabilityLevel, number][]).map(([level, count]) => `<li><span><i class="dot ${RELIABILITY_TONES[level]}"></i>${RELIABILITY_LABELS[level]}</span><strong>${number(count)}</strong></li>`).join('')}</ul><ul class="source-list">${(Object.entries(provider.vehicles.byPositionBasis) as [PositionBasis, number][]).filter(([, count]) => count > 0).map(([basis, count]) => `<li><span>${BASIS_LABELS[basis]}</span><strong>${number(count)}</strong></li>`).join('')}</ul></section>
       <section class="diagnostic-block"><h3>Posición · de dónde sale</h3>${positionRows.length ? `<ul class="source-list">${positionRows.map(([source, count]) => `<li><span><i class="dot ${sourceTone(source)}"></i>${SOURCE_LABELS[source]}</span><strong>${number(count)}</strong></li>`).join('')}</ul>` : '<p class="muted">No hay posiciones en la instantánea.</p>'}</section>
       <section class="diagnostic-block"><h3>Llegadas · qué las calcula</h3>${timelineRows.length ? `<ul class="source-list">${timelineRows.map(([source, count]) => `<li><span><i class="dot ${timelineTone(source)}"></i>${TIMELINE_LABELS[source]}</span><strong>${number(count)}</strong></li>`).join('')}</ul>` : '<p class="muted">No hay vehículos en la instantánea.</p>'}<div class="inline-metrics"><span title="Viajes con TripUpdates que predicen algo distinto del horario. Los que solo repiten el horario se descartan.">GTFS-RT útiles <strong>${number(provider.realtimeTripCount)}</strong></span><span title="Llegadas por parada publicadas por la API propia del operador.">Llegadas API <strong>${number(provider.realtimeArrivalCount)}</strong></span></div></section>
       <section class="diagnostic-block timestamps"><h3>Tiempos</h3>${timestampRow('Dato de la fuente', provider.timestamps.source)}${timestampRow('Recibido por backend', provider.timestamps.received)}${timestampRow('Última comprobación', provider.timestamps.checked)}${timestampRow('Último éxito', provider.timestamps.lastSuccess)}</section>

@@ -1,5 +1,6 @@
 import type { CityManifest, PositionQuality, PositionSource, ProviderCapabilities, ProviderHealth, TransitMode } from './contracts';
 import type { TimelineSource } from './network';
+import type { FeedKind, PositionBasis, ReliabilityLevel } from './reliability';
 
 /** What drives a vehicle's arrival times; `none` when the snapshot carries no timeline source. */
 export type AdminTimelineSource = TimelineSource | 'none';
@@ -45,12 +46,17 @@ export type AdminProviderDiagnostics = {
   loading: boolean;
   status: 'ok' | 'degraded' | 'stale' | 'unavailable' | 'not_checked';
   capabilities: ProviderCapabilities;
+  /** How the provider feeds the map, derived from its capabilities. */
+  feedKind: FeedKind;
   catalog: AdminCatalogDiagnostics;
   vehicles: {
     total: number;
     byPositionSource: Record<PositionSource, number>;
     byTimelineSource: Record<AdminTimelineSource, number>;
     byQuality: Record<PositionQuality, number>;
+    /** The public trust level and what it rests on. */
+    byReliability: Record<ReliabilityLevel, number>;
+    byPositionBasis: Record<PositionBasis, number>;
     byMode: Partial<Record<TransitMode, number>>;
   };
   realtimeTripCount: number;
@@ -91,6 +97,7 @@ export type AdminCityDiagnostics = {
     scheduled: number;
     stale: number;
     issues: number;
+    reliability: Record<ReliabilityLevel, number>;
   };
   process: {
     uptimeSeconds: number;
