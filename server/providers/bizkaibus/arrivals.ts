@@ -39,6 +39,7 @@ export function parsePassingTimes(xml: string): PassingTime[] {
 const normalize = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 /** The official meters are measured about a feed cycle later than our GPS, so the tolerance allows that travel. */
 const tolerance = (meters: number) => Math.max(1000, meters * .2);
+const DESTINATION_MISMATCH_METERS = 500;
 
 /** Pair passing times with GPS vehicles by line, destination and distance along the trip to the stop. */
 export function matchPassingTimes(gtfs: BizkaibusGtfs, stopId: string, rows: PassingTime[], vehicles: LiveVehicle[], recordedAt: number): MatchedPassingTime[] {
@@ -47,10 +48,13 @@ export function matchPassingTimes(gtfs: BizkaibusGtfs, stopId: string, rows: Pas
     return stop && vehicle.vehicleId ? [{ vehicle, line: gtfs.routes.get(vehicle.routeId)?.shortName ?? '', headsign: normalize(vehicle.headsign), distance: Math.max(0, stop.progress - vehicle.progressMetersAlongShape) }] : [];
   });
   const pairs = rows.flatMap((row, index) => candidates.flatMap((candidate) => {
+    if (candidate.line !== row.line) return [];
+    // The official destination often names a route variant (A2326 «EHU/UPV» for a «BARAKALDO» trip):
+    // it breaks ties, but the distance decides.
     const destination = normalize(row.destination);
-    if (candidate.line !== row.line || (destination && candidate.headsign && destination !== candidate.headsign)) return [];
     const difference = Math.abs(candidate.distance - row.meters);
-    return difference <= tolerance(row.meters) ? [{ index, candidate, difference }] : [];
+    const penalty = destination && candidate.headsign && destination !== candidate.headsign ? DESTINATION_MISMATCH_METERS : 0;
+    return difference <= tolerance(row.meters) ? [{ index, candidate, difference: difference + penalty }] : [];
   })).sort((a, b) => a.difference - b.difference);
   const assigned = new Map<number, (typeof candidates)[number]>(), taken = new Set<string>();
   for (const pair of pairs) {
@@ -62,6 +66,52 @@ export function matchPassingTimes(gtfs: BizkaibusGtfs, stopId: string, rows: Pas
     const vehicle = assigned.get(index)?.vehicle;
     return { ...row, arrival: recordedAt + row.minutes * 60_000, recordedAt, vehicleId: vehicle?.vehicleId ?? null, tripId: vehicle?.tripId ?? null, routeId: vehicle?.routeId ?? routeByLine.get(row.line) ?? null, directionId: vehicle?.directionId ?? null };
   });
+}
+
+const FLEET_REFRESH_MS = 60_000;
+const FLEET_CONCURRENCY = 4;
+const FORECAST_MAX_AGE_MS = 180_000;
+/** A forecast for one of the next few stops; further ahead the whole minutes say little about the pace now. */
+const STOPS_AHEAD = 5;
+/** The service lists two buses per line and destination, the ones nearest the stop. */
+const BUSES_PER_LINE = 2;
+
+/**
+ * The fewest stops whose passing times name every live bus: a stop covers the
+ * two nearest approaching buses of each line and destination among those that
+ * have it within their next STOPS_AHEAD stops. Greedy set cover.
+ */
+export function coveringStops(gtfs: BizkaibusGtfs, vehicles: Pick<LiveVehicle, 'vehicleId' | 'tripId' | 'routeId' | 'headsign' | 'progressMetersAlongShape'>[]) {
+  const approaching = new Map<string, { vehicleId: string; group: string; distance: number }[]>();
+  const ids = new Set<string>();
+  for (const vehicle of vehicles) {
+    if (!vehicle.vehicleId || ids.has(vehicle.vehicleId)) continue;
+    const ahead = tripPlan(gtfs, vehicle.tripId)?.stops.filter((s) => s.progress > vehicle.progressMetersAlongShape + 10).slice(0, STOPS_AHEAD) ?? [];
+    if (!ahead.length) continue;
+    ids.add(vehicle.vehicleId);
+    for (const stop of ahead) {
+      if (!approaching.has(stop.stopId)) approaching.set(stop.stopId, []);
+      approaching.get(stop.stopId)!.push({ vehicleId: vehicle.vehicleId, group: `${vehicle.routeId}:${normalize(vehicle.headsign)}`, distance: stop.progress - vehicle.progressMetersAlongShape });
+    }
+  }
+  const covers = new Map([...approaching].map(([stopId, buses]) => {
+    const groups = new Map<string, typeof buses>();
+    for (const bus of buses) { if (!groups.has(bus.group)) groups.set(bus.group, []); groups.get(bus.group)!.push(bus); }
+    return [stopId, new Set([...groups.values()].flatMap((group) => group.sort((a, b) => a.distance - b.distance).slice(0, BUSES_PER_LINE).map((bus) => bus.vehicleId)))];
+  }));
+  const uncovered = new Set(ids), stopIds: string[] = [];
+  while (uncovered.size) {
+    let best: string | null = null, gain = 0;
+    for (const [stopId, covered] of covers) {
+      let count = 0; for (const id of covered) if (uncovered.has(id)) count++;
+      if (count > gain) { best = stopId; gain = count; }
+    }
+    if (!best) break;
+    stopIds.push(best);
+    for (const id of covers.get(best)!) uncovered.delete(id);
+    covers.delete(best);
+  }
+  return { stopIds, covered: ids.size - uncovered.size };
 }
 
 type Entry = { expires: number; promise: Promise<MatchedPassingTime[]>; rows?: MatchedPassingTime[] };
@@ -90,8 +140,32 @@ export class BizkaibusArrivals {
     return entry.promise;
   }
   peek(stopId: string, vehicleId: string | null | undefined) {
-    const entry = this.cache.get(stopId);
-    return vehicleId && entry && Date.now() - entry.expires < 60_000 ? entry.rows?.find((row) => row.vehicleId === vehicleId) ?? null : null;
+    const row = vehicleId ? this.cache.get(stopId)?.rows?.find((r) => r.vehicleId === vehicleId) : undefined;
+    // Outlives a fleet refresh cycle, so a bus never drops back to its GPS pace between two refreshes.
+    return row && Date.now() - row.recordedAt <= FORECAST_MAX_AGE_MS ? row : null;
+  }
+  private nextFleetRefresh = 0;
+  private fleetPending: Promise<void> | null = null;
+  lastFleetRefresh: { at: number; vehicles: number; covered: number; stops: number; failures: number } | null = null;
+  /**
+   * Every live bus needs official passing times, or opening one makes it jump
+   * from its GPS pace to the forecast. Runs only while the snapshot is being
+   * requested, at most once per FLEET_REFRESH_MS.
+   */
+  refreshFleet(gtfs: BizkaibusGtfs): Promise<void> {
+    if (this.fleetPending || Date.now() < this.nextFleetRefresh) return this.fleetPending ?? Promise.resolve();
+    this.nextFleetRefresh = Date.now() + FLEET_REFRESH_MS;
+    this.fleetPending = (async () => {
+      const { vehicles } = await getBizkaibusSnapshot();
+      const stops = coveringStops(gtfs, vehicles);
+      const queue = [...stops.stopIds];
+      let failures = 0;
+      await Promise.all(Array.from({ length: FLEET_CONCURRENCY }, async () => {
+        while (queue.length) { const stopId = queue.shift()!; await this.get(gtfs, stopId).catch(() => { failures++; }); }
+      }));
+      this.lastFleetRefresh = { at: Date.now(), vehicles: vehicles.length, covered: stops.covered, stops: stops.stopIds.length, failures };
+    })().catch(() => {}).finally(() => { this.fleetPending = null; this.nextFleetRefresh = Date.now() + FLEET_REFRESH_MS; });
+    return this.fleetPending;
   }
   async departures(gtfs: BizkaibusGtfs, stopId: string): Promise<(Omit<Departure, 'routeKey' | 'tripId'> & { routeId: string; tripId: string })[]> {
     const rows = await this.get(gtfs, stopId);

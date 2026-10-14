@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
 import type { LiveVehicle } from '../providers/bizkaibus/service';
-import { matchPassingTimes, parsePassingTimes } from '../providers/bizkaibus/arrivals';
+import { coveringStops, matchPassingTimes, parsePassingTimes } from '../providers/bizkaibus/arrivals';
 
 const escape = (xml: string) => xml.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const response = (code: string, payload = '') => `<?xml version="1.0" encoding="utf-8"?><string xmlns="http://tempuri.org/LANTIK_TQWS/TQ">${code}®${escape(payload)}</string>`;
@@ -49,4 +49,19 @@ test('passing times are paired with the GPS bus whose distance to the stop match
 test('a passing time far from every GPS distance is not attributed to a bus', () => {
   const rows = matchPassingTimes(fixture(), 'd', [{ line: 'A1', destination: 'DENIA', minutes: 30, meters: 9000 }], [vehicle('near', 't2', 1700, 'DENIA')], 0);
   assert.equal(rows[0].vehicleId, null);
+});
+
+test('a differently named official destination still pairs by distance, preferring the matching name', () => {
+  const rows = matchPassingTimes(fixture(), 'd', [{ line: 'A1', destination: 'EHU/UPV', minutes: 2, meters: 600 }], [vehicle('near', 't2', 1700, 'DENIA')], 0);
+  assert.equal(rows[0].vehicleId, 'near');
+});
+
+test('the fleet is covered with the fewest stops, two buses per line and destination each', () => {
+  const gtfs = fixture();
+  const one = coveringStops(gtfs, [vehicle('a', 't1', 100, 'Dénia'), vehicle('b', 't2', 900, 'DENIA')]);
+  assert.deepEqual(one, { stopIds: ['c'], covered: 2 });
+  // Stop d lists only the two nearest buses (c, b), so a third bus needs a second stop.
+  const three = coveringStops(gtfs, [vehicle('a', 't1', 100, 'Dénia'), vehicle('b', 't1', 900, 'Dénia'), vehicle('c', 't2', 1700, 'DENIA'), vehicle('done', 't2', 2500, 'DENIA')]);
+  assert.equal(three.covered, 3, 'a bus past its last stop needs no forecast');
+  assert.equal(three.stopIds.length, 2);
 });
