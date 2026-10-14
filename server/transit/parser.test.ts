@@ -88,3 +88,11 @@ test('route filtering discards unrelated stops and shapes while parsing', () => 
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('a feed whose timetable ended before today says so, with the last day of service', async () => {
+  const { expiredTimetableMessage } = await import('../providers/staticGtfs');
+  // Sopelbus, 14 Oct 2026: every service ended on 11 Oct, so the feed parsed to no trips.
+  const calendars = new Map([['4', { serviceId: '4', weekdays: [true, true, true, true, true, false, false], startDate: '20260724', endDate: '20261011' }]]);
+  assert.equal(expiredTimetableMessage({ calendars, calendarDates: new Map() }, '20261014'), 'Horario publicado caducado: el último día con servicio es 11/10/2026');
+  assert.equal(expiredTimetableMessage({ calendars, calendarDates: new Map([['4', new Map([['20261020', 1 as const]])]]) }, '20261014'), 'El GTFS publicado no tiene servicios para hoy');
+});

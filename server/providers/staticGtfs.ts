@@ -11,6 +11,13 @@ import { shiftDate } from '../transit/plans';
 import type { TransitProvider, ProviderSnapshot } from "../transit/types";
 import type { ResolvedSource, SourceSupplier } from '../sources/types';
 
+/** A feed whose services all ended before today parses to no trips; say so instead of "incomplete". */
+export function expiredTimetableMessage(gtfs: Pick<BizkaibusGtfs, 'calendars' | 'calendarDates'>, today: string) {
+  const days = [...gtfs.calendars.values()].map((calendar) => calendar.endDate);
+  for (const dates of gtfs.calendarDates.values()) for (const [date, type] of dates) if (type === 1) days.push(date);
+  const last = days.sort().at(-1);
+  return last && last < today ? `Horario publicado caducado: el último día con servicio es ${last.slice(6, 8)}/${last.slice(4, 6)}/${last.slice(0, 4)}` : 'El GTFS publicado no tiene servicios para hoy';
+}
 export class StaticGtfsProvider implements TransitProvider {
   private data: Promise<BizkaibusGtfs> | null = null;
   private expires = 0;
@@ -53,6 +60,7 @@ export class StaticGtfsProvider implements TransitProvider {
     }
     const gtfs = await parseGtfsDirectoryStreaming(directory, this.options.includeRoute, serviceDates, serviceDates ? { from: now - 2 * 3600_000, to: now + 8 * 3600_000, timezone: this.options.timezone ?? 'Europe/Madrid' } : undefined, this.options.expandFrequencies ?? true);
     await this.options.prepare?.(gtfs);
+    if (gtfs.routes.size && !gtfs.trips.size && serviceDates) throw new Error(expiredTimetableMessage(gtfs, today.date));
     if (!gtfs.routes.size || !gtfs.trips.size || !gtfs.shapes.size) throw new Error(`Incomplete GTFS for ${this.operatorId}`);
     writeParsedFeed(parsedPath, zipPath, gtfs, cacheVariant);
     console.log(`[${this.operatorId}] GTFS ready: ${gtfs.routes.size} routes, ${gtfs.trips.size} trips.`);
