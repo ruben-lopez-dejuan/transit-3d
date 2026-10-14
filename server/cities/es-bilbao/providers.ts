@@ -64,7 +64,8 @@ function consistFor(providerId: string, mode: AdapterVehicle['mode'], shortName:
 }
 export function bilbaoAppearance(providerId: string, vehicle: Pick<AdapterVehicle, 'mode' | 'routeId'>, shortName: string, unit?: string | null): VehicleAppearance {
   const kind = vehicle.mode === 'rail' ? providerId === 'metro-bilbao' ? 'metro' : 'train' : vehicle.mode;
-  const lateralOffsetMeters = (vehicle.mode === 'rail' || vehicle.mode === 'tram') && !(providerId === 'renfe' && /^C[45]/.test(shortName)) ? 1.7 : 0;
+  // Euskotren tram shapes are matched onto their own OSM track (trackMatching.ts): no diagrammatic offset.
+  const lateralOffsetMeters = (vehicle.mode === 'rail' || vehicle.mode === 'tram') && !(providerId === 'renfe' && /^C[45]/.test(shortName)) && !(providerId === 'euskotren' && vehicle.mode === 'tram') ? 1.7 : 0;
   const livery = LIVERIES[`${providerId}:${vehicle.mode}`] ?? LIVERIES[providerId];
   return { kind, composition: consistFor(providerId, vehicle.mode, shortName, unit), lateralOffsetMeters, ...(livery ? { livery } : {}) };
 }

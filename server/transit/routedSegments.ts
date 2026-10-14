@@ -1,13 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BizkaibusGtfs, GtfsShapePoint, GtfsTrip } from '../providers/bizkaibus/gtfs';
+import { matchToTracks, TrackNetwork, TRAM_TRACKS_FILE, type TrackWay } from './trackMatching';
 
 /**
  * Offline repairs for operator shapes that are drawn wrong: long straight
  * segments routed along roads (server/build-routed-segments.ts), rail
  * corridors whose published shape detours or jumps, and shapes that stop
  * short of their trips (server/import-shape-extensions.ts, or the track of
- * another shape of the feed for rail terminals). Applied once while a feed
+ * another shape of the feed for rail terminals), and polygonal tram shapes
+ * matched onto OSM tracks (server/transit/trackMatching.ts). Applied once while a feed
  * is prepared; the result is cached with the parsed feed.
  */
 type Lonlat = [number, number];
@@ -190,18 +192,22 @@ export function extendToTerminals(points: GtfsShapePoint[], terminals: { first: 
   }
   return changed ? path.map((point, i) => toPoint(point, i + 1)) : null;
 }
+const isTram = (routeType: number) => routeType === 0 || (routeType >= 900 && routeType < 1000);
 const isRail = (routeType: number) => [0, 1, 2, 5, 7, 12].includes(routeType) || (routeType >= 100 && routeType < 200) || (routeType >= 400 && routeType < 500) || (routeType >= 900 && routeType < 1000) || routeType === 1400;
 
 let routed: RoutedSegments | null | undefined;
 let corridors: Corridor[] | undefined;
 let extensions: ShapeExtension[] | undefined;
+let tramTracks: TrackNetwork | undefined;
+let tramWays = 0;
 const load = <T>(file: string, fallback: T): T => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T; } catch { return fallback; } };
 /** Version of the repair datasets, so a parsed-feed cache built without them is not reused. */
 export function shapeRepairVersion() {
   routed ??= load<RoutedSegments | null>(ROUTED_SEGMENTS_FILE, null);
   corridors ??= load<{ corridors: Corridor[] }>(CORRIDORS_FILE, { corridors: [] }).corridors;
   extensions ??= load<{ extensions: ShapeExtension[] }>(EXTENSIONS_FILE, { extensions: [] }).extensions;
-  return `repairs-v2:${routed?.generatedAt ?? 'none'}:${corridors.length}:${extensions.length}`;
+  if (!tramTracks) { const ways = load<{ ways: TrackWay[] }>(TRAM_TRACKS_FILE, { ways: [] }).ways; tramWays = ways.length; tramTracks = new TrackNetwork(ways); }
+  return `repairs-v3:${routed?.generatedAt ?? 'none'}:${corridors.length}:${extensions.length}:${tramWays}`;
 }
 /** Apply every repair to every shape of a feed; returns how many shapes changed. */
 export function repairShapes(gtfs: BizkaibusGtfs, operatorId: string) {
@@ -219,6 +225,10 @@ export function repairShapes(gtfs: BizkaibusGtfs, operatorId: string) {
     const trip = railTrips.get(shapeId), stops = trip && gtfs.tripStops.get(trip.tripId);
     const first = stops?.length && gtfs.stops.get(stops[0].stopId), last = stops?.length && gtfs.stops.get(stops.at(-1)!.stopId);
     if (first && last) next = extendToTerminals(next, { first: [first.longitude, first.latitude], last: [last.longitude, last.latitude] }, tracks) ?? next;
+    if (trip && tramWays && isTram(gtfs.routes.get(trip.routeId)?.routeType ?? 3)) {
+      const matched = matchToTracks(next.map(lonlat), tramTracks!);
+      if (matched) next = matched.map((point, i) => toPoint(point, i + 1));
+    }
     if (routed) next = routeStraightSegments(next, routed.segments) ?? next;
     if (next !== points) { gtfs.shapes.set(shapeId, next); repaired++; }
   }

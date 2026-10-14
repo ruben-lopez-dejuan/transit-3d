@@ -44,6 +44,33 @@ cambian entre publicaciones, así que no se pueden fijar en un fichero.
   antes del andén; las estaciones están bien situadas (el resto de formas pasan a
   pocos metros). Auditoría 14 oct 2026.
 
+## Vías del tranvía
+
+`server/cities/es-bilbao/tram-tracks.json`, generado con
+`npx tsx server/import-tram-tracks.ts <respuesta-overpass.json>` (la consulta está en
+el script): las vías `railway=tram` de Euskal Trenbide Sarea en Bilbao y
+Vitoria-Gasteiz, las mismas que muestra OpenRailwayMap, con el sentido de circulación
+cuando OSM lo indica (`railway:preferred_direction`, casi todo Vitoria).
+
+Euskotren dibuja el tranvía con un punto cada 40 m, así que cada curva es un polígono
+(el giro de Sabino Arana a Euskalduna eran 13 puntos con quiebros de 26° y 36°), y al
+pasar por las cocheras de Atxuri la TR alterna puntos de dos vías separadas 20 m. Cada
+forma de tranvía se encaja en las vías con un modelo oculto de Markov
+(`server/transit/trackMatching.ts`): para cada punto busca las posiciones de vía a menos
+de 40 m y elige la secuencia cuyas distancias por la vía mejor cuadran con la forma.
+Prefiere la vía en el sentido que dice OSM o, sin etiqueta, la de la derecha; las de
+cocheras, apartaderos y escapes solo si la forma va por ellas. Puede saltar a la vía
+paralela con un coste fijo, para que unos pocos puntos del andén de Salburua no lleven
+el encaje por la vía contraria hasta el escape anterior. Como el tranvía va ya por su
+vía, no se le aplica el desplazamiento lateral de 1,7 m del resto de trenes.
+
+Auditoría 14 oct 2026: las 13 formas de tranvía quedan sobre la vía (antes a 1–3 m de
+media y hasta 29 m en el túnel Atxuri – Bolueta), sin giros de más de 24° en un vértice
+(antes 15–55 por forma, con picos de 175° en Atxuri). La curva de Sabino Arana pasa a 53
+puntos y 7° como máximo. Quedan dos tramos por la vía contraria: unos 100 m de la 41 y
+la TG2 en el apartadero de (-2,6829; 42,8587), y la llegada de la TG2 a Salburua, que
+puede entrar por cualquiera de los dos andenes.
+
 ## Tramos rectos por carretera
 
 `server/cities/es-bilbao/routed-segments.json`, generado con
