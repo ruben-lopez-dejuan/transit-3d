@@ -161,10 +161,10 @@ test('A position predicted from TripUpdates does not claim to have a GPS signal'
   assert.ok(!positionExplanation(v, 16000).includes('Último GPS'));
 });
 
-test('a position driven by SIRI says so and keeps the forecast age', () => {
+test('a position driven by operator forecasts says so in plain words and keeps their age', () => {
   const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000, timelineSource: 'siri' } as Vehicle;
-  assert.ok(positionExplanation(v, 16000).includes('SIRI')); assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
-  assert.ok(positionExplanation({ ...v, observationTimestamp: 6000 }, 16000).startsWith('Último GPS hace 10 s. El avance sigue las llegadas SIRI'));
+  assert.ok(positionExplanation(v, 16000).includes('llegadas previstas por el operador')); assert.ok(!positionExplanation(v, 16000).includes('SIRI')); assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
+  assert.ok(positionExplanation({ ...v, observationTimestamp: 6000 }, 16000).startsWith('Último GPS hace 10 s. El avance sigue las llegadas previstas'));
 });
 
 test('a next-stop forecast already due reads as arriving, not as a time in the past', () => {

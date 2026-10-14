@@ -22,8 +22,8 @@ export function positionExplanation(v: Vehicle, now = Date.now()) {
   if (v.positionQuality === 'scheduled') return 'Posición calculada con el horario. No es una ubicación GPS.';
   const age = (at: number) => Math.max(0, Math.floor((now - at) / 1000));
   const siri = v.timelineSource === 'siri' && v.timetableTimestamp ? v.timetableTimestamp : null;
-  if (v.observationTimestamp !== null) return `Último GPS hace ${age(v.observationTimestamp)} s. ${siri !== null ? `El avance sigue las llegadas SIRI del operador, actualizadas hace ${age(siri)} s.` : 'El movimiento entre lecturas es estimado.'}`;
-  if (siri !== null) return `Posición estimada con las llegadas SIRI del operador, actualizadas hace ${age(siri)} s. No es una ubicación GPS.`;
+  if (v.observationTimestamp !== null) return `Último GPS hace ${age(v.observationTimestamp)} s. ${siri !== null ? `El avance sigue las llegadas previstas por el operador, actualizadas hace ${age(siri)} s.` : 'El movimiento entre lecturas es estimado.'}`;
+  if (siri !== null) return `Posición estimada con las llegadas previstas por el operador, actualizadas hace ${age(siri)} s. No es una ubicación GPS.`;
   return `Posición estimada con horarios actualizados por el operador${v.timetableTimestamp ? ` hace ${age(v.timetableTimestamp)} s` : ''}.`;
 }
 export const departures = (items: Departure[], operatorName: (id: string) => string, now = Date.now()) => items.length ? `<div class="departures">${items.map((d) => {

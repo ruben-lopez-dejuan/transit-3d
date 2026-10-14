@@ -1,15 +1,25 @@
-import type { AdminCityDiagnostics, AdminCityIndex, AdminFinding, AdminProviderDiagnostics } from '../shared/transit/admin';
+import type { AdminCityDiagnostics, AdminCityIndex, AdminFinding, AdminProviderDiagnostics, AdminTimelineSource } from '../shared/transit/admin';
 import type { PositionSource } from '../shared/transit/contracts';
 import './admin.css';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const TOKEN_KEY = 'transit-3d-admin-token';
+/** Where a vehicle's position comes from. */
 const SOURCE_LABELS: Record<PositionSource, string> = {
-  GPS: 'GPS real',
-  PROVIDER_ESTIMATED: 'Estimación del proveedor',
-  INTERPOLATED_REALTIME: 'Interpolado realtime',
-  SCHEDULE_SIMULATION: 'Simulación horaria',
-  STALE: 'Dato caducado',
+  GPS: 'GPS observado',
+  INTERPOLATED_REALTIME: 'Interpolado entre lecturas GPS',
+  PROVIDER_ESTIMATED: 'Estimado con predicciones',
+  SCHEDULE_SIMULATION: 'Simulado con horario GTFS',
+  STALE: 'Caducado',
+};
+/** What computes a vehicle's arrival times and its progress between stops. */
+const TIMELINE_LABELS: Record<AdminTimelineSource, string> = {
+  siri: 'SIRI · previsiones por parada',
+  'gtfs-rt': 'GTFS-RT · TripUpdates con predicción',
+  provider: 'API del operador · ETA propias',
+  'gps-schedule': 'Horario GTFS desplazado con GPS',
+  schedule: 'Horario GTFS sin ajustes',
+  none: 'Sin línea temporal',
 };
 let token = sessionStorage.getItem(TOKEN_KEY) ?? '';
 let cities: AdminCityIndex[] = [];
@@ -93,6 +103,7 @@ function summary(label: string, value: number, detail: string, tone = '') {
 
 function renderProvider(provider: AdminProviderDiagnostics) {
   const positionRows = (Object.entries(provider.vehicles.byPositionSource) as [PositionSource, number][]).filter(([, count]) => count > 0);
+  const timelineRows = (Object.entries(provider.vehicles.byTimelineSource ?? {}) as [AdminTimelineSource, number][]).filter(([, count]) => count > 0);
   const capabilities = Object.entries(provider.capabilities).filter(([, enabled]) => enabled).map(([name]) => capabilityLabel(name));
   const warningCount = provider.findings.filter((finding) => finding.severity !== 'info').length;
   const estimated = provider.vehicles.byPositionSource.PROVIDER_ESTIMATED + provider.vehicles.byPositionSource.INTERPOLATED_REALTIME;
@@ -112,11 +123,12 @@ function renderProvider(provider: AdminProviderDiagnostics) {
     </summary>
     <div class="provider-body">
       <section class="diagnostic-block"><h3>Catálogo GTFS</h3><div class="catalog-state ${escape(provider.catalog.state)}">${catalogLabel(provider.catalog.state)}</div><dl class="metric-list"><div><dt>Rutas</dt><dd>${number(provider.catalog.routes)}</dd></div><div><dt>Viajes</dt><dd>${number(provider.catalog.trips)}</dd></div><div><dt>Paradas</dt><dd>${number(provider.catalog.stops)}</dd></div><div><dt>Shapes</dt><dd>${number(provider.catalog.shapes)}</dd></div><div><dt>Servicios</dt><dd>${number(provider.catalog.services)}</dd></div></dl></section>
-      <section class="diagnostic-block"><h3>Posiciones actuales</h3>${positionRows.length ? `<ul class="source-list">${positionRows.map(([source, count]) => `<li><span><i class="dot ${sourceTone(source)}"></i>${SOURCE_LABELS[source]}</span><strong>${number(count)}</strong></li>`).join('')}</ul>` : '<p class="muted">No hay posiciones en la instantánea.</p>'}<div class="inline-metrics"><span>Trip updates <strong>${number(provider.realtimeTripCount)}</strong></span><span>Llegadas realtime <strong>${number(provider.realtimeArrivalCount)}</strong></span></div></section>
+      <section class="diagnostic-block"><h3>Posición · de dónde sale</h3>${positionRows.length ? `<ul class="source-list">${positionRows.map(([source, count]) => `<li><span><i class="dot ${sourceTone(source)}"></i>${SOURCE_LABELS[source]}</span><strong>${number(count)}</strong></li>`).join('')}</ul>` : '<p class="muted">No hay posiciones en la instantánea.</p>'}</section>
+      <section class="diagnostic-block"><h3>Llegadas · qué las calcula</h3>${timelineRows.length ? `<ul class="source-list">${timelineRows.map(([source, count]) => `<li><span><i class="dot ${timelineTone(source)}"></i>${TIMELINE_LABELS[source]}</span><strong>${number(count)}</strong></li>`).join('')}</ul>` : '<p class="muted">No hay vehículos en la instantánea.</p>'}<div class="inline-metrics"><span title="Viajes con TripUpdates que predicen algo distinto del horario. Los que solo repiten el horario se descartan.">GTFS-RT útiles <strong>${number(provider.realtimeTripCount)}</strong></span><span title="Llegadas por parada publicadas por la API propia del operador.">Llegadas API <strong>${number(provider.realtimeArrivalCount)}</strong></span></div></section>
       <section class="diagnostic-block timestamps"><h3>Tiempos</h3>${timestampRow('Dato de la fuente', provider.timestamps.source)}${timestampRow('Recibido por backend', provider.timestamps.received)}${timestampRow('Última comprobación', provider.timestamps.checked)}${timestampRow('Último éxito', provider.timestamps.lastSuccess)}</section>
       <section class="diagnostic-block"><h3>Capacidades declaradas</h3><div class="tag-list">${capabilities.length ? capabilities.map((item) => `<span>${escape(item)}</span>`).join('') : '<span>Solo catálogo</span>'}</div></section>
       <section class="diagnostic-block findings"><h3>Diagnóstico</h3>${provider.findings.length ? provider.findings.map(renderFinding).join('') : '<p class="finding ok"><b>✓</b><span>Sin incidencias detectadas.</span></p>'}${provider.error ? `<pre>${escape(provider.error)}</pre>` : ''}</section>
-      ${provider.samples.length ? `<section class="diagnostic-block samples"><h3>Muestra de vehículos</h3><div class="table-wrap"><table><thead><tr><th>Línea</th><th>Destino</th><th>Origen</th><th>Dato fuente</th></tr></thead><tbody>${provider.samples.map((sample) => `<tr><td><strong>${escape(sample.route || '—')}</strong></td><td>${escape(sample.destination || '—')}</td><td>${escape(SOURCE_LABELS[sample.positionSource])}</td><td title="${escape(dateTime(sample.sourceTimestamp))}">${escape(age(sample.sourceTimestamp))}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
+      ${provider.samples.length ? `<section class="diagnostic-block samples"><h3>Muestra de vehículos</h3><div class="table-wrap"><table><thead><tr><th>Línea</th><th>Destino</th><th>Posición</th><th>Llegadas</th><th>Dato fuente</th></tr></thead><tbody>${provider.samples.map((sample) => `<tr><td><strong>${escape(sample.route || '—')}</strong></td><td>${escape(sample.destination || '—')}</td><td>${escape(SOURCE_LABELS[sample.positionSource])}</td><td>${escape(TIMELINE_LABELS[sample.timelineSource ?? 'none'])}</td><td title="${escape(dateTime(sample.sourceTimestamp))}">${escape(age(sample.sourceTimestamp))}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
     </div>
   </details>`;
 }
@@ -139,6 +151,7 @@ function capabilityLabel(value: string) {
 }
 function statusLabel(value: AdminProviderDiagnostics['status']) { return ({ ok: 'Correcto', degraded: 'Degradado', stale: 'Realtime caducado', unavailable: 'No disponible', not_checked: 'Sin comprobar' })[value]; }
 function catalogLabel(value: AdminProviderDiagnostics['catalog']['state']) { return ({ ready: 'Listo', loading: 'Cargando', error: 'Error', disabled: 'Desactivado' })[value]; }
+function timelineTone(value: AdminTimelineSource) { return value === 'siri' || value === 'gtfs-rt' || value === 'provider' ? 'gps' : value === 'gps-schedule' ? 'estimated' : value === 'none' ? 'stale' : 'scheduled'; }
 function sourceTone(value: PositionSource) { return value === 'GPS' ? 'gps' : value === 'SCHEDULE_SIMULATION' ? 'scheduled' : value === 'STALE' ? 'stale' : 'estimated'; }
 
 function bindEvents() {

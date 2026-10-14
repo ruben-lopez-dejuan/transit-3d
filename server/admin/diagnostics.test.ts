@@ -97,3 +97,13 @@ test('errors redact credentials from URLs and key-value fragments', () => {
   assert.equal(result.includes('xyz'), false);
   assert.match(result, /\[redacted\]/);
 });
+
+test('diagnostics separate what drives arrivals from where the position comes from', () => {
+  const timed = { ...snapshot, vehicles: [{ ...vehicle('gps-1', 'GPS'), timelineSource: 'gps-schedule' as const }, { ...vehicle('estimate-1', 'PROVIDER_ESTIMATED'), timelineSource: 'siri' as const }, vehicle('fallback-1', 'SCHEDULE_SIMULATION')] };
+  const result = buildCityDiagnostics(city, network, timed, catalogs, at + 1000);
+  const all = result.providers.flatMap((provider) => provider.samples);
+  assert.equal(result.providers.reduce((total, provider) => total + provider.vehicles.byTimelineSource.siri, 0), 1);
+  assert.equal(result.providers.reduce((total, provider) => total + provider.vehicles.byTimelineSource['gps-schedule'], 0), 1);
+  assert.equal(result.providers.reduce((total, provider) => total + provider.vehicles.byTimelineSource.none, 0), 1);
+  assert.equal(all.find((sample) => sample.id === 'estimate-1')?.timelineSource, 'siri');
+});

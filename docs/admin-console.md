@@ -66,11 +66,29 @@ sí respetan el token configurado.
 
 ## Semántica
 
-- **GPS real**: coordenadas físicas publicadas por la fuente.
-- **Estimación del proveedor**: el operador publica una posición calculada.
-- **Interpolado realtime**: Transit 3D avanza entre observaciones reales.
-- **Simulación horaria**: posición obtenida únicamente del GTFS estático.
-- **Dato caducado**: la última observación superó el límite de frescura.
+Cada operador separa dos preguntas.
+
+**Posición · de dónde sale**
+
+- **GPS observado**: coordenadas físicas publicadas por la fuente.
+- **Interpolado entre lecturas GPS**: Transit 3D avanza entre observaciones reales.
+- **Estimado con predicciones**: posición calculada con previsiones de llegada
+  (SIRI, GTFS-RT o API del operador), sin GPS.
+- **Simulado con horario GTFS**: posición obtenida únicamente del GTFS estático.
+- **Caducado**: la última observación superó el límite de frescura (270 s).
+
+**Llegadas · qué las calcula** (`timelineSource`)
+
+- **SIRI · previsiones por parada**: horas esperadas publicadas por SIRI.
+- **GTFS-RT · TripUpdates con predicción**: TripUpdates que predicen algo
+  distinto del horario. Los que solo repiten el horario se descartan y no cuentan.
+- **API del operador · ETA propias**: previsiones de una API no estándar.
+- **Horario GTFS desplazado con GPS**: horario estático adelantado o retrasado
+  según la última posición GPS.
+- **Horario GTFS sin ajustes**: solo GTFS estático.
+
+La vista pública no usa estos términos: muestra «Tiempo real» u «Horario» y
+explica la posición en lenguaje llano.
 
 La consola muestra por separado la hora del dato de la fuente, la hora de
 recepción en el backend y la última comprobación. No usa la hora de la petición

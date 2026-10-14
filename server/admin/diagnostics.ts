@@ -6,6 +6,7 @@ import type {
   AdminCityIndex,
   AdminFinding,
   AdminProviderDiagnostics,
+  AdminTimelineSource,
 } from '../../shared/transit/admin';
 import type { PositionQuality, PositionSource, TransitMode } from '../../shared/transit/contracts';
 import type { Network, Snapshot, Vehicle } from '../../shared/transit/network';
@@ -19,6 +20,7 @@ const POSITION_SOURCES: PositionSource[] = [
   'STALE',
 ];
 const POSITION_QUALITIES: PositionQuality[] = ['live', 'predicted', 'scheduled'];
+const TIMELINE_SOURCES: AdminTimelineSource[] = ['siri', 'gtfs-rt', 'provider', 'gps-schedule', 'schedule', 'none'];
 
 export function isAdminAuthorized(configuredToken: string | undefined, suppliedToken: string | undefined) {
   if (!configuredToken) return true;
@@ -122,6 +124,7 @@ export function buildCityDiagnostics(
       vehicles: {
         total: vehicles.length,
         byPositionSource: counts(vehicles.map((vehicle) => vehicle.positionSource), POSITION_SOURCES),
+        byTimelineSource: counts(vehicles.map((vehicle) => vehicle.timelineSource ?? 'none'), TIMELINE_SOURCES),
         byQuality: counts(vehicles.map((vehicle) => vehicle.positionQuality), POSITION_QUALITIES),
         byMode,
       },
@@ -144,6 +147,7 @@ export function buildCityDiagnostics(
         mode: vehicle.mode,
         positionSource: vehicle.positionSource,
         positionQuality: vehicle.positionQuality,
+        timelineSource: vehicle.timelineSource ?? 'none',
         sourceTimestamp: vehicle.sourceTimestamp,
         receivedTimestamp: vehicle.receivedTimestamp,
         latitude: vehicle.latitude,

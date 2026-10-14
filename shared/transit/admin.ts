@@ -1,4 +1,8 @@
 import type { CityManifest, PositionQuality, PositionSource, ProviderCapabilities, ProviderHealth, TransitMode } from './contracts';
+import type { TimelineSource } from './network';
+
+/** What drives a vehicle's arrival times; `none` when the snapshot carries no timeline source. */
+export type AdminTimelineSource = TimelineSource | 'none';
 
 export type AdminFinding = {
   severity: 'info' | 'warning' | 'error';
@@ -24,6 +28,7 @@ export type AdminVehicleSample = {
   mode: TransitMode;
   positionSource: PositionSource;
   positionQuality: PositionQuality;
+  timelineSource: AdminTimelineSource;
   sourceTimestamp: number | null;
   receivedTimestamp: number | null;
   latitude: number;
@@ -44,6 +49,7 @@ export type AdminProviderDiagnostics = {
   vehicles: {
     total: number;
     byPositionSource: Record<PositionSource, number>;
+    byTimelineSource: Record<AdminTimelineSource, number>;
     byQuality: Record<PositionQuality, number>;
     byMode: Partial<Record<TransitMode, number>>;
   };

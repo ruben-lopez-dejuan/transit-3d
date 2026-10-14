@@ -27,7 +27,8 @@ CRTM. Estado y configuración: [city-packages/es-madrid/README.md](city-packages
 **Prioridad entre fuentes:** 1) GPS fija dónde se observó el vehículo; 2) SIRI
 fija las próximas llegadas y salidas; 3) GTFS-RT u otras predicciones del operador
 cuando son válidas; 4) GTFS estático como respaldo. SIRI nunca se presenta como GPS
-y conserva su propio timestamp; la ficha indica cuándo el avance sigue a SIRI.
+y conserva su propio timestamp. La vista pública habla de «Tiempo real» u «Horario»;
+el detalle por fuente (SIRI, GTFS-RT, API, horario) está en la consola de administración.
 
 Moveuskadi republica sus feeds por lotes cada 2 minutos con datos que ya tienen
 60–80 s, así que un dato se considera vigente durante 270 s
