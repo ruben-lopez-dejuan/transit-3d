@@ -18,7 +18,8 @@ pruebas visuales, capturas ni espera de actualizaciones reales.
 4. Las transiciones entre horario y GPS podían compensar una diferencia grande
    mediante un offset de 5–20 s, sin un límite físico de velocidad/aceleración.
 
-Bizkaibus utiliza **GTFS-RT VehiclePositions**, no el SIRI municipal de Bilbobus.
+Bizkaibus utiliza **GTFS-RT VehiclePositions**, no el SIRI municipal de Bilbobus. Sus horas
+de llegada provienen de los tiempos de paso oficiales, emparejados con el GPS por distancia.
 Se mantienen sus timestamps originales en milisegundos y el snapping al shape
 exacto. No se modifica la frecuencia de polling.
 

@@ -1,6 +1,7 @@
 import { getBizkaibusGtfs } from '../../providers/bizkaibus/gtfs';
 import { BizkaibusProvider } from '../../providers/bizkaibus/provider';
 import { BIZKAIBUS_TRIP_UPDATES_URL } from '../../providers/bizkaibus/config';
+import { bizkaibusArrivals } from '../../providers/bizkaibus/arrivals';
 import { bilbobusProvider } from '../../providers/bilbobus';
 import { renfeProvider } from '../../providers/renfe';
 import { StaticGtfsProvider } from '../../providers/staticGtfs';
@@ -44,6 +45,12 @@ export const providers: ProviderRuntime[] = sourceAdapters.map((adapter) => {
     departures: async (gtfs, stopId) => (await bilbobusProvider.departures(gtfs, gtfs.stops.get(stopId)?.stopCode ?? '')).map((row) => ({ ...row, routeKey: entityId(bilbaoManifest.id, adapter.operatorId, 'route', row.routeKey.slice('bilbobus:'.length)), tripId: entityId(bilbaoManifest.id, adapter.operatorId, 'trip', row.tripId) })),
     warm: async (gtfs, stopIds) => { await Promise.allSettled(stopIds.map((id) => bilbobusProvider.getArrivals(gtfs.stops.get(id)?.stopCode ?? ''))); },
     peek: (gtfs, stopId, vehicleId) => { const row = bilbobusProvider.peekArrival(vehicleId, gtfs.stops.get(stopId)?.stopCode ?? ''); return row ? { arrival: row.arrival, departure: row.departure, sourceTimestamp: row.recordedAt } : null; },
+  };
+  // The open GTFS-RT TripUpdates only repeat the timetable; the official app's passing times are the prediction.
+  if (adapter.operatorId === 'bizkaibus') provider.arrivals = {
+    departures: async (gtfs, stopId) => (await bizkaibusArrivals.departures(gtfs, stopId)).map(({ routeId, tripId, ...row }) => ({ ...row, routeKey: entityId(bilbaoManifest.id, adapter.operatorId, 'route', routeId), tripId: entityId(bilbaoManifest.id, adapter.operatorId, 'trip', tripId) })),
+    warm: async (gtfs, stopIds) => { await Promise.allSettled(stopIds.map((id) => bizkaibusArrivals.get(gtfs, id))); },
+    peek: (_gtfs, stopId, vehicleId) => { const row = bizkaibusArrivals.peek(stopId, vehicleId); return row ? { arrival: row.arrival, sourceTimestamp: row.recordedAt } : null; },
   };
   return provider;
 });

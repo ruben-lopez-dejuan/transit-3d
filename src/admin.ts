@@ -14,7 +14,7 @@ const SOURCE_LABELS: Record<PositionSource, string> = {
 };
 /** What computes a vehicle's arrival times and its progress between stops. */
 const TIMELINE_LABELS: Record<AdminTimelineSource, string> = {
-  siri: 'SIRI · previsiones por parada',
+  siri: 'Previsiones por parada · SIRI o tiempos de paso oficiales',
   'gtfs-rt': 'GTFS-RT · TripUpdates con predicción',
   provider: 'API del operador · ETA propias',
   'gps-schedule': 'Horario GTFS desplazado con GPS',
