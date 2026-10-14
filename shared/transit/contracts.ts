@@ -4,7 +4,9 @@ export type TransitMode = 'bus' | 'rail' | 'tram' | 'funicular' | 'unknown';
 export type PositionQuality = 'live' | 'predicted' | 'scheduled';
 export type PositionSource = 'GPS' | 'PROVIDER_ESTIMATED' | 'INTERPOLATED_REALTIME' | 'SCHEDULE_SIMULATION' | 'STALE';
 export type VehicleKind = 'bus' | 'train' | 'metro' | 'tram' | 'funicular' | 'unknown';
-export type VehicleAppearance = { kind: VehicleKind; composition: { count: number; length: number; gap: number }; lateralOffsetMeters: number };
+/** Real paint of the fleet, independent of the line colour: body and a secondary band. */
+export type VehicleLivery = { body: string; accent: string };
+export type VehicleAppearance = { kind: VehicleKind; composition: { count: number; length: number; gap: number }; lateralOffsetMeters: number; livery?: VehicleLivery };
 export type ProviderCapabilities = {
   staticGtfs: boolean; vehiclePositions: boolean; tripUpdates: boolean;
   serviceAlerts: boolean; occupancy: boolean; speed: boolean; bearing: boolean;

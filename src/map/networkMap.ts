@@ -1,6 +1,7 @@
 import { Map, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 import type { Network, Shape, Stop } from '../transit/networkTypes';
 import { vehicleKind } from './vehicleLod';
+import { compositionFor, liveryFor, type StyledVehicle } from '../../shared/transit/appearance';
 
 export const empty = { type: 'FeatureCollection' as const, features: [] };
 export const styleUrl = (dark: boolean) => `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'positron'}`;
@@ -28,7 +29,7 @@ export function installLayers(map: Map, network: Network | null, dark: boolean) 
   installVehicleIcons(map, network);
   map.addLayer({ id: 'selected-halo', type: 'circle', source: 'selected-vehicle', paint: { 'circle-radius': 8, 'circle-opacity': 0, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 1.2, 'circle-stroke-opacity': .6 } });
   map.addLayer({ id: 'vehicle-dot', type: 'circle', source: 'vehicles', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': 12, 'circle-opacity': 0 } });
-  map.addLayer({ id: 'vehicle-icon', type: 'symbol', source: 'vehicles', filter: ['!', ['has', 'point_count']], layout: { 'icon-image': ['concat', ['get', 'kind'], '-', ['get', 'color']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .25, 13, .38, 16, .52, 18, .7], 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-opacity': ['case', ['get', 'underground'], .45, 1], 'icon-opacity-transition': { duration: 0, delay: 0 } } });
+  map.addLayer({ id: 'vehicle-icon', type: 'symbol', source: 'vehicles', filter: ['!', ['has', 'point_count']], layout: { 'icon-image': ['get', 'icon'], 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .25, 13, .38, 16, .52, 18, .7], 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-opacity': ['case', ['get', 'underground'], .45, 1], 'icon-opacity-transition': { duration: 0, delay: 0 } } });
   map.addLayer({ id: 'vehicle-label', type: 'symbol', source: 'vehicles', minzoom: 12.5, filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['step', ['zoom'], ['get', 'label'], 14.5, ['concat', ['get', 'label'], ' · ', ['get', 'destination']], 16, ['concat', ['get', 'label'], ' · ', ['get', 'destination'], ['case', ['get', 'underground'], ' · túnel', '']]], 'text-size': 11, 'text-font': ['Noto Sans Bold'], 'text-offset': [0, 2], 'text-anchor': 'top', 'text-max-width': 22, 'text-allow-overlap': false, 'symbol-sort-key': ['case', ['get', 'selected'], 0, 1] }, paint: { 'text-color': dark ? '#eff5f7' : '#243c3b', 'text-halo-color': white, 'text-halo-width': 2 } });
   map.addLayer({ id: 'location-halo', type: 'circle', source: 'user-location', paint: { 'circle-radius': 18, 'circle-color': '#3185e6', 'circle-opacity': .15 } });
   map.addLayer({ id: 'location-dot', type: 'circle', source: 'user-location', paint: { 'circle-radius': 6, 'circle-color': '#3185e6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
@@ -43,22 +44,49 @@ export function fitShapes(map: Map, shapes: Shape[], padding: { top: number; bot
   if (!bounds.isEmpty()) map.fitBounds(bounds, { padding, maxZoom: 15, duration });
 }
 
+type IconVehicle = StyledVehicle & { color: string };
+/** One image per kind, consist length and livery: the icon shows the real number of cars in the fleet's paint. */
+export function vehicleIconId(vehicle: IconVehicle) {
+  const livery = liveryFor(vehicle);
+  const { count, length } = compositionFor(vehicle);
+  return `${vehicleKind(vehicle)}-${count}x${length}-${livery.body}-${livery.accent}`;
+}
+const shade = (hex: string, amount: number) => {
+  const value = Number.parseInt(hex.replace('#', ''), 16);
+  const channel = (shift: number) => Math.max(0, Math.min(255, Math.round(((value >> shift) & 255) * (1 + amount))));
+  return `rgb(${channel(16)},${channel(8)},${channel(0)})`;
+};
+/** Top view, front up (the layer rotates it to the bearing): white halo, body, side bands, glazing. */
+function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, { count, length }: { count: number; length: number }, body: string, accent: string) {
+  // Rail keeps its proportions; a bus is drawn larger than scale so it stays readable among trains.
+  const pixelsPerMeter = kind === 'bus' ? 5.3 : kind === 'tram' ? 3.6 : 2.1;
+  const carLength = Math.max(18, Math.round(length * pixelsPerMeter));
+  const width = kind === 'bus' ? 26 : kind === 'tram' ? 24 : 27, gap = kind === 'tram' ? 2 : 4;
+  const height = 6 + count * carLength + (count - 1) * gap;
+  const canvas = document.createElement('canvas'); canvas.width = 48; canvas.height = height;
+  const ctx = canvas.getContext('2d')!, x = (48 - width) / 2;
+  for (let car = 0; car < count; car++) {
+    const y = 3 + car * (carLength + gap), front = car === 0, rear = car === count - 1;
+    const radius = kind === 'bus' ? 6 : kind === 'tram' ? 5 : 4;
+    const corners = [front ? (kind === 'metro' ? radius : 9) : 2, front ? (kind === 'metro' ? radius : 9) : 2, rear ? radius : 2, rear ? radius : 2];
+    ctx.beginPath(); ctx.roundRect(x - 2, y - 2, width + 4, carLength + 4, corners.map((c) => c + 2)); ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fill();
+    ctx.beginPath(); ctx.roundRect(x, y, width, carLength, corners); ctx.fillStyle = body; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = shade(body, -.35); ctx.stroke();
+    // Side bands in the livery's secondary colour, then the roof.
+    ctx.fillStyle = accent; ctx.fillRect(x + 1.5, y + 4, 2.5, carLength - 8); ctx.fillRect(x + width - 4, y + 4, 2.5, carLength - 8);
+    ctx.fillStyle = shade(body, .18); ctx.beginPath(); ctx.roundRect(x + 6, y + (front ? 13 : 5), width - 12, carLength - (front ? 18 : 10) - (rear && kind === 'bus' ? 6 : 0), 3); ctx.fill();
+    ctx.fillStyle = '#1d313b';
+    if (front) { ctx.beginPath(); ctx.roundRect(x + 3.5, y + 3, width - 7, 7, [4, 4, 1.5, 1.5]); ctx.fill(); }
+    if (rear && kind === 'bus') { ctx.fillRect(x + 5, y + carLength - 5, width - 10, 3); }
+    if (kind === 'bus' || kind === 'tram' || kind === 'funicular') { ctx.fillStyle = shade(body, -.25); ctx.fillRect(x + width / 2 - 4, y + carLength / 2 - 3, 8, 6); }
+    if (!rear) { ctx.fillStyle = '#38434a'; ctx.fillRect(x + 7, y + carLength, width - 14, gap); }
+  }
+  return ctx.getImageData(0, 0, 48, height);
+}
 export function installVehicleIcons(map: Map, network: Network | null) {
-  const pairs = new globalThis.Map(network?.routes.map((route) => [vehicleKind(route) + '-' + route.color, { type: vehicleKind(route), color: route.color }] as const) ?? []);
-  for (const { type, color } of pairs.values()) {
-    const id = type + '-' + color; if (map.hasImage(id)) continue;
-    const height = { bus: 72, train: 144, metro: 112, tram: 128, funicular: 64, unknown: 64 }[type];
-    const canvas = document.createElement('canvas'); canvas.width = 48; canvas.height = height;
-    const ctx = canvas.getContext('2d')!;
-    if (type === 'bus') { ctx.fillStyle = '#17252d'; for (const x of [4, 35]) for (const y of [14, 49]) ctx.fillRect(x, y, 9, 10); }
-    const count = type === 'train' || type === 'tram' ? 3 : type === 'metro' ? 2 : 1;
-    const gap = type === 'tram' ? 3 : 5, length = (height - 6 - gap * (count - 1)) / count;
-    for (let car = 0; car < count; car++) {
-      const y = 3 + car * (length + gap);
-      ctx.fillStyle = color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(10, y, 28, length, type === 'metro' ? 3 : type === 'train' ? 10 : 6); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#203b49'; ctx.fillRect(13, y + 6, 22, 8); ctx.fillStyle = '#dce4e4'; ctx.fillRect(17, y + 19, 14, Math.max(4, length - 25));
-      if (type === 'tram' && car < count - 1) { ctx.fillStyle = '#38434a'; ctx.fillRect(15, y + length, 18, gap); }
-    }
-    map.addImage(id, ctx.getImageData(0, 0, 48, height), { pixelRatio: 1 });
+  for (const route of network?.routes ?? []) {
+    const id = vehicleIconId(route); if (map.hasImage(id)) continue;
+    const livery = liveryFor(route);
+    map.addImage(id, drawVehicleIcon(vehicleKind(route), compositionFor(route), livery.body, livery.accent), { pixelRatio: 1 });
   }
 }

@@ -69,6 +69,18 @@ test('built-in Bilbao remains registered with honest capabilities and existing s
   assert.deepEqual(bilbaoAppearance('renfe', { mode: 'rail', routeId: 'x' }, 'C1').composition, { count: 3, length: 23, gap: 1 });
   assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'L1').kind, 'metro');
 });
+test('vehicles carry their fleet livery and real consist, not the line colour', () => {
+  const look = (id: string, mode: 'rail' | 'tram' | 'bus', line: string) => bilbaoAppearance(id, { mode, routeId: 'x' }, line);
+  assert.deepEqual(look('metro-bilbao', 'rail', 'MB').composition.count, 4);
+  assert.equal(look('metro-bilbao', 'rail', 'MB').livery?.body, '#c8cfd3');
+  assert.equal(look('euskotren', 'rail', 'L3').composition.count, 3, 'L3 runs 950 series, three cars');
+  assert.equal(look('euskotren', 'rail', 'E1').composition.count, 4, 'the 900 series has four');
+  assert.equal(look('euskotren', 'tram', 'TG1').composition.count, 5, 'Vitoria trams, five modules');
+  assert.equal(look('euskotren', 'tram', 'TR').composition.count, 3, 'Bilbao trams, three modules');
+  assert.equal(look('euskotren', 'tram', 'TR').livery?.body, look('euskotren', 'rail', 'E1').livery?.body, 'Euskotren is blue on every mode');
+  assert.deepEqual(look('renfe', 'rail', 'C1').livery, { body: '#f2f3f4', accent: '#cf102d' });
+  assert.equal(look('la-union', 'bus', '3714').livery, undefined, 'no confirmed livery: the line colour stays');
+});
 test('city catalog, vehicles, geometry, line, stop and trip details share normalized references', async () => {
   const { network, now } = memoryCity();
   const catalog = await network.getNetwork();

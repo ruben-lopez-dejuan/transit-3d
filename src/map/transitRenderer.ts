@@ -7,6 +7,8 @@ import { estimatedBusDwell } from '../transit/stopMotion';
 import type { VehicleModels, ModelItem } from './vehicleModels';
 import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
 import { renderedPositionSource, REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
+import { liveryFor } from '../../shared/transit/appearance';
+import { vehicleIconId } from './networkMap';
 
 type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion; scheduled?: TimelineMotion };
 /** Keep normal mobile motion fluid, but protect slower phones with very large fleets. */
@@ -139,7 +141,8 @@ export class TransitRenderer {
       const bearing = position?.bearing ?? vehicle.bearing;
       const underground = position?.underground ?? false;
       if (underground && !this.showUnderground) continue;
-      const properties = { id: vehicle.id, label: vehicle.label, destination: vehicle.headsign.length > 27 ? vehicle.headsign.slice(0, 26) + '…' : vehicle.headsign, mode: vehicle.mode, kind: vehicleKind(vehicle), color: vehicle.color, bearing, quality: this.dataQuality(vehicle.id), underground, focused: true, selected: this.selectedId === vehicle.id };
+      const livery = liveryFor(vehicle);
+      const properties = { id: vehicle.id, label: vehicle.label, destination: vehicle.headsign.length > 27 ? vehicle.headsign.slice(0, 26) + '…' : vehicle.headsign, mode: vehicle.mode, kind: vehicleKind(vehicle), color: livery.body, icon: vehicleIconId(vehicle), bearing, quality: this.dataQuality(vehicle.id), underground, focused: true, selected: this.selectedId === vehicle.id };
       features.push({ type: "Feature" as const, properties, geometry: { type: "Point" as const, coordinates: coordinate } });
       if (this.selectedId === vehicle.id) { selected.push(features.at(-1)!); this.onSelectedPosition?.(coordinate); }
       if (prepareModels && bounds.contains(coordinate)) {
@@ -150,7 +153,7 @@ export class TransitRenderer {
           if (at < 0) continue;
           const pose = shape ? vehiclePose(shape, at, vehicle, scale.width) : car === 0 ? { coordinate, bearing, altitude: 0, underground: false } : null;
           if (!pose) continue;
-          models.push({ ...pose, color: vehicle.color, length: consist.length, kind: vehicleKind(vehicle), scale, selected: vehicle.id === this.selectedId });
+          models.push({ ...pose, color: livery.body, accent: livery.accent, length: consist.length, kind: vehicleKind(vehicle), scale, selected: vehicle.id === this.selectedId });
         }
       }
     }

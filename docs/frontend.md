@@ -35,3 +35,5 @@ Para desarrollo: `npm run dev`, abrir http://localhost:5173. Para la web compila
 ## Pendiente
 
 TripUpdates, avisos de servicio, más lugares/geocodificación, selección detallada de ramales y recarga de GTFS sin reinicio. La cámara y el movimiento están conectados a datos normalizados; se puede mejorar el predictor inicial de Bizkaibus con historia de progreso y retrasos explícitos. La siguiente fase puede completar estos puntos sin rehacer la interfaz.
+
+Los vehículos se pintan con la librea real de su flota (`livery` en `VehicleAppearance`, definida por operador en `server/cities/es-bilbao/providers.ts`), no con el color de la línea, que queda para trazados y distintivos. Sin librea confirmada se usa el color de la línea. El icono 2D dibuja el número real de coches de la composición. Los iconos de modo de la interfaz están en `src/icons.ts`.

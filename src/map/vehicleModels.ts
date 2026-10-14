@@ -4,12 +4,14 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MODEL_CAPACITY, MODEL_MIN_ZOOM, MODEL_DETAIL_ZOOM, MODEL_FULL_ZOOM, type VehicleKind } from './vehicleLod';
 
 export type ModelItem = {
-  coordinate: [number, number]; bearing: number; color: string; length: number;
+  coordinate: [number, number]; bearing: number; color: string; accent: string; length: number;
   kind: VehicleKind; altitude: number; underground: boolean; selected: boolean;
   scale: { width: number; length: number; height: number };
 };
-type Part = { geometry: THREE.BufferGeometry; color: string; tinted?: boolean; minZoom: number };
-type Pool = { mesh: THREE.InstancedMesh; capacity: number; minZoom: number; tinted: boolean };
+/** Tinted parts take the livery: the body colour or its secondary band. */
+type Tint = 'body' | 'accent';
+type Part = { geometry: THREE.BufferGeometry; color: string; tinted?: Tint; minZoom: number };
+type Pool = { mesh: THREE.InstancedMesh; capacity: number; minZoom: number; tinted?: Tint };
 const box = (x: number, y: number, z: number, px = 0, py = 0, pz = 0) => new THREE.BoxGeometry(x, y, z).translate(px, py, pz);
 const merge = (...pieces: THREE.BufferGeometry[]) => {
   const result = mergeGeometries(pieces)!; pieces.forEach((piece) => piece.dispose()); return result;
@@ -28,7 +30,8 @@ function railBody(width: number, nose: number, height: number) {
 function parts(kind: VehicleKind): Part[] {
   const far = MODEL_MIN_ZOOM, medium = MODEL_DETAIL_ZOOM, close = MODEL_FULL_ZOOM;
   if (kind === 'bus') return [
-    { geometry: merge(box(2.5, 10.8, 2.35, 0, -.3, 1.8), box(2.3, .9, 2.15, 0, 5.45, 1.7)), color: '#fff', tinted: true, minZoom: far },
+    { geometry: merge(box(2.5, 10.8, 2.35, 0, -.3, 1.8), box(2.3, .9, 2.15, 0, 5.45, 1.7)), color: '#fff', tinted: 'body', minZoom: far },
+    { geometry: merge(box(.05, 10.2, .32, -1.27, -.4, 1.05), box(.05, 10.2, .32, 1.27, -.4, 1.05)), color: '#fff', tinted: 'accent', minZoom: medium },
     { geometry: box(2.2, 8.5, .22, 0, -.3, 3.1), color: '#dce4e4', minZoom: far },
     { geometry: merge(box(.04, 8.7, .85, -1.27, -.3, 2.15), box(.04, 8.7, .85, 1.27, -.3, 2.15), box(2.08, .06, 1.1, 0, 5.93, 2.12)), color: '#203b49', minZoom: medium },
     { geometry: merge(wheel(-1.27, 3.1), wheel(1.27, 3.1), wheel(-1.27, -3.9), wheel(1.27, -3.9)), color: '#17252d', minZoom: medium },
@@ -39,7 +42,8 @@ function parts(kind: VehicleKind): Part[] {
   const width = tram ? 2.4 : 2.7, height = tram ? 2.3 : funicular ? 2.2 : 2.8;
   const nose = metro ? 2.5 : tram ? 1.4 : funicular ? 2.4 : 1.1;
   const result: Part[] = [
-    { geometry: railBody(width, nose, height), color: '#fff', tinted: true, minZoom: far },
+    { geometry: railBody(width, nose, height), color: '#fff', tinted: 'body', minZoom: far },
+    { geometry: merge(box(.05, 10.4, .3, -width / 2 - .03, -.3, 1.25), box(.05, 10.4, .3, width / 2 + .03, -.3, 1.25), box(nose * .8, .05, .3, 0, 6.03, 1.25)), color: '#fff', tinted: 'accent', minZoom: far },
     { geometry: box(width * .75, metro ? 9 : tram ? 8 : 9.6, .18, 0, -.4, height + .65), color: metro ? '#384a55' : '#dce4e4', minZoom: far },
     { geometry: merge(box(.05, 9, .85, -width / 2 - .02, -.3, height - .2), box(.05, 9, .85, width / 2 + .02, -.3, height - .2), box(nose * .85, .05, .85, 0, 6.03, height - .15)), color: '#253e4c', minZoom: medium },
     { geometry: merge(box(.38, .07, .2, -nose * .3, 6.05, .95), box(.38, .07, .2, nose * .3, 6.05, .95)), color: '#fff5c5', minZoom: close },
@@ -58,7 +62,7 @@ export class VehicleModels implements CustomLayerInterface {
   private scene = new THREE.Scene(); private camera = new THREE.Camera();
   private pools: Pool[] = []; private groups = new Map<string, Pool[]>(); private map!: TransitMap;
   private origin!: MercatorCoordinate; private units = 1; private local = new THREE.Matrix4();
-  private transform = new THREE.Object3D(); private color = new THREE.Color(); private white = new THREE.Color('#fff');
+  private transform = new THREE.Object3D(); private color = new THREE.Color(); private accent = new THREE.Color(); private white = new THREE.Color('#fff');
 
   onAdd(map: TransitMap, gl: WebGLRenderingContext | WebGL2RenderingContext) {
     this.map = map; this.origin = MercatorCoordinate.fromLngLat(map.getCenter()); this.units = this.origin.meterInMercatorCoordinateUnits();
@@ -75,7 +79,7 @@ export class VehicleModels implements CustomLayerInterface {
           const capacity = kind === 'bus' ? 512 : kind === 'train' ? 256 : 128;
           const mesh = new THREE.InstancedMesh(part.geometry, material, capacity);
           mesh.count = 0; mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-          const pool = { mesh, capacity, minZoom: part.minZoom, tinted: !!part.tinted };
+          const pool = { mesh, capacity, minZoom: part.minZoom, tinted: part.tinted };
           this.scene.add(mesh); this.pools.push(pool); group.push(pool);
         }
         this.groups.set(kind + ':' + ghost, group);
@@ -108,13 +112,13 @@ export class VehicleModels implements CustomLayerInterface {
       this.transform.position.set((coordinate.x - this.origin.x) / this.units, -(coordinate.y - this.origin.y) / this.units, item.altitude * ratio);
       this.transform.rotation.set(0, 0, -item.bearing * Math.PI / 180);
       this.transform.scale.set(item.scale.width * ratio, item.length / 12 * item.scale.length * ratio, item.scale.height * ratio);
-      this.transform.updateMatrix(); this.color.set(item.color); if (item.selected) this.color.lerp(this.white, .18);
+      this.transform.updateMatrix(); this.color.set(item.color); this.accent.set(item.accent); if (item.selected) this.color.lerp(this.white, .18);
       for (const pool of this.groups.get(item.kind + ':' + item.underground) ?? []) {
         if (zoom < pool.minZoom || pool.mesh.count >= MODEL_CAPACITY) continue;
         if (pool.mesh.count >= pool.capacity) this.grow(pool);
         const index = pool.mesh.count++;
         pool.mesh.setMatrixAt(index, this.transform.matrix);
-        if (pool.tinted) pool.mesh.setColorAt(index, this.color);
+        if (pool.tinted) pool.mesh.setColorAt(index, pool.tinted === 'accent' ? this.accent : this.color);
       }
     }
     for (const { mesh } of this.pools) if (mesh.count) {
