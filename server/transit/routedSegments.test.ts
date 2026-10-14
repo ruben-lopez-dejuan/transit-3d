@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extendShape, extendToTerminals, rejectRoute, replaceCorridor, routeStraightSegments, scheduledSeconds, segmentKey, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
+import { bearing, extendShape, extendToTerminals, rejectRoute, replaceCorridor, routeStraightSegments, segmentKey, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
 import type { GtfsShapePoint } from '../providers/bizkaibus/gtfs';
 
 const shape = (points: [number, number][]): GtfsShapePoint[] => points.map(([longitude, latitude], i) => ({ longitude, latitude, sequence: i + 1 }));
@@ -62,22 +62,20 @@ test('straight segments with a routed road get its curve; the feed points are ke
   assert.equal(routeStraightSegments(shape([vitoria, next]), { [segmentKey(bilbao, vitoria)]: road }), null);
 });
 
-test('a road much longer than the straight line is kept only when the timetable drives it at a bus speed', () => {
+test('a road route is kept unless it loops or ends far from the stops', () => {
   assert.equal(rejectRoute({ straight: 2000, route: 4000, snap: 20 }), null);
-  // Alavabus 19B Marañón – Bujanda: 5.8 km apart, 17.4 km by road, 16 minutes in the timetable (65 km/h).
-  assert.equal(rejectRoute({ straight: 5768, route: 17414, snap: 30, scheduledSeconds: 960 }), null);
-  assert.equal(rejectRoute({ straight: 5879, route: 7000, snap: 160, scheduledSeconds: 708 }), null);
-  assert.match(rejectRoute({ straight: 4382, route: 13663, snap: 30, scheduledSeconds: 377 })!, /130 km\/h/);
-  assert.match(rejectRoute({ straight: 5768, route: 17414, snap: 30 })!, /sin horario/);
-  assert.match(rejectRoute({ straight: 1692, route: 11964, snap: 30, scheduledSeconds: 3600 })!, /^ruta 11964 m/);
-  assert.match(rejectRoute({ straight: 2000, route: 3000, snap: 400, scheduledSeconds: 600 })!, /^extremo a 400 m/);
+  // Alavabus 19B Marañón – Bujanda: 5.8 km apart, 17.4 km by road around the hills.
+  assert.equal(rejectRoute({ straight: 5768, route: 17414, snap: 30 }), null);
+  assert.equal(rejectRoute({ straight: 5879, route: 9700, snap: 237 }), null);
+  // PESA DG05: 1.4 km apart, 23.5 km by the only connected road in OSM.
+  assert.equal(rejectRoute({ straight: 1420, route: 23504, snap: 3 }), 'ruta 23504 m para 1420 m en línea recta');
+  assert.equal(rejectRoute({ straight: 2000, route: 3000, snap: 400 }), 'extremo a 400 m de la carretera');
 });
 
-test('the scheduled time of a segment is the fastest trip stopping at both ends in order', () => {
-  const a: [number, number] = [-2.4384, 42.6292], b: [number, number] = [-2.4052, 42.6749], c: [number, number] = [-2.39, 42.68];
-  const trip = (times: [number, number][]) => [a, b, c].map((point, i) => ({ point, arrival: times[i][0], departure: times[i][1] }));
-  assert.equal(scheduledSeconds([trip([[0, 60], [1060, 1080], [1500, 1500]]), trip([[0, 0], [960, 960], [1400, 1400]])], a, b), 960);
-  assert.equal(scheduledSeconds([trip([[0, 0], [960, 960], [1400, 1400]])], b, a), null);
+test('bearings point in the direction of travel', () => {
+  assert.equal(bearing([-2.9, 43.2], [-2.9, 43.3]), 0);
+  assert.equal(bearing([-2.9, 43.2], [-2.8, 43.2]), 90);
+  assert.equal(bearing([-2.90698, 43.23367], [-2.89095, 43.23165]), 100);
 });
 
 test('simplification keeps the bends that matter and the ends', () => {
