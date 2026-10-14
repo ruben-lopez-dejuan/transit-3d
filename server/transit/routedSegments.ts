@@ -4,15 +4,18 @@ import type { BizkaibusGtfs, GtfsShapePoint } from '../providers/bizkaibus/gtfs'
 
 /**
  * Offline repairs for operator shapes that are drawn wrong: long straight
- * segments routed along roads (server/build-routed-segments.ts) and rail
- * corridors whose published shape detours or jumps. Applied once while a feed
+ * segments routed along roads (server/build-routed-segments.ts), rail
+ * corridors whose published shape detours or jumps, and shapes that stop
+ * short of their trips (server/import-shape-extensions.ts). Applied once while a feed
  * is prepared; the result is cached with the parsed feed.
  */
 type Lonlat = [number, number];
 export type RoutedSegments = { generatedAt: string; segments: Record<string, Lonlat[]>; rejected?: Record<string, string> };
 export type Corridor = { operatorId: string; name: string; path: Lonlat[] };
+export type ShapeExtension = { operatorId: string; shapeId: string; name: string; path: Lonlat[] };
 export const ROUTED_SEGMENTS_FILE = path.resolve('server/cities/es-bilbao/routed-segments.json');
 export const CORRIDORS_FILE = path.resolve('server/cities/es-bilbao/rail-corridors.json');
+export const EXTENSIONS_FILE = path.resolve('server/cities/es-bilbao/shape-extensions.json');
 
 const METERS_PER_DEGREE = 111_320;
 export function straightMeters(a: Lonlat, b: Lonlat) {
@@ -82,16 +85,29 @@ export function replaceCorridor(points: GtfsShapePoint[], corridor: Corridor): G
   return [...points.slice(0, from).map(lonlat), ...replacement, ...points.slice(to + 1).map(lonlat)].map((point, i) => toPoint(point, i + 1));
 }
 
+/**
+ * Continue a shape that stops short of its trips along the track another shape
+ * of the feed draws (Metro Bilbao IBB_BSR is a copy of IBB_ETX: it ends at
+ * Etxebarri while its trip runs on to Ariz and Basauri). The extension starts
+ * where the shape ends; a shape ending anywhere else is left alone.
+ */
+export function extendShape(points: GtfsShapePoint[], extension: ShapeExtension): GtfsShapePoint[] | null {
+  if (straightMeters(lonlat(points.at(-1)!), extension.path[0]) > CORRIDOR_SNAP_METERS) return null;
+  return [...points.map(lonlat), ...extension.path.slice(1)].map((point, i) => toPoint(point, i + 1));
+}
+
 let routed: RoutedSegments | null | undefined;
 let corridors: Corridor[] | undefined;
+let extensions: ShapeExtension[] | undefined;
 const load = <T>(file: string, fallback: T): T => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T; } catch { return fallback; } };
 /** Version of the repair datasets, so a parsed-feed cache built without them is not reused. */
 export function shapeRepairVersion() {
   routed ??= load<RoutedSegments | null>(ROUTED_SEGMENTS_FILE, null);
   corridors ??= load<{ corridors: Corridor[] }>(CORRIDORS_FILE, { corridors: [] }).corridors;
-  return `repairs:${routed?.generatedAt ?? 'none'}:${corridors.length}`;
+  extensions ??= load<{ extensions: ShapeExtension[] }>(EXTENSIONS_FILE, { extensions: [] }).extensions;
+  return `repairs:${routed?.generatedAt ?? 'none'}:${corridors.length}:${extensions.length}`;
 }
-/** Apply both repairs to every shape of a feed; returns how many shapes changed. */
+/** Apply every repair to every shape of a feed; returns how many shapes changed. */
 export function repairShapes(gtfs: BizkaibusGtfs, operatorId: string) {
   shapeRepairVersion();
   let repaired = 0;
@@ -99,6 +115,7 @@ export function repairShapes(gtfs: BizkaibusGtfs, operatorId: string) {
     if (points.length < 2) continue;
     let next: GtfsShapePoint[] = points;
     for (const corridor of corridors!) if (corridor.operatorId === operatorId) next = replaceCorridor(next, corridor) ?? next;
+    for (const extension of extensions!) if (extension.operatorId === operatorId && extension.shapeId === shapeId) next = extendShape(next, extension) ?? next;
     if (routed) next = routeStraightSegments(next, routed.segments) ?? next;
     if (next !== points) { gtfs.shapes.set(shapeId, next); repaired++; }
   }

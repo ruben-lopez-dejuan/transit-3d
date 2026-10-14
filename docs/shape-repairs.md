@@ -17,6 +17,20 @@ más de 1,3 veces más largo que el corredor, se sustituye en cualquier sentido.
   Ola. El corredor sigue la vía de OSM Sondika → Ola → túnel de Artxanda → Matiko:
   4384 m. Las formas E3 pasan de 25,3 a 18,0 km. Auditoría 14 oct 2026.
 
+## Formas que se quedan cortas
+
+`server/cities/es-bilbao/shape-extensions.json`, generado con
+`npx tsx server/import-shape-extensions.ts` a partir de los GTFS ya descargados en
+`server/cache`. Cada extensión copia la vía de otra forma del mismo feed desde
+donde termina la forma corta; se aplica solo si la forma sigue terminando a menos
+de 150 m del inicio de la extensión. Va como dato porque el parser solo carga las
+formas que usan los viajes del día, y la forma que llega al final puede no estar.
+
+- **Metro Bilbao IBB_BSR (viaje especial 903289, Ibarbengoa → Basauri).** El GTFS
+  la publica como copia de IBB_ETX: termina en Etxebarri y deja Ariz a 1477 m y
+  Basauri a 944 m del trazado. Sigue por la vía de SIN_BSR, 2927 m más hasta
+  Basauri. Auditoría 14 oct 2026.
+
 ## Tramos rectos por carretera
 
 `server/cities/es-bilbao/routed-segments.json`, generado con

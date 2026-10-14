@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { replaceCorridor, routeStraightSegments, segmentKey, simplifyPath, straightMeters, type Corridor } from './routedSegments';
+import { extendShape, replaceCorridor, routeStraightSegments, segmentKey, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
 import type { GtfsShapePoint } from '../providers/bizkaibus/gtfs';
 
 const shape = (points: [number, number][]): GtfsShapePoint[] => points.map(([longitude, latitude], i) => ({ longitude, latitude, sequence: i + 1 }));
@@ -23,6 +23,16 @@ test('a rail shape that detours to a dead end follows the known corridor instead
 test('a shape already following the corridor, or not reaching both ends, is left alone', () => {
   assert.equal(replaceCorridor(shape([LARRONDO, SONDIKA, OLA, [-2.9258, 43.28], MATIKO]), corridor), null);
   assert.equal(replaceCorridor(shape([LUTXANA, [-2.95, 43.295], SONDIKA]), corridor), null);
+});
+
+test('a shape that stops short of its trip continues along the extension; one ending elsewhere is left alone', () => {
+  // Metro Bilbao IBB_BSR in miniature: the shape ends at Etxebarri, the trip runs on to Ariz and Basauri.
+  const bolueta: [number, number] = [-2.9187, 43.2476], etxebarri: [number, number] = [-2.89833, 43.24392];
+  const extension: ShapeExtension = { operatorId: 'metro-bilbao', shapeId: 'IBB_BSR', name: 'Etxebarri – Basauri', path: [[-2.89846, 43.24396], [-2.8812, 43.2398], [-2.8943, 43.2366]] };
+  const repaired = extendShape(shape([bolueta, etxebarri]), extension)!;
+  assert.deepEqual(coordinates(repaired), [bolueta, etxebarri, ...extension.path.slice(1)]);
+  assert.deepEqual(repaired.map((p) => p.sequence), [1, 2, 3, 4]);
+  assert.equal(extendShape(shape([etxebarri, bolueta]), extension), null);
 });
 
 test('straight segments with a routed road get its curve; the feed points are kept', () => {
