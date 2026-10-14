@@ -4,13 +4,13 @@ import bindings from 'gtfs-realtime-bindings';
 import { downloadFile } from './lib/download';
 import { primary, regionalSources, renfeSource } from './cities/es-bilbao/sources';
 import { gtfsLoaders } from './cities/es-bilbao/providers';
-import { BIZKAIBUS_REALTIME_URL } from './providers/bizkaibus/config';
+import { BIZKAIBUS_REALTIME_URL, BIZKAIBUS_TRIP_UPDATES_URL } from './providers/bizkaibus/config';
 import { normalizeTripUpdates, resolveServiceDate, freshTimestamp, type RealtimeMessage } from './transit/realtime';
 import { applyRealtime } from './transit/applyRealtime';
 import { bilbobusPositionTimestamp, BILBOBUS_POSITIONS } from './providers/bilbobus';
 
 // One sample per source. No animation, polling loop or timestamp correction.
-const sources = [{ id: 'bizkaibus', tripUpdates: 'https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb', vehiclePositions: BIZKAIBUS_REALTIME_URL }, ...primary, renfeSource, ...regionalSources.filter((s) => s.tripUpdates || s.vehiclePositions)];
+const sources = [{ id: 'bizkaibus', tripUpdates: BIZKAIBUS_TRIP_UPDATES_URL, vehiclePositions: BIZKAIBUS_REALTIME_URL }, ...primary, renfeSource, ...regionalSources.filter((s) => s.tripUpdates || s.vehiclePositions)];
 const directory = path.resolve('server/cache/audit/euskadi');
 const reports: Record<string, unknown>[] = [];
 const report = (value: Record<string, unknown>) => { reports.push(value); console.log(JSON.stringify(value)); };

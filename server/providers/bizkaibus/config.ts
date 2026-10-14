@@ -3,8 +3,13 @@ import path from "node:path";
 export const BIZKAIBUS_GTFS_URL =
   "https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfs_bizkaibus.zip";
 
+// Diputación de Bizkaia direct feeds (data.ctb.eus): same vehicle and trip ids as
+// the Moveuskadi mirror, about one 60 s publication cycle fresher (audit 14 Oct 2026).
 export const BIZKAIBUS_REALTIME_URL =
-  "https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_Bizkaibus_vehicle_positions.pb";
+  "https://baliabideak.bizkaia.eus/Bizkaibus/GTFSRealTime/FeedVehiculos.pb";
+
+export const BIZKAIBUS_TRIP_UPDATES_URL =
+  "https://baliabideak.bizkaia.eus/Bizkaibus/GTFSRealTime/FeedTripUpdates.pb";
 
 export const BIZKAIBUS_CACHE_DIR = path.resolve(
   "server",

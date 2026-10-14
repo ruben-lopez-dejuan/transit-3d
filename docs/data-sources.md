@@ -107,7 +107,7 @@ A = GPS observado sin interpolación; B = GPS observado + interpolación; C = pr
 
 ## Endpoints principales
 
-- Bizkaibus [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfs_bizkaibus.zip), [GPS](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_Bizkaibus_vehicle_positions.pb), [TU](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb).
+- Bizkaibus [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfs_bizkaibus.zip), [GPS](https://baliabideak.bizkaia.eus/Bizkaibus/GTFSRealTime/FeedVehiculos.pb) y [TU](https://baliabideak.bizkaia.eus/Bizkaibus/GTFSRealTime/FeedTripUpdates.pb) directos de la Diputación ([dataset](https://data.ctb.eus/dataset/bizkaibus-viajes-alertas-retrasos-online)): mismos ids que el espejo Moveuskadi y unos 60 s más frescos. El TU solo repite el horario (una parada por viaje, retraso 0).
 - Bilbobus [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfs_bilbobus.zip), JSON GET **https://api.bilbao.eus/bilbobus/Ultimas_posiciones/{LINEA}/{IDA|VLT}**, [SIRI](https://api.bilbao.eus/sae/SIRI.svc).
 - Metro [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfs_metro_bilbao.zip), [TU](https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_trip_updates.pb).
 - Euskotren [GTFS](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfs_euskotren.zip), [TU](https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_trip_updates.pb).

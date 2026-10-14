@@ -1,5 +1,6 @@
 import { getBizkaibusGtfs } from '../../providers/bizkaibus/gtfs';
 import { BizkaibusProvider } from '../../providers/bizkaibus/provider';
+import { BIZKAIBUS_TRIP_UPDATES_URL } from '../../providers/bizkaibus/config';
 import { bilbobusProvider } from '../../providers/bilbobus';
 import { renfeProvider } from '../../providers/renfe';
 import { StaticGtfsProvider } from '../../providers/staticGtfs';
@@ -18,7 +19,7 @@ export const gtfsLoaders = new Map(staticProviders.map((p) => [p.operatorId, () 
 gtfsLoaders.set('bizkaibus', getBizkaibusGtfs);
 const sourceById = new Map<string, Source>([...primary, ...regionalSources, renfeSource].map((s) => [s.id, s]));
 export const realtimeProviders = [
-  new RealtimeProvider(new BizkaibusProvider(), getBizkaibusGtfs, new RealtimeFeedClient('bizkaibus-tu', 'https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb'), undefined, undefined, bilbaoManifest.timezone),
+  new RealtimeProvider(new BizkaibusProvider(), getBizkaibusGtfs, new RealtimeFeedClient('bizkaibus-tu', BIZKAIBUS_TRIP_UPDATES_URL), undefined, undefined, bilbaoManifest.timezone),
   ...staticProviders.filter((p) => sourceById.get(p.operatorId)?.tripUpdates || sourceById.get(p.operatorId)?.vehiclePositions).map((provider) => {
     const source = sourceById.get(provider.operatorId)!;
     return new RealtimeProvider(provider, () => provider.getGtfs(), source.tripUpdates ? new RealtimeFeedClient(`${provider.operatorId}-tu`, source.tripUpdates) : undefined, source.vehiclePositions ? new RealtimeFeedClient(`${provider.operatorId}-vp`, source.vehiclePositions) : undefined, source.maximumGpsSpeed, bilbaoManifest.timezone);

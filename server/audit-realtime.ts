@@ -27,7 +27,7 @@ for (const [name, url] of Object.entries(staticUrls)) {
 const feeds = {
   'renfe-tu': 'https://gtfsrt.renfe.com/trip_updates.pb',
   'renfe-vp': 'https://gtfsrt.renfe.com/vehicle_positions.pb',
-  'bizkaibus-tu': 'https://opendata.euskadi.eus/transport/moveuskadi/bizkaibus/gtfsrt_bizkaibus_trip_updates.pb',
+  'bizkaibus-tu': 'https://baliabideak.bizkaia.eus/Bizkaibus/GTFSRealTime/FeedTripUpdates.pb',
   'euskotren-tu': 'https://opendata.euskadi.eus/transport/moveuskadi/euskotren/gtfsrt_euskotren_trip_updates.pb',
   'metro-tu': 'https://opendata.euskadi.eus/transport/moveuskadi/metro_bilbao/gtfsrt_metro_bilbao_trip_updates.pb',
   'bilbobus-vp': 'https://opendata.euskadi.eus/transport/moveuskadi/bilbobus/gtfsrt_bilbobus_vehicle_positions.pb',
