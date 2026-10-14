@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { BizkaibusGtfs, GtfsShapePoint } from '../providers/bizkaibus/gtfs';
+import type { BizkaibusGtfs, GtfsShapePoint, GtfsTrip } from '../providers/bizkaibus/gtfs';
 
 /**
  * Offline repairs for operator shapes that are drawn wrong: long straight
  * segments routed along roads (server/build-routed-segments.ts), rail
  * corridors whose published shape detours or jumps, and shapes that stop
- * short of their trips (server/import-shape-extensions.ts). Applied once while a feed
+ * short of their trips (server/import-shape-extensions.ts, or the track of
+ * another shape of the feed for rail terminals). Applied once while a feed
  * is prepared; the result is cached with the parsed feed.
  */
 type Lonlat = [number, number];
@@ -96,6 +97,58 @@ export function extendShape(points: GtfsShapePoint[], extension: ShapeExtension)
   return [...points.map(lonlat), ...extension.path.slice(1)].map((point, i) => toPoint(point, i + 1));
 }
 
+/** Distance from a point to the nearest segment of a path. */
+function distanceToPath(point: Lonlat, path: Lonlat[]) {
+  const k = Math.cos(point[1] * Math.PI / 180);
+  let best = Infinity;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = [(path[i - 1][0] - point[0]) * k, path[i - 1][1] - point[1]], [bx, by] = [(path[i][0] - point[0]) * k, path[i][1] - point[1]];
+    const dx = bx - ax, dy = by - ay, length = dx * dx + dy * dy;
+    const t = length ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / length)) : 0;
+    best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy) * METERS_PER_DEGREE);
+  }
+  return best;
+}
+const TRACK_SNAP_METERS = 50;
+const MAX_TERMINAL_EXTENSION_METERS = 5000;
+/**
+ * Continue a rail shape that stops short of its trip's first or last platform along
+ * the track another shape of the feed draws through both points (Euskotren's short
+ * workings to Traña-Abadiño ended 350 m before the station). Euskotren shape ids
+ * change between releases, so the track is looked up in the feed, not a dataset.
+ * A track in the trip's own direction is preferred over one in the opposite one.
+ */
+export function extendToTerminals(points: GtfsShapePoint[], terminals: { first: Lonlat; last: Lonlat }, tracks: GtfsShapePoint[][]): GtfsShapePoint[] | null {
+  let path = points.map(lonlat), changed = false;
+  const nearest = (track: Lonlat[], target: Lonlat) => {
+    let index = -1, distance = TRACK_SNAP_METERS;
+    track.forEach((point, i) => { const d = straightMeters(point, target); if (d < distance) { index = i; distance = d; } });
+    return index;
+  };
+  for (const end of ['last', 'first'] as const) {
+    const stop = terminals[end], shapeEnd = end === 'last' ? path.at(-1)! : path[0];
+    if (distanceToPath(stop, path) <= CORRIDOR_SNAP_METERS) continue;
+    let piece: Lonlat[] | null = null;
+    for (const forward of [true, false]) {
+      for (const points of tracks) {
+        const track = points.map(lonlat), from = nearest(track, shapeEnd), to = nearest(track, stop);
+        if (from < 0 || to < 0 || from === to) continue;
+        // Oriented from the shape's end to the platform, without the point the shape already ends on.
+        const ahead = from < to ? track.slice(from + 1, to + 1) : track.slice(to, from).reverse();
+        if ((end === 'last') !== forward ? from < to : from > to) continue;
+        if (pathMeters([shapeEnd, ...ahead]) > MAX_TERMINAL_EXTENSION_METERS) continue;
+        piece = ahead; break;
+      }
+      if (piece) break;
+    }
+    if (!piece) continue;
+    path = end === 'last' ? [...path, ...piece] : [...[...piece].reverse(), ...path];
+    changed = true;
+  }
+  return changed ? path.map((point, i) => toPoint(point, i + 1)) : null;
+}
+const isRail = (routeType: number) => [0, 1, 2, 5, 7, 12].includes(routeType) || (routeType >= 100 && routeType < 200) || (routeType >= 400 && routeType < 500) || (routeType >= 900 && routeType < 1000) || routeType === 1400;
+
 let routed: RoutedSegments | null | undefined;
 let corridors: Corridor[] | undefined;
 let extensions: ShapeExtension[] | undefined;
@@ -105,17 +158,24 @@ export function shapeRepairVersion() {
   routed ??= load<RoutedSegments | null>(ROUTED_SEGMENTS_FILE, null);
   corridors ??= load<{ corridors: Corridor[] }>(CORRIDORS_FILE, { corridors: [] }).corridors;
   extensions ??= load<{ extensions: ShapeExtension[] }>(EXTENSIONS_FILE, { extensions: [] }).extensions;
-  return `repairs:${routed?.generatedAt ?? 'none'}:${corridors.length}:${extensions.length}`;
+  return `repairs-v2:${routed?.generatedAt ?? 'none'}:${corridors.length}:${extensions.length}`;
 }
 /** Apply every repair to every shape of a feed; returns how many shapes changed. */
 export function repairShapes(gtfs: BizkaibusGtfs, operatorId: string) {
   shapeRepairVersion();
   let repaired = 0;
+  // One trip per rail shape gives its terminal platforms; the published rail shapes are the tracks.
+  const railTrips = new Map<string, GtfsTrip>();
+  for (const trip of gtfs.trips.values()) if (trip.shapeId && !railTrips.has(trip.shapeId) && isRail(gtfs.routes.get(trip.routeId)?.routeType ?? 3)) railTrips.set(trip.shapeId, trip);
+  const tracks = [...railTrips.keys()].map((shapeId) => gtfs.shapes.get(shapeId)).filter((points) => (points?.length ?? 0) >= 2) as GtfsShapePoint[][];
   for (const [shapeId, points] of gtfs.shapes) {
     if (points.length < 2) continue;
     let next: GtfsShapePoint[] = points;
     for (const corridor of corridors!) if (corridor.operatorId === operatorId) next = replaceCorridor(next, corridor) ?? next;
     for (const extension of extensions!) if (extension.operatorId === operatorId && extension.shapeId === shapeId) next = extendShape(next, extension) ?? next;
+    const trip = railTrips.get(shapeId), stops = trip && gtfs.tripStops.get(trip.tripId);
+    const first = stops?.length && gtfs.stops.get(stops[0].stopId), last = stops?.length && gtfs.stops.get(stops.at(-1)!.stopId);
+    if (first && last) next = extendToTerminals(next, { first: [first.longitude, first.latitude], last: [last.longitude, last.latitude] }, tracks) ?? next;
     if (routed) next = routeStraightSegments(next, routed.segments) ?? next;
     if (next !== points) { gtfs.shapes.set(shapeId, next); repaired++; }
   }

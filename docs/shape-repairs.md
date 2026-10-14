@@ -31,6 +31,19 @@ formas que usan los viajes del día, y la forma que llega al final puede no esta
   Basauri a 944 m del trazado. Sigue por la vía de SIN_BSR, 2927 m más hasta
   Basauri. Auditoría 14 oct 2026.
 
+### Terminales de tren, metro y tranvía
+
+Sin datos aparte: si el primer o el último andén de un viaje ferroviario queda a
+más de 150 m de su forma, la forma se prolonga por la vía que dibuja otra forma
+del mismo feed que pase a menos de 50 m del final de la forma y del andén (como
+mucho 5 km, preferiblemente en el mismo sentido). Los ids de forma de Euskotren
+cambian entre publicaciones, así que no se pueden fijar en un fichero.
+
+- **Euskotren E1, servicios cortos.** 13 formas de viajes que empiezan o terminan
+  en Traña-Abadiño, Zaldibar, Durango o Azitain-Eibar se cortaban entre 150 y 390 m
+  antes del andén; las estaciones están bien situadas (el resto de formas pasan a
+  pocos metros). Auditoría 14 oct 2026.
+
 ## Tramos rectos por carretera
 
 `server/cities/es-bilbao/routed-segments.json`, generado con

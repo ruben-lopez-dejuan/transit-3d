@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extendShape, replaceCorridor, routeStraightSegments, segmentKey, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
+import { extendShape, extendToTerminals, replaceCorridor, routeStraightSegments, segmentKey, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
 import type { GtfsShapePoint } from '../providers/bizkaibus/gtfs';
 
 const shape = (points: [number, number][]): GtfsShapePoint[] => points.map(([longitude, latitude], i) => ({ longitude, latitude, sequence: i + 1 }));
@@ -33,6 +33,25 @@ test('a shape that stops short of its trip continues along the extension; one en
   assert.deepEqual(coordinates(repaired), [bolueta, etxebarri, ...extension.path.slice(1)]);
   assert.deepEqual(repaired.map((p) => p.sequence), [1, 2, 3, 4]);
   assert.equal(extendShape(shape([etxebarri, bolueta]), extension), null);
+});
+
+test('a rail shape ending short of its terminal platforms follows the track of another shape to them', () => {
+  // Euskotren E1 in miniature: Durango → Traña-Abadiño, the short working ends about 350 m before Traña.
+  const track: [number, number][] = [[-2.6347, 43.1695], [-2.625, 43.1699], [-2.6157, 43.1666], [-2.6139, 43.1658], [-2.6121, 43.1651], [-2.6054, 43.164]];
+  const traña: [number, number] = [-2.612, 43.16512], durango: [number, number] = [-2.6347, 43.1695];
+  const short = shape([[-2.625, 43.1699], track[2]]);
+  const repaired = extendToTerminals(short, { first: durango, last: traña }, [shape(track)])!;
+  assert.deepEqual(coordinates(repaired), track.slice(0, 5));
+  // The opposite direction's track works too, and the shape is reversed to match the trip.
+  const reversed = extendToTerminals(shape([track[2], [-2.625, 43.1699]]), { first: traña, last: durango }, [shape([...track].reverse())])!;
+  assert.deepEqual(coordinates(reversed), track.slice(0, 5).reverse());
+  assert.deepEqual(coordinates(extendToTerminals(shape([track[2], [-2.625, 43.1699]]), { first: traña, last: durango }, [shape(track)])!), track.slice(0, 5).reverse());
+});
+
+test('a shape already reaching its terminals, or without a track through them, is left alone', () => {
+  const track: [number, number][] = [[-2.6347, 43.1695], [-2.625, 43.1699], [-2.6157, 43.1666], [-2.6121, 43.1651]];
+  assert.equal(extendToTerminals(shape(track), { first: track[0], last: track[3] }, [shape(track)]), null);
+  assert.equal(extendToTerminals(shape(track.slice(0, 3)), { first: track[0], last: [-2.6, 43.18] }, [shape(track)]), null);
 });
 
 test('straight segments with a routed road get its curve; the feed points are kept', () => {
