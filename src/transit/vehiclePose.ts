@@ -4,8 +4,16 @@ import { compositionFor, type StyledVehicle } from '../../shared/transit/appeara
 
 export const composition = compositionFor;
 /** Each car samples the track separately; offsets are a diagrammatic separation. */
+/** Half the chord whose direction a car takes: it turns through a vertex instead of snapping at it. */
+const HEADING_CHORD_METERS = 5;
+function heading(shape: Shape, progress: number, fallback: number) {
+  const behind = positionAlong(shape, progress - HEADING_CHORD_METERS)?.coordinate, ahead = positionAlong(shape, progress + HEADING_CHORD_METERS)?.coordinate;
+  if (!behind || !ahead || (behind[0] === ahead[0] && behind[1] === ahead[1])) return fallback;
+  return (Math.atan2((ahead[0] - behind[0]) * Math.cos(ahead[1] * Math.PI / 180), ahead[1] - behind[1]) * 180 / Math.PI + 360) % 360;
+}
 export function vehiclePose(shape: Shape, progress: number, vehicle: StyledVehicle, lateralScale = 1) {
-  const position = positionAlong(shape, progress); if (!position) return null;
+  const located = positionAlong(shape, progress); if (!located) return null;
+  const position = { coordinate: located.coordinate, bearing: heading(shape, progress, located.bearing) };
   const rail = vehicle.mode === 'rail' || vehicle.mode === 'tram';
   const lateral = (vehicle.appearance?.lateralOffsetMeters ?? (rail ? 1.7 : 0)) * lateralScale;
   const angle = position.bearing * Math.PI / 180;

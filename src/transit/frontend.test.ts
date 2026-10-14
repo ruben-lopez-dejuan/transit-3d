@@ -123,6 +123,7 @@ test('rail cars follow different tangents around curves, with opposite direction
   const vehicle = { mode: 'rail', operatorId: 'metro-bilbao', label: 'L1' } as const;
   assert.equal(vehiclePose(shape, 120, vehicle)?.bearing, 0);
   assert.equal(vehiclePose(shape, 80, vehicle)?.bearing, 90);
+  assert.ok(Math.abs(vehiclePose(shape, 100, vehicle)!.bearing - 45) < 1, 'at the vertex a car is halfway through the turn');
   assert.equal(vehiclePose(shape, 100, vehicle)?.altitude, -12);
   assert.equal(composition(vehicle).count, 4);
   const reverse = { ...shape, coordinates: [...shape.coordinates].reverse() };

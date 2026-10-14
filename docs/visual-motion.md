@@ -160,3 +160,15 @@ correctionErrorMeters, rejected, LOD, coches 3D y coste de preparación en ms.
 - Documentación: README.md, docs/data-sources.md, motion-engine.md,
   validation.md y este informe. Los cambios previos del usuario en
   src/map/vehicleAnimator.ts y docs/V1_SPEC.md no pertenecen al paquete.
+
+## Metro, tren y tranvía sin GPS (auditoría 14 oct 2026)
+
+Reproduciendo `TimelineMotion` sobre instantáneas reales cada 15 s: 64 de 70 trenes
+y tranvías tenían saltos de velocidad y 64 superaban 90 km/h en algún momento, con
+picos de 200 m/s. Causas: una revisión de la línea de tiempo se compensaba en 2 s
+(15 m/s aparentes) y la velocidad cambiaba de golpe de la línea antigua a la nueva.
+Ahora la nueva línea se mezcla con el movimiento que se estaba dibujando (posición
+y velocidad continuas), la mezcla dura según la distancia (3 m/s aparentes) y el
+cambio de velocidad (5 s por m/s), entre 6 y 60 s. Resultado en la misma prueba:
+36 de 62 con algún pico aislado y 11 por encima de 90 km/h. Cada coche toma el
+rumbo de una cuerda de ±5 m, así que gira a lo largo de un vértice en vez de saltar.

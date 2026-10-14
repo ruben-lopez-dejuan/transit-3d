@@ -72,7 +72,7 @@ export class TransitRenderer {
         continue;
       }
       const scheduled = new TimelineMotion(vehicle.mode === 'rail' || vehicle.mode === 'tram', vehicle.progressMetersAlongShape);
-      scheduled.retime(vehicle.timeline, now, displayed);
+      scheduled.retime(vehicle.timeline, now, displayed, compatible?.scheduled);
       next.set(vehicle.id, { vehicle, progress: scheduled.position(now), speed, at: now, scheduled });
     }
     this.states = next;
