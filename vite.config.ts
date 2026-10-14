@@ -2,6 +2,7 @@
 
 import type { Plugin } from 'vite';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 function appShell(): Plugin {
   return {
@@ -13,8 +14,11 @@ function appShell(): Plugin {
         fingerprint.update(name);
         fingerprint.update(item.type === 'chunk' ? item.code : typeof item.source === 'string' ? item.source : Buffer.from(item.source));
       }
+      // Files in public/ are copied outside the bundle, so they need their own share of the version.
+      const publicAssets = ['/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png'];
+      for (const file of publicAssets) fingerprint.update(readFileSync(new URL(`./public${file}`, import.meta.url)));
       const version = fingerprint.digest('hex').slice(0, 12);
-      const paths = ['/', '/index.html', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', ...files];
+      const paths = ['/', '/index.html', ...publicAssets, ...files];
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: `
 const CACHE='transit-3d-${version}';
 const PATHS=${JSON.stringify(paths)};

@@ -20,7 +20,7 @@ El mapa se actualiza independientemente de los feeds. Los recorridos se descarga
 
 ## Instalación y revisión
 
-La PWA necesita HTTPS al abrirla desde un teléfono. El build genera manifest, iconos y service worker. El shell y los assets se guardan; los endpoints realtime y la cartografía quedan fuera de esa caché. Los manifiestos y catálogos estables utilizan caché HTTP revalidable. Capacitor no está configurado.
+La PWA necesita HTTPS al abrirla desde un teléfono. El build genera manifest, iconos y service worker. El shell y los assets se guardan; los endpoints realtime y la cartografía quedan fuera de esa caché. Los manifiestos y catálogos estables utilizan caché HTTP revalidable. Capacitor no está configurado. El icono de la app es `public/icon.svg`; `server/generate-brand-icons.ps1` repite su geometría para regenerar `icon-192.png` e `icon-512.png` (si se cambia uno, hay que cambiar el otro).
 
 Comprobaciones realizadas el 2 de octubre de 2026:
 

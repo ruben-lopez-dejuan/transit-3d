@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="Transit 3D">
+  <rect width="192" height="192" rx="44" fill="#246b57"/>
+  <path fill="#fff" d="M78 45H103V78H130V101H103V127C103 139 107 144 120 144H132V166H116C90 166 78 154 78 130V101H60V78H78Z"/>
+</svg>
