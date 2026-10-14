@@ -21,6 +21,11 @@ CRTM. Estado y configuración: [city-packages/es-madrid/README.md](city-packages
 - **ESTIMADO por horario:** Artxanda y los demás operadores sin realtime
   utilizable; también es el fallback cuando caducan los datos de un operador.
 
+**Prioridad entre fuentes:** 1) GPS fija dónde se observó el vehículo; 2) SIRI
+fija las próximas llegadas y salidas; 3) GTFS-RT u otras predicciones del operador
+cuando son válidas; 4) GTFS estático como respaldo. SIRI nunca se presenta como GPS
+y conserva su propio timestamp; la ficha indica cuándo el avance sigue a SIRI.
+
 La hora del dato, la consulta al servidor y la posición animada se mantienen
 separadas. Una consulta HTTP no rejuvenece una señal antigua.
 Fuentes, protocolos, fallos y limitaciones: [docs/data-sources.md](docs/data-sources.md).

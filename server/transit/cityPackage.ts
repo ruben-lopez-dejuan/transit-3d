@@ -7,7 +7,7 @@ import { RegisteredProvider } from './registeredProvider';
 export type StopArrivalsAdapter = {
   departures(gtfs: BizkaibusGtfs, stopId: string): Promise<Departure[]>;
   warm(gtfs: BizkaibusGtfs, stopIds: string[]): Promise<void>;
-  peek(gtfs: BizkaibusGtfs, stopId: string, vehicleId?: string | null): { arrival: number; sourceTimestamp: number } | null;
+  peek(gtfs: BizkaibusGtfs, stopId: string, vehicleId?: string | null): { arrival: number; departure?: number; sourceTimestamp: number } | null;
 };
 export type ProviderRuntime = RegisteredProvider & {
   getGtfs(): Promise<BizkaibusGtfs>;

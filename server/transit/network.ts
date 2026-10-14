@@ -10,8 +10,9 @@ import { formatServiceDate, isServiceActive, parseGtfsTime } from "./gtfsCalenda
 import { distanceMeters } from "./motionEngine";
 import { passengerHeadsign } from './labels';
 import { anchorGpsTimeline } from './gpsTimeline';
+import { mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
-import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape } from '../../shared/transit/network';
+import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape, MotionAnchor, TimelineSource } from '../../shared/transit/network';
 import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
 import { transitDebugTraceStore } from '../admin/traceStore';
 
@@ -28,6 +29,34 @@ function updateFor(operatorId: string, date: string, tripId: string) {
   const provider = providerFor(operatorId);
   const update = provider?.enabled ? provider.getUpdates?.().get(tripInstanceKey(date, tripId)) : null;
   return update && freshTimestamp(update.updatedAt / 1000, Date.now()) !== null ? update : null;
+}
+// A forecast this far from the base timeline belongs to another journey of the same vehicle.
+const MAX_FORECAST_DEVIATION_MS = 3600_000;
+/** Fresh provider (SIRI) stop forecasts for this vehicle's trip, in stop order and never running backwards in time. */
+function cachedStopForecasts(vehicle: NormalizedVehicle, gtfs: BizkaibusGtfs, plan: NonNullable<ReturnType<typeof tripPlan>>, base: MotionAnchor[], now: Date): StopForecast[] {
+  const provider = providerFor(vehicle.operatorId);
+  const arrivals = provider?.enabled ? provider.arrivals : undefined;
+  if (!arrivals || !vehicle.externalVehicleId) return [];
+  const observedAt = vehicle.observationTimestamp;
+  // A GPS fix tells which stops are already behind. Without one the estimated
+  // position may lag reality, so every stop of the trip is considered.
+  const observedProgress = observedAt !== null ? vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape : -Infinity;
+  const result: StopForecast[] = [];
+  // Walk backwards: a row for a later passage of the same vehicle (its next
+  // journey) is always too late, so the earliest coherent sequence is kept.
+  let nextAt = Infinity;
+  for (const stop of [...plan.stops].reverse()) {
+    if (stop.progress < observedProgress - 10) break;
+    const forecast = arrivals.peek(gtfs, stop.stopId, vehicle.externalVehicleId);
+    if (!forecast || freshTimestamp(forecast.sourceTimestamp / 1000, now.getTime()) === null || !Number.isFinite(forecast.arrival)) continue;
+    const departure = Number.isFinite(forecast.departure) ? Math.max(forecast.arrival, forecast.departure!) : forecast.arrival;
+    if ((observedAt !== null && forecast.arrival < observedAt) || departure > nextAt) continue;
+    const expected = timeAtProgress(base, stop.progress);
+    if (expected !== null && Math.abs(forecast.arrival - expected) > MAX_FORECAST_DEVIATION_MS) continue;
+    result.unshift({ at: forecast.arrival, departure, progress: stop.progress, sourceTimestamp: forecast.sourceTimestamp, scheduledArrival: serviceEpoch(vehicle.serviceDate, stop.arrival, city.manifest.timezone) });
+    nextAt = forecast.arrival;
+  }
+  return result;
 }
 const feeds = new Map<string, BizkaibusGtfs>();
 const routeMap = new Map<string, Route>();
@@ -201,10 +230,18 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
     }
   }
   let fullTimeline = vehicle.motionTimeline ?? (update ? updatedTimeline(gtfs, update) ?? (plan ? timelineFor(plan, serviceDate, 0, city.manifest.timezone) : []) : plan ? timelineFor(plan, serviceDate, shiftSeconds, city.manifest.timezone) : []);
+  // Source precedence: GPS fixes where the vehicle is, SIRI stop forecasts
+  // decide its next arrivals and departures, then GTFS-RT or provider
+  // estimates, and the static timetable only as fallback.
+  const stopForecasts = plan ? cachedStopForecasts(vehicle, gtfs, plan, fullTimeline, now) : [];
+  fullTimeline = mergeStopForecasts(fullTimeline, stopForecasts);
   if (vehicle.observationTimestamp !== null) {
     // The actual GPS anchors the map position; the forecasts control the following station times.
     fullTimeline = anchorGpsTimeline(fullTimeline, { at: vehicle.observationTimestamp, progress: vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape });
   }
+  const usedForecasts = stopForecasts.filter((forecast) => fullTimeline.some((a) => a.at === forecast.at && Math.abs(a.progress - forecast.progress) <= 2));
+  const usesStopForecasts = usedForecasts.length > 0 && fullTimeline.length > 1;
+  const stopForecastTimestamp = usesStopForecasts ? Math.max(...usedForecasts.map((forecast) => forecast.sourceTimestamp)) : null;
   let nextAnchor = fullTimeline.findIndex((a) => a.at >= now.getTime());
   if (nextAnchor < 0) nextAnchor = fullTimeline.length - 1;
   const timeline = vehicle.observationTimestamp !== null ? fullTimeline.slice(0, Math.max(6, nextAnchor + 5)) : fullTimeline.slice(Math.max(0, nextAnchor - 1), nextAnchor + 5);
@@ -212,12 +249,19 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
   const next = nativeNext ? plan?.stops.find((s) => s.stopId === nativeNext && s.progress >= vehicle.progressMetersAlongShape - 10) : plan?.stops.find((s) => s.progress >= vehicle.progressMetersAlongShape + 10 && !update?.stops.get(s.sequence)?.skipped);
   const nextStop = next ? stopMap.get(key(vehicle.operatorId, 'stop', next.stopId)) : null;
   const nextUpdate = next ? update?.stops.get(next.sequence) : null;
-  const siri = next ? providerFor(vehicle.operatorId)?.arrivals?.peek(gtfs, next.stopId, vehicle.externalVehicleId) : null;
   if (nextUpdate) { delaySeconds = nextUpdate.arrivalRealtime ? (nextUpdate.arrival - nextUpdate.scheduledArrival) / 1000 : null; delayEstimated = false; }
+  if (usesStopForecasts) {
+    // SIRI outranks GTFS-RT and the GPS-shifted timetable for the published delay.
+    // An estimated trip identity cannot justify publishing a delay at all.
+    delaySeconds = vehicle.tripIdentityQuality === 'estimated' ? null : Math.round((usedForecasts[0].at - usedForecasts[0].scheduledArrival) / 1000);
+    delayEstimated = false;
+  }
   const destination = passengerHeadsign(vehicle.destination || trip.headsign || route.longName, route.longName);
   const nativeArrival = next ? vehicle.arrivalPredictions?.find((a) => Math.abs(a.progress - next.progress) < 2)?.at : undefined;
-  const nextArrival = siri?.arrival ?? nativeArrival ?? nextUpdate?.arrival ?? (vehicle.motionTimeline ? null : next ? serviceEpoch(serviceDate, next.arrival + shiftSeconds, city.manifest.timezone) : null);
-  const presented: Vehicle = { ...vehicle, delaySeconds, delayEstimated, gpsAnchoredTimeline: gpsAnchoredTimeline && !vehicle.motionTimeline, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
+  const forecastArrival = next && usesStopForecasts ? usedForecasts.find((f) => Math.abs(f.progress - next.progress) <= 2)?.at ?? timeAtProgress(fullTimeline, next.progress) ?? undefined : undefined;
+  const timelineSource: TimelineSource = usesStopForecasts ? 'siri' : vehicle.motionTimeline ? 'provider' : update ? 'gtfs-rt' : gpsAnchoredTimeline ? 'gps-schedule' : 'schedule';
+  const nextArrival = forecastArrival ?? nativeArrival ?? nextUpdate?.arrival ?? (vehicle.motionTimeline ? null : next ? serviceEpoch(serviceDate, next.arrival + shiftSeconds, city.manifest.timezone) : null);
+  const presented: Vehicle = { ...vehicle, timetableTimestamp: stopForecastTimestamp ?? vehicle.timetableTimestamp, timelineSource, arrivalPredictions: usesStopForecasts ? usedForecasts.map((forecast) => ({ at: forecast.at, progress: forecast.progress, sourceTimestamp: forecast.sourceTimestamp })) : vehicle.arrivalPredictions, delaySeconds, delayEstimated, gpsAnchoredTimeline: gpsAnchoredTimeline && !vehicle.motionTimeline && !usesStopForecasts, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
   transitDebugTraceStore.recordPresentation(presented, now.getTime());
   return presented;
 }
@@ -328,8 +372,11 @@ async function getTrip(operatorId: string, tripId: string, serviceDate: string, 
   if (arrivals && vehicle?.externalVehicleId && plan) {
     const upcoming = plan.stops.filter((s) => s.progress > vehicle.progressMetersAlongShape).slice(0, 3);
     await arrivals.warm(gtfs, upcoming.map((s) => s.stopId));
+    // The selected trip has just populated provider forecasts. Rebuild the next
+    // snapshot so the motion engine receives them immediately.
+    snapshotExpires = 0;
   }
-  return { vehicleId: vehicle?.id ?? key(operatorId, 'vehicle', `${operatorId}:${serviceDate}:${tripId}`), trip: { ...normalizeTrip(trip, scope(operatorId)), destination: vehicle?.destination || trip.headsign }, shape: shape && trip.shapeId ? packet(operatorId, trip.shapeId) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(key(operatorId, 'stop', s.stopId)), changed = update?.stops.get(s.sequence); const siri = arrivals?.peek(gtfs, s.stopId, vehicle?.externalVehicleId); const nativeAt = vehicle?.arrivalPredictions?.find((a) => Math.abs(a.progress - s.progress) < 2)?.at; const topologyOnly = providerFor(operatorId)?.definition.capabilities.scheduledService === false; return stop ? [{ ...stop, at: siri?.arrival ?? changed?.arrival ?? nativeAt ?? (vehicle?.motionTimeline || topologyOnly ? null : serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0), city.manifest.timezone)), progress: s.progress, skipped: changed?.skipped ?? false, realtime: !!siri || nativeAt !== undefined || (changed?.arrivalRealtime ?? false) }] : []; }) };
+  return { vehicleId: vehicle?.id ?? key(operatorId, 'vehicle', `${operatorId}:${serviceDate}:${tripId}`), trip: { ...normalizeTrip(trip, scope(operatorId)), destination: vehicle?.destination || trip.headsign }, shape: shape && trip.shapeId ? packet(operatorId, trip.shapeId) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(key(operatorId, 'stop', s.stopId)), changed = update?.stops.get(s.sequence); const siri = arrivals?.peek(gtfs, s.stopId, vehicle?.externalVehicleId); const nativeAt = vehicle?.arrivalPredictions?.find((a) => Math.abs(a.progress - s.progress) < 2)?.at; const topologyOnly = providerFor(operatorId)?.definition.capabilities.scheduledService === false; return stop ? [{ ...stop, at: siri?.arrival ?? changed?.arrival ?? nativeAt ?? (vehicle?.motionTimeline || topologyOnly ? null : serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0), city.manifest.timezone)), progress: s.progress, skipped: changed?.skipped ?? false, realtime: !!siri || nativeAt !== undefined || (changed?.arrivalRealtime ?? false), source: siri || (nativeAt !== undefined && vehicle?.timelineSource === 'siri') ? 'siri' as const : nativeAt !== undefined || changed?.arrivalRealtime ? 'realtime' as const : 'schedule' as const }] : []; }) };
 }
 async function getGeometries(keys: string[]): Promise<Shape[]> {
   await getNetwork();

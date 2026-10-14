@@ -23,7 +23,7 @@ function fixture(longitude = -2.95, routeType = 3): BizkaibusGtfs {
     routeTripIds: new Map([['route:1', ['trip:1']]]), calendars: new Map([['daily', { serviceId: 'daily', weekdays: [true, true, true, true, true, true, true], startDate: '20260101', endDate: '20271231' }]]), calendarDates: new Map(),
   };
 }
-function memoryCity(options: { broken?: string; cityId?: string; longitude?: number } = {}) {
+function memoryCity(options: { broken?: string; cityId?: string; longitude?: number; withoutGps?: string } = {}) {
   const ids = ['bizkaibus', 'bilbobus', 'metro-bilbao', 'euskotren'];
   const manifest = { ...bilbaoManifest, id: options.cityId ?? bilbaoManifest.id, providers: bilbaoManifest.providers.filter((p) => ids.includes(p.id)) };
   const now = Date.now();
@@ -45,8 +45,8 @@ function memoryCity(options: { broken?: string; cityId?: string; longitude?: num
         if (options.broken === id) throw new Error('fixture failure');
         const vehicle = generateScheduledVehicles(gtfs, new Date(now), id)[0];
         assert.ok(vehicle);
-        const gps = id.includes('bus');
-        return { operatorId: id, fetchedAt: now, sourceTimestamp: now - 30_000, receivedTimestamp: now - 1000, status: 'ok', vehicles: [{ ...vehicle, observationTimestamp: gps ? now - 30_000 : null, timetableTimestamp: gps ? null : now - 30_000, positionQuality: gps ? 'live' : 'predicted', positionSource: gps ? 'gps' : 'trip-updates' }] };
+        const bus = id.includes('bus'), gps = bus && options.withoutGps !== id;
+        return { operatorId: id, fetchedAt: now, sourceTimestamp: now - 30_000, receivedTimestamp: now - 1000, status: 'ok', vehicles: [{ ...vehicle, vehicleId: bus ? `${id}-vehicle` : null, observationTimestamp: gps ? now - 30_000 : null, timetableTimestamp: gps ? null : now - 30_000, positionQuality: gps ? 'live' : 'predicted', positionSource: gps ? 'gps' : 'trip-updates' }] };
       },
     }) as ProviderRuntime;
     provider.getGtfs = async () => gtfs;
@@ -146,18 +146,74 @@ test('arrival hooks are provider-neutral and preserve source timestamps while wa
   const provider = city.providers.find((p) => p.operatorId === 'bilbobus')!;
   const warmed: string[] = [];
   provider.arrivals = {
-    peek: (_gtfs, stopId) => stopId === 'stop:2' ? { arrival: now + 120_000, sourceTimestamp: now - 10_000 } : null,
+    peek: (_gtfs, stopId) => stopId === 'stop:2' ? { arrival: now + 120_000, departure: now + 130_000, sourceTimestamp: now - 10_000 } : null,
     warm: async (_gtfs, stopIds) => { warmed.push(...stopIds); },
     departures: async () => [{ routeKey: entityId(city.manifest.id, 'bilbobus', 'route', 'route:1'), tripId: entityId(city.manifest.id, 'bilbobus', 'trip', 'siri:1'), label: 'L1', headsign: 'Destination', operatorId: 'bilbobus', at: now + 120_000, updatedAt: now - 10_000, quality: 'predicted', source: 'realtime', delaySeconds: null }],
   };
   const snapshot = await network.getPresentationSnapshot();
   const vehicle = snapshot.vehicles.find((v) => v.providerId === 'bilbobus')!;
-  vehicle.externalVehicleId = 'bus-1';
   assert.equal(vehicle.nextStop?.at, now + 120_000); assert.equal(vehicle.sourceTimestamp, now - 30_000);
+  assert.equal(vehicle.timetableTimestamp, now - 10_000); assert.equal(vehicle.gpsAnchoredTimeline, false);
+  assert.ok(vehicle.timeline.some((anchor) => anchor.at === now + 120_000));
+  assert.ok(vehicle.timeline.some((anchor) => anchor.at === now + 130_000));
+  assert.equal(vehicle.arrivalPredictions?.[0]?.sourceTimestamp, now - 10_000);
   const trip = await network.getTrip('bilbobus', vehicle.externalTripId, vehicle.serviceDate, vehicle.id);
   assert.equal(trip?.stops.at(-1)?.at, now + 120_000); assert.ok(warmed.includes('stop:2'));
   const stop = await network.getStop('bilbobus', 'stop:2');
   assert.ok(stop?.departures.some((d) => d.source === 'realtime' && d.updatedAt === now - 10_000));
+});
+test('stale provider stop forecasts never become motion anchors or fresh timestamps', async () => {
+  const { city, network, now } = memoryCity();
+  const provider = city.providers.find((p) => p.operatorId === 'bilbobus')!;
+  provider.arrivals = {
+    departures: async () => [], warm: async () => {},
+    peek: (_gtfs, stopId) => stopId === 'stop:2' ? { arrival: now + 120_000, sourceTimestamp: now - 181_000 } : null,
+  };
+  const snapshot = await network.getPresentationSnapshot();
+  const vehicle = snapshot.vehicles.find((v) => v.providerId === 'bilbobus')!;
+  assert.equal(vehicle.timetableTimestamp, null);
+  assert.equal(vehicle.gpsAnchoredTimeline, true);
+  assert.equal(vehicle.arrivalPredictions, undefined);
+});
+test('SIRI stop forecasts publish their own delay and label the timeline source', async () => {
+  const { city, network, now } = memoryCity();
+  const provider = city.providers.find((p) => p.operatorId === 'bilbobus')!;
+  provider.arrivals = {
+    departures: async () => [], warm: async () => {},
+    peek: (_gtfs, stopId) => stopId === 'stop:2' ? { arrival: now + 120_000, sourceTimestamp: now - 10_000 } : null,
+  };
+  const snapshot = await network.getPresentationSnapshot();
+  const vehicle = snapshot.vehicles.find((v) => v.providerId === 'bilbobus')!;
+  assert.equal(vehicle.timelineSource, 'siri');
+  // The fixture schedules the final call about ten minutes after the test clock.
+  assert.ok(vehicle.delaySeconds !== null && vehicle.delaySeconds < -400 && vehicle.delaySeconds > -500);
+  assert.equal(vehicle.delayEstimated, false);
+  const trip = await network.getTrip('bilbobus', vehicle.externalTripId, vehicle.serviceDate, vehicle.id);
+  assert.equal(trip?.stops.at(-1)?.source, 'siri');
+});
+test('SIRI forecasts drive a vehicle that has no fresh GPS', async () => {
+  const { city, network, now } = memoryCity({ withoutGps: 'bilbobus' });
+  const provider = city.providers.find((p) => p.operatorId === 'bilbobus')!;
+  provider.arrivals = {
+    departures: async () => [], warm: async () => {},
+    peek: (_gtfs, stopId) => stopId === 'stop:2' ? { arrival: now + 120_000, sourceTimestamp: now - 10_000 } : null,
+  };
+  const snapshot = await network.getPresentationSnapshot();
+  const vehicle = snapshot.vehicles.find((v) => v.providerId === 'bilbobus')!;
+  assert.equal(vehicle.observationTimestamp, null);
+  assert.equal(vehicle.timelineSource, 'siri'); assert.equal(vehicle.nextStop?.at, now + 120_000);
+  assert.ok(vehicle.timeline.some((anchor) => anchor.at === now + 120_000));
+});
+test('a forecast far from the trip belongs to another journey and is ignored', async () => {
+  const { city, network, now } = memoryCity();
+  const provider = city.providers.find((p) => p.operatorId === 'bilbobus')!;
+  provider.arrivals = {
+    departures: async () => [], warm: async () => {},
+    peek: (_gtfs, stopId) => stopId === 'stop:2' ? { arrival: now + 3 * 3600_000, sourceTimestamp: now - 10_000 } : null,
+  };
+  const snapshot = await network.getPresentationSnapshot();
+  const vehicle = snapshot.vehicles.find((v) => v.providerId === 'bilbobus')!;
+  assert.notEqual(vehicle.timelineSource, 'siri'); assert.equal(vehicle.arrivalPredictions, undefined);
 });
 test('service epochs and realtime delays use an explicit timezone, including non-hour offsets', () => {
   const date = '20261002';

@@ -5,7 +5,7 @@ export const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (
 let timezone = 'UTC';
 export function configureTimezone(value: string) { new Intl.DateTimeFormat('es', { timeZone: value }); timezone = value; }
 export const time = (at: number) => new Date(at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: timezone });
-export const eta = (at: number) => { const minutes = Math.ceil((at - Date.now()) / 60000); return minutes <= 0 ? 'Ahora' : minutes < 60 ? `${minutes} min` : time(at); };
+export const eta = (at: number, now = Date.now()) => { const minutes = Math.ceil((at - now) / 60000); return minutes <= 0 ? 'Ahora' : minutes < 60 ? `${minutes} min` : time(at); };
 export const qualityName = { live: 'REAL', predicted: 'ESTIMADO', scheduled: 'ESTIMADO' };
 export const quality = (q: keyof typeof qualityName, rendered?: 'real' | 'interpolated' | 'estimated') => `<span class="quality ${rendered === 'estimated' ? 'predicted' : q}"><i></i>${rendered === 'interpolated' ? 'INTERPOLADO' : rendered === 'real' ? 'REAL' : rendered === 'estimated' ? 'ESTIMADO' : qualityName[q]}</span>`;
 export const badge = (route: Pick<Route, 'color' | 'shortName'> | Pick<Vehicle, 'color' | 'label'>) => {
@@ -14,11 +14,16 @@ export const badge = (route: Pick<Route, 'color' | 'shortName'> | Pick<Vehicle, 
   const luminance = channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
   return `<span class="line-badge" style="--line:${color};--line-text:${luminance > .179 ? '#152c26' : '#ffffff'}">${esc('label' in route ? route.label : route.shortName)}</span>`;
 };
+/** The next stop is still ahead of the vehicle, so a forecast time already gone means it is about to arrive. */
+export const arrivalLabel = (at: number, now = Date.now()) => at <= now ? 'Llegando' : eta(at, now);
 export const delayLabel = (seconds: number) => Math.abs(seconds) < 30 ? 'En hora' : `${seconds < 0 ? '−' : '+'}${Math.round(Math.abs(seconds) / 60)} min`;
 export function positionExplanation(v: Vehicle, now = Date.now()) {
   if (v.positionQuality === 'scheduled') return 'Posición calculada con el horario. No es una ubicación GPS.';
-  if (v.observationTimestamp !== null) return `Último GPS hace ${Math.max(0, Math.floor((now - v.observationTimestamp) / 1000))} s. El movimiento entre lecturas es estimado.`;
-  return `Posición estimada con horarios actualizados por el operador${v.timetableTimestamp ? ` hace ${Math.max(0, Math.floor((now - v.timetableTimestamp) / 1000))} s` : ''}.`;
+  const age = (at: number) => Math.max(0, Math.floor((now - at) / 1000));
+  const siri = v.timelineSource === 'siri' && v.timetableTimestamp ? v.timetableTimestamp : null;
+  if (v.observationTimestamp !== null) return `Último GPS hace ${age(v.observationTimestamp)} s. ${siri !== null ? `El avance sigue las llegadas SIRI del operador, actualizadas hace ${age(siri)} s.` : 'El movimiento entre lecturas es estimado.'}`;
+  if (siri !== null) return `Posición estimada con las llegadas SIRI del operador, actualizadas hace ${age(siri)} s. No es una ubicación GPS.`;
+  return `Posición estimada con horarios actualizados por el operador${v.timetableTimestamp ? ` hace ${age(v.timetableTimestamp)} s` : ''}.`;
 }
 export const departures = (items: Departure[], operatorName: (id: string) => string, now = Date.now()) => items.length ? `<div class="departures">${items.map((d) => {
   const expired = !!d.updatedAt && now - d.updatedAt > 180_000;

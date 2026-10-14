@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { progressAt, positionAlong, correctionOffset, positionQuality, nextStopAhead } from './motion';
 import { searchNetwork } from './search';
-import { esc, badge, departures, positionExplanation, createShell } from '../ui';
+import { esc, badge, departures, positionExplanation, createShell, arrivalLabel } from '../ui';
 import { chooseCityId, cityUrl } from './cities';
 import { loadCities, loadCity, loadNetwork, loadSnapshot, loadShapes } from './client';
 import type { Network, Vehicle } from './networkTypes';
@@ -159,6 +159,17 @@ test('A position predicted from TripUpdates does not claim to have a GPS signal'
   const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000 } as Vehicle;
   assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
   assert.ok(!positionExplanation(v, 16000).includes('Último GPS'));
+});
+
+test('a position driven by SIRI says so and keeps the forecast age', () => {
+  const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000, timelineSource: 'siri' } as Vehicle;
+  assert.ok(positionExplanation(v, 16000).includes('SIRI')); assert.ok(positionExplanation(v, 16000).includes('hace 15 s'));
+  assert.ok(positionExplanation({ ...v, observationTimestamp: 6000 }, 16000).startsWith('Último GPS hace 10 s. El avance sigue las llegadas SIRI'));
+});
+
+test('a next-stop forecast already due reads as arriving, not as a time in the past', () => {
+  assert.equal(arrivalLabel(1000, 5000), 'Llegando');
+  assert.equal(arrivalLabel(5000 + 125_000, 5000), '3 min');
 });
 
 test('favorite migration preserves saved lines/stops, unknown references and existing namespaced IDs', () => {

@@ -8,8 +8,9 @@ import type { Network, Snapshot, Route, Stop, Vehicle, LineDetail, StopDetail, T
 import { searchNetwork, type SearchResult } from './transit/search';
 import { nextStopAhead, positionQuality } from './transit/motion';
 import { TransitRenderer } from './map/transitRenderer';
+import { FollowCamera } from './map/followCamera';
 import { empty, styleUrl, setData, installLayers, installVehicleIcons, stopsData, routeData, fitShapes } from './map/networkMap';
-import { createShell, configureTimezone, esc, badge, quality, eta, time, departures, positionExplanation, delayLabel } from './ui';
+import { createShell, configureTimezone, esc, badge, quality, time, departures, positionExplanation, delayLabel, arrivalLabel } from './ui';
 import { setupPwa } from './pwa';
 import { migrateFavorites } from './transit/favorites';
 import { readCityPreferences, writeCityPreferences } from './transit/preferences';
@@ -62,7 +63,7 @@ let network: Network | null = null, snapshot: Snapshot | null = null;
 let mode: TransitMode | 'all' = cityPreferences.mode && (cityPreferences.mode === 'all' || city.modes.includes(cityPreferences.mode)) ? cityPreferences.mode : 'all';
 let selection: { kind: 'vehicle'; id: string } | { kind: 'route'; route: Route; direction: string } | { kind: 'stop'; stop: Stop } | null = null;
 let detail: LineDetail | StopDetail | TripDetail | null = null, detailVersion = 0, detailError = '';
-let following = false, lastFollow = 0, polling = false, toastTimer = 0, cameraSaveTimer = 0, sheetTimer = 0, nextNetworkRefreshAt = 0;
+let following = false, polling = false, toastTimer = 0, cameraSaveTimer = 0, sheetTimer = 0, nextNetworkRefreshAt = 0;
 let results: SearchResult[] = [], resultIndex = -1;
 const inFlightShapes = new Set<string>();
 let detailRequest: AbortController | null = null, operatorRenderKey = '';
@@ -230,7 +231,7 @@ async function selectVehicle(vehicle: Vehicle) {
   const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: duration(700) });
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
   const { version, signal } = beginDetailRequest();
-  try { const result = await loadTrip(vehicle, signal); if (version !== detailVersion) return; detail = result; if (result.shape) { renderer.shapes.set(result.shape.key, result.shape); setData(map, 'selected-route', routeData([result.shape], vehicle.color)); } setData(map, 'selected-stops', stopsData(result.stops)); renderDetails(); }
+  try { const result = await loadTrip(vehicle, signal); if (version !== detailVersion) return; detail = result; if (result.shape) { renderer.shapes.set(result.shape.key, result.shape); setData(map, 'selected-route', routeData([result.shape], vehicle.color)); } setData(map, 'selected-stops', stopsData(result.stops)); renderDetails(); void refresh(); }
   catch (error) { if (!signal.aborted && version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
 }
 function renderDetails() {
@@ -247,11 +248,11 @@ function renderDetails() {
     const renderedProgress = renderer.progressMeters(v.id) ?? v.progressMetersAlongShape;
     const next = trip ? nextStopAhead(trip.stops.filter((stop) => !stop.skipped), renderedProgress) : undefined;
     const nextName = trip ? next?.name ?? 'Fin del recorrido' : 'Calculando posición…';
-    const nextArrival = next?.at != null ? `${next.realtime ? 'Tiempo real' : 'Horario'} · ${eta(next.at)}` : 'Sin hora disponible';
+    const nextArrival = next?.at != null ? `${next.source === 'siri' ? 'SIRI' : next.realtime ? 'Tiempo real' : 'Horario'} · ${arrivalLabel(next.at, Date.now() + renderer.clockOffset)}` : 'Sin hora disponible';
     $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(v.operatorName)} · ${v.mode === 'rail' ? 'Metro / tren' : v.mode === 'tram' ? 'Tranvía' : v.mode === 'funicular' ? 'Funicular' : 'Bus'}</div><div class="title-row">${badge(v)}<h1>${esc(v.headsign || 'Servicio en circulación')}</h1></div>${quality(q, renderer.dataQuality(v.id))}<p class="quality-explanation">${esc(positionExplanation(v, Date.now() + renderer.clockOffset))}</p></div><div class="next-stop"><span>Próxima parada</span><strong>${esc(nextName)}</strong><div>${nextArrival}${delay !== null ? `<small> · ${v.delayEstimated ? 'Desfase estimado · ' : ''}${delayLabel(delay)}</small>` : ''}</div></div><div class="detail-actions"><button data-follow class="${following ? 'primary' : ''}">${following ? '● Siguiendo' : '⌖ Seguir vehículo'}</button><button data-fit>Ver recorrido</button></div><section class="detail-section"><div class="section-heading"><h2>Paradas del recorrido</h2><button data-full-line class="text-button">Ver línea →</button></div>${trip ? stopRows(trip.stops, renderedProgress) : loading}</section>`;
     if (new URLSearchParams(location.search).has('debug')) { $('#debug').hidden = false; $('#debug').textContent = `trip: ${v.tripId}\nshape: ${v.shapeKey}\nprogress: ${v.progressMetersAlongShape.toFixed(1)} m\nrendered coordinate: ${renderer.coordinate(v.id)?.map(n => n.toFixed(6)).join(", ")}\nquality: ${q}\nGPS: ${v.observationTimestamp ? new Date(v.observationTimestamp).toISOString() : 'none'}\nlast query: ${snapshot ? new Date(snapshot.fetchedAt).toISOString() : 'none'}\nrender frame: ${new Date().toISOString()}\nmotion time: ${new Date(renderer.renderedTimestamp(v.id)).toISOString()}\nrendered: ${renderer.renderedVehicles} / ${renderer.getVehicles().length}\nframe: ${renderer.renderMilliseconds.toFixed(2)} ms\nspeed: ${v.speedMetersPerSecond?.toFixed(1) ?? 'unknown'} m/s\nshape cache: ${renderer.shapes.size}\n${following ? 'following' : ''}`; }
     if (new URLSearchParams(location.search).has('debug')) $('#debug').textContent += `\nLOD: ${renderer.lod}\n3D fallback: ${renderer.modelFallbackReason}\n3D vehicles/cars: ${renderer.modelVehicles}/${renderer.modelCars}\nmotion: ${JSON.stringify(renderer.diagnostics(v.id), null, 2)}`;
-    if (new URLSearchParams(location.search).has('debug')) $('#debug').textContent += `\nsource timestamp: ${v.sourceTimestamp === null ? 'unknown' : new Date(v.sourceTimestamp).toISOString()}\nreceived timestamp: ${v.receivedTimestamp === null ? 'unknown' : new Date(v.receivedTimestamp).toISOString()}\nposition source: ${v.positionSource}\nrendered position source: ${renderer.positionSource(v.id)}`;
+    if (new URLSearchParams(location.search).has('debug')) $('#debug').textContent += `\nsource timestamp: ${v.sourceTimestamp === null ? 'unknown' : new Date(v.sourceTimestamp).toISOString()}\nreceived timestamp: ${v.receivedTimestamp === null ? 'unknown' : new Date(v.receivedTimestamp).toISOString()}\nposition source: ${v.positionSource}\ntimeline source: ${v.timelineSource ?? 'unknown'}\nrendered position source: ${renderer.positionSource(v.id)}`;
   } else if (selection.kind === 'route') {
     const route = selection.route, line = detail as LineDetail | null;
     const active = renderer.getVehicles().filter((v) => v.routeKey === route.key && (selection?.kind !== 'route' || selection.direction === 'all' || String(v.directionId ?? 'unknown') === selection.direction));
@@ -282,7 +283,8 @@ map.on('click', async (event) => {
 });
 map.on('mousemove', (event) => { const layers = ['vehicle-dot', 'clusters', 'stations', 'bus-stops', 'selected-stops-dot'].filter((l) => map.getLayer(l)); if (layers.length) map.getCanvas().style.cursor = map.queryRenderedFeatures(event.point, { layers }).length ? 'pointer' : ''; });
 map.on('dragstart', (event) => { if (event.originalEvent && following) { following = false; renderDetails(); } });
-renderer.onSelectedPosition = (coordinate) => { if (following && Date.now() - lastFollow > 700) { lastFollow = Date.now(); map.easeTo({ center: coordinate, duration: duration(750), padding: padding() }); } };
+const followCamera = new FollowCamera(map);
+renderer.onSelectedPosition = (coordinate) => { if (following) followCamera.update(coordinate, Date.now(), padding(), duration(600)); };
 renderer.start();
 $<HTMLInputElement>('#search').addEventListener('input', search);
 $('#search').addEventListener('focus', search);
@@ -311,7 +313,7 @@ $('#detail-content').onclick = (event) => {
   if (target.dataset.stop) { const s = network?.stops.find((s) => s.key === target.dataset.stop); if (s) void selectStop(s); }
   if (target.dataset.route) { const r = network?.routes.find((r) => r.key === target.dataset.route); if (r) void selectRoute(r); }
   if (target.dataset.vehicle) { const v = snapshot?.vehicles.find((v) => v.id === target.dataset.vehicle); if (v) void selectVehicle(v); }
-  if (target.hasAttribute('data-follow')) { following = !following; lastFollow = 0; renderDetails(); }
+  if (target.hasAttribute('data-follow')) { following = !following; followCamera.reset(); renderDetails(); }
   if (target.hasAttribute('data-fit') && detail && 'shape' in detail && detail.shape) { following = false; fitShapes(map, [detail.shape], padding(), duration(850)); renderDetails(); }
   if (target.hasAttribute('data-full-line')) $('#back').click();
   if (target.hasAttribute('data-retry')) { if (selection?.kind === 'route') void selectRoute(selection.route, selection.direction, false); else if (selection?.kind === 'stop') void selectStop(selection.stop); else { const v = selectedVehicle(); if (v) void selectVehicle(v); } }

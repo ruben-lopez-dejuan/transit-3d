@@ -42,7 +42,7 @@ export const providers: ProviderRuntime[] = sourceAdapters.map((adapter) => {
   if (adapter.operatorId === 'bilbobus') provider.arrivals = {
     departures: async (gtfs, stopId) => (await bilbobusProvider.departures(gtfs, gtfs.stops.get(stopId)?.stopCode ?? '')).map((row) => ({ ...row, routeKey: entityId(bilbaoManifest.id, adapter.operatorId, 'route', row.routeKey.slice('bilbobus:'.length)), tripId: entityId(bilbaoManifest.id, adapter.operatorId, 'trip', row.tripId) })),
     warm: async (gtfs, stopIds) => { await Promise.allSettled(stopIds.map((id) => bilbobusProvider.getArrivals(gtfs.stops.get(id)?.stopCode ?? ''))); },
-    peek: (gtfs, stopId, vehicleId) => { const row = bilbobusProvider.peekArrival(vehicleId, gtfs.stops.get(stopId)?.stopCode ?? ''); return row ? { arrival: row.arrival, sourceTimestamp: row.recordedAt } : null; },
+    peek: (gtfs, stopId, vehicleId) => { const row = bilbobusProvider.peekArrival(vehicleId, gtfs.stops.get(stopId)?.stopCode ?? ''); return row ? { arrival: row.arrival, departure: row.departure, sourceTimestamp: row.recordedAt } : null; },
   };
   return provider;
 });
