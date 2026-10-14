@@ -50,10 +50,10 @@ test('schedule, arrival forecasts, sparse GPS and stale signals never gain fake 
   assert.equal(sparse.positionQuality, 'predicted'); assert.equal(sparse.positionSource, 'GPS');
   assert.equal(renderedPositionSource(sparse, 'estimated', at), 'PROVIDER_ESTIMATED');
   assert.equal(renderedPositionSource(sparse, 'interpolated', at), 'INTERPOLATED_REALTIME');
-  const stale = normalize(raw({ observationTimestamp: at - 181_000 }));
+  const stale = normalize(raw({ observationTimestamp: at - 271_000 }));
   assert.equal(stale.positionSource, 'STALE'); assert.equal(stale.status, 'STALE');
-  assert.equal(stale.sourceTimestamp, at - 181_000); assert.equal(stale.receivedTimestamp, at - 1000);
-  assert.equal(renderedPositionSource(sparse, 'real', at + 100_000), 'STALE');
+  assert.equal(stale.sourceTimestamp, at - 271_000); assert.equal(stale.receivedTimestamp, at - 1000);
+  assert.equal(renderedPositionSource(sparse, 'real', at + 130_000), 'STALE');
 });
 test('invalid coordinates and foreign provider identities are omitted, optional measurements remain unknown', () => {
   const scope = { cityId: city.id, providerId: 'provider', timezone: city.timezone };
@@ -80,7 +80,7 @@ test('registered adapters isolate failure and disabling, declare capabilities an
   const repeated = await provider.getSnapshot(new Date(at + 5000));
   assert.equal(repeated.receivedTimestamp, first.receivedTimestamp); assert.equal(repeated.vehicles[0].sourceTimestamp, first.vehicles[0].sourceTimestamp);
   assert.equal(first.capabilities.occupancy, false); assert.equal(first.capabilities.vehiclePositions, true);
-  assert.equal((await provider.getSnapshot(new Date(at + 181_000))).health.state, 'stale');
+  assert.equal((await provider.getSnapshot(new Date(at + 271_000))).health.state, 'stale');
   provider.enabled = false;
   const disabled = await provider.getSnapshot(new Date(at));
   assert.equal(disabled.vehicles.length, 0); assert.equal(disabled.health.state, 'unavailable');
@@ -122,7 +122,7 @@ test('cached realtime source and reception times survive polling and expiration 
   const client = new RealtimeFeedClient('fixture', 'unused:no-network');
   const sourceTimestamp = at - 30_000, receivedTimestamp = at - 10_000;
   Object.assign(client, { feed: { header: { timestamp: sourceTimestamp / 1000 } }, receivedTimestamp, expires: at + 1_000_000 });
-  const first = await client.get(at), repeated = await client.get(at + 5000), stale = await client.get(at + 181_000);
+  const first = await client.get(at), repeated = await client.get(at + 5000), stale = await client.get(at + 271_000);
   assert.ok(first.feed); assert.deepEqual(repeated, first);
   assert.equal(stale.feed, null); assert.equal(stale.sourceTimestamp, sourceTimestamp); assert.equal(stale.receivedTimestamp, receivedTimestamp);
   assert.ok(stale.error);
@@ -132,13 +132,13 @@ test('cached realtime source and reception times survive polling and expiration 
 
 test('an expired realtime feed retains stale provider health while falling back to schedule', async () => {
   const now = Date.now(), client = new RealtimeFeedClient('fixture', 'unused:no-network');
-  Object.assign(client, { feed: { header: { timestamp: (now - 181_000) / 1000 } }, receivedTimestamp: now - 1000, expires: now + 1_000_000 });
+  Object.assign(client, { feed: { header: { timestamp: (now - 271_000) / 1000 } }, receivedTimestamp: now - 1000, expires: now + 1_000_000 });
   const gtfs: BizkaibusGtfs = { routes: new Map(), trips: new Map(), stops: new Map(), shapes: new Map(), tripStops: new Map(), routeTripIds: new Map(), calendars: new Map(), calendarDates: new Map() };
   const base: SourceAdapter = { operatorId: 'provider', getSnapshot: async () => ({ operatorId: 'provider', fetchedAt: now, sourceTimestamp: null, receivedTimestamp: now - 3600_000, status: 'ok', vehicles: [] }) };
   const adapter = new RealtimeProvider(base, async () => gtfs, client);
   const provider = new RegisteredProvider(city, testDefinition(), adapter);
   const snapshot = await provider.getSnapshot(new Date(now));
   assert.equal(snapshot.health.state, 'stale');
-  assert.equal(snapshot.sourceTimestamp, now - 181_000); assert.equal(snapshot.receivedTimestamp, now - 1000);
+  assert.equal(snapshot.sourceTimestamp, now - 271_000); assert.equal(snapshot.receivedTimestamp, now - 1000);
   assert.equal(snapshot.realtimeTripCount, 0); assert.equal(snapshot.vehicles.length, 0);
 });

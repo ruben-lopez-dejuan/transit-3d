@@ -75,7 +75,7 @@ test('Renfe rejects other nuclei, wrong stop order and impossible times; expired
     const g = fixture(), feed = addedFeed(); change(feed); const adapter = new RenfeAddedTrips(new Set(['10T1'])); adapter.prepare(g, feed, null, new Date(at)); assert.equal(adapter.rejected, 1); assert.equal(g.trips.has('SPECIAL_10_test'), false);
   }
   const g = fixture(), adapter = new RenfeAddedTrips(new Set(['10T1'])); adapter.prepare(g, addedFeed(), null, new Date(at)); assert.ok(tripPlan(g, 'SPECIAL_10_test'));
-  adapter.prepare(g, null, null, new Date(at + 181_000)); assert.equal(g.trips.has('SPECIAL_10_test'), false); assert.equal(tripPlan(g, 'SPECIAL_10_test'), null); assert.equal(g.calendarDates.size, 0);
+  adapter.prepare(g, null, null, new Date(at + 271_000)); assert.equal(g.trips.has('SPECIAL_10_test'), false); assert.equal(tripPlan(g, 'SPECIAL_10_test'), null); assert.equal(g.calendarDates.size, 0);
 });
 test('fresh GPS retains an already verified ADDED mapping while timetable ages; receipt never revives it', () => {
   const g = fixture(), adapter = new RenfeAddedTrips(new Set(['10T1'])); adapter.prepare(g, addedFeed(), null, new Date(at));
@@ -109,7 +109,7 @@ test('Metro dwell anchors stop at a station, speeds stay bounded and stale/ambig
   const v = estimator.vehicles(g, boards(), at + 65_000, 'metro')[0]; assert.ok(v);
   const b = tripPlan(g, 'forward')!.stops[1].progress; assert.equal(v.progressMetersAlongShape, b);
   const anchors = v.motionTimeline!; for (let i = 1; i < anchors.length; i++) if (anchors[i].at > anchors[i - 1].at) assert.ok((anchors[i].progress - anchors[i - 1].progress) / ((anchors[i].at - anchors[i - 1].at) / 1000) <= 30);
-  assert.equal(estimator.vehicles(g, boards(), at + 181_000, 'metro').length, 0);
+  assert.equal(estimator.vehicles(g, boards(), at + 271_000, 'metro').length, 0);
   assert.equal(estimator.vehicles(g, boards().map((b) => ({ ...b, destination: 'unknown' })), at, 'metro').length, 0);
   assert.equal(generateScheduledVehicles(g, new Date(at), 'metro').length, 0);
 });
@@ -148,7 +148,7 @@ test('EMT datetime respects Madrid summer/winter/DST and never replaces an absen
   const sample = { code: '00', datetime: '2026-10-03T12:00:00', data: [{ Arrive: [{ line: '1', stop: '62', bus: '7', destination: 'D', estimateArrive: 120 }, { line: '1', stop: '62', bus: '8', estimateArrive: 999999 }] }] };
   assert.equal(parseEmtArrivals(sample, '62', at)[0].at, at + 120_000); assert.equal(parseEmtArrivals(sample, '62', at).length, 1);
   assert.deepEqual(parseEmtArrivals({ ...sample, datetime: undefined }, '62', at), []);
-  assert.deepEqual(parseEmtArrivals(sample, '62', at + 181_000), []); assert.throws(() => parseEmtArrivals({ code: '80' }, '62', at));
+  assert.deepEqual(parseEmtArrivals(sample, '62', at + 271_000), []); assert.throws(() => parseEmtArrivals({ code: '80' }, '62', at));
 });
 test('EMT credentials remain server-side; token and concurrent selected-stop calls are cached and errors isolated', async () => {
   let clock = at, logins = 0, arrivals = 0, fail = false;
@@ -162,7 +162,7 @@ test('EMT credentials remain server-side; token and concurrent selected-stop cal
   const [a, b] = await Promise.all([client.get('62'), client.get('62')]); assert.deepEqual(a, b); assert.equal(logins, 1); assert.equal(arrivals, 1);
   await client.get('62'); assert.equal(arrivals, 1); assert.equal(client.latestSource(), at);
   fail = true; clock += 31_000; const retained = await client.get('62'); assert.equal(retained[0].sourceTimestamp, at); assert.ok(client.error); assert.ok(!client.error.includes('test-token'));
-  clock += 181_000; assert.equal(client.latestSource(), null); assert.deepEqual(client.peek('62'), []);
+  clock += 271_000; assert.equal(client.latestSource(), null); assert.deepEqual(client.peek('62'), []);
   const noCredentials = new EmtClient(undefined, async () => { throw new Error('must not fetch'); }); assert.deepEqual(await noCredentials.get('62'), []);
 });
 test('EMT arrivals hook scopes bus IDs and only claims forecasts; the fleet remains schedule fallback', async () => {

@@ -26,7 +26,7 @@ test('SIRI arrivals preserve the official UTC record time and ignore stale predi
   const [arrival] = parseSiriArrivals(xml, '1101', now);
   assert.equal(arrival.vehicleId, '767'); assert.equal(arrival.directionId, 0);
   assert.equal(arrival.arrival, Date.parse('2026-10-02T14:06:51Z'));
-  assert.equal(parseSiriArrivals(xml, '1101', now + 180_000).length, 0);
+  assert.equal(parseSiriArrivals(xml, '1101', now + 270_000).length, 0);
 });
 test('Observation speed uses meters and source milliseconds, rejecting actual anomalies only', () => {
   const tracker = new ObservationTracker();
@@ -35,7 +35,7 @@ test('Observation speed uses meters and source milliseconds, rejecting actual an
   assert.equal(tracker.accept('bus', { at: 26000, progress: 250 }, 'bus', 30000)?.previous?.at, 1000);
   assert.equal(tracker.accept('bus', { at: 27000, progress: 2250 }, 'bus', 27000), null);
   assert.equal(tracker.accept('bus', { at: 51000, progress: 500 }, 'bus', 51000)?.speed, 10);
-  assert.equal(tracker.accept('bus', { at: 250000, progress: 1500 }, 'bus', 250000)?.previous, null);
+  assert.equal(tracker.accept('bus', { at: 330000, progress: 1500 }, 'bus', 330000)?.previous, null);
 });
 
 test('Bilbobus official route progress disambiguates nearby shape segments and is GPS-validated', () => {

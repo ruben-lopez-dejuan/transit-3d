@@ -16,8 +16,11 @@ CRTM. Estado y configuración: [city-packages/es-madrid/README.md](city-packages
   y Tuvisa cuando sus feeds están frescos. La predicción usa tiempos y progreso
   originales, ajusta suavemente las nuevas observaciones y se etiqueta ESTIMADO
   cuando avanza más allá del último GPS. No recupera errores con acelerones.
-- **ESTIMADO con predicciones:** Metro Bilbao y Euskotren/tranvías tienen
-  TripUpdates útiles, pero no posiciones GPS publicadas en la auditoría.
+- **ESTIMADO con predicciones:** Metro Bilbao tiene TripUpdates con predicciones
+  reales (sus posiciones publicadas son la última estación con ~2 min de retraso y no
+  se usan); Euskotren/tranvías publican TripUpdates que en la práctica repiten el
+  horario y no posiciones. Un TripUpdate que solo repite el horario (Bizkaibus,
+  casi todo Euskotren) no se trata como predicción ni supera al GPS.
 - **ESTIMADO por horario:** Artxanda y los demás operadores sin realtime
   utilizable; también es el fallback cuando caducan los datos de un operador.
 
@@ -25,6 +28,14 @@ CRTM. Estado y configuración: [city-packages/es-madrid/README.md](city-packages
 fija las próximas llegadas y salidas; 3) GTFS-RT u otras predicciones del operador
 cuando son válidas; 4) GTFS estático como respaldo. SIRI nunca se presenta como GPS
 y conserva su propio timestamp; la ficha indica cuándo el avance sigue a SIRI.
+
+Moveuskadi republica sus feeds por lotes cada 2 minutos con datos que ya tienen
+60–80 s, así que un dato se considera vigente durante 270 s
+(`shared/transit/freshness.ts`). Sin GPS, el movimiento de trenes y tranvías es
+una función del tiempo y de la línea temporal del servidor, igual en cualquier
+dispositivo o recarga; las correcciones se absorben sin retroceder. Cuando la
+predicción solo da hora de llegada, el servidor añade una parada de unos 20 s en
+cada estación para que el tren no la atraviese sin detenerse.
 
 La hora del dato, la consulta al servidor y la posición animada se mantienen
 separadas. Una consulta HTTP no rejuvenece una señal antigua.

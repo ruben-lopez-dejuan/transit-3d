@@ -1,15 +1,14 @@
 import type { Map as TransitMap, GeoJSONSource } from "maplibre-gl";
 import type { Shape, Vehicle, TransitMode } from "../transit/networkTypes";
-import { progressAt } from "../transit/motion";
-import { advanceProgress, motionLimits } from '../transit/progressFollower';
 import { GpsMotion } from '../transit/gpsMotion';
+import { TimelineMotion } from '../transit/timelineMotion';
 import { composition, vehiclePose } from '../transit/vehiclePose';
 import { estimatedBusDwell } from '../transit/stopMotion';
 import type { VehicleModels, ModelItem } from './vehicleModels';
 import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
-import { renderedPositionSource } from '../../shared/transit/freshness';
+import { renderedPositionSource, REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 
-type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion };
+type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion; scheduled?: TimelineMotion };
 /** Keep normal mobile motion fluid, but protect slower phones with very large fleets. */
 export function renderInterval(viewportWidth: number, fleetSize: number, focused: boolean, reducedMotion: boolean) {
   if (reducedMotion) return 250;
@@ -47,14 +46,9 @@ export class TransitRenderer {
   }) {}
   private progress(state: State, now: number) {
     if (state.motion) return state.motion.position(now) ?? state.vehicle.progressMetersAlongShape;
-    const dt = Math.max(0, (now - state.at) / 1000);
-    if (!dt) return state.progress;
-    const rail = state.vehicle.mode === 'rail' || state.vehicle.mode === 'tram';
-    const target = progressAt(state.vehicle.timeline, now, rail) ?? state.vehicle.progressMetersAlongShape;
-    const limits = motionLimits(state.vehicle.mode, state.vehicle.maximumSpeedMetersPerSecond);
-    const pace = Math.max(0, Math.min(limits.speed, ((progressAt(state.vehicle.timeline, now + 250, rail) ?? target) - target) * 4));
-    const next = advanceProgress(state.progress, state.speed, dt, target, pace, 30, limits.speed, limits.acceleration, this.shapes.get(state.vehicle.shapeKey)?.total);
-    state.progress = next.progress; state.speed = next.speed; state.at = now;
+    if (!state.scheduled) return state.progress;
+    state.progress = state.scheduled.position(now, this.shapes.get(state.vehicle.shapeKey)?.total);
+    state.speed = state.scheduled.speed; state.at = now;
     return state.progress;
   }
   update(vehicles: Vehicle[], fetchedAt: number, serverTime = Date.now()) {
@@ -75,8 +69,9 @@ export class TransitRenderer {
         if (vehicle.id === this.selectedId && previous?.vehicle.observationTimestamp !== vehicle.observationTimestamp && new URLSearchParams(location.search).has('debug')) console.debug('[transit-motion]', { id: vehicle.id, fetchedAt, ...motion.diagnostics });
         continue;
       }
-      const target = progressAt(vehicle.timeline, now, vehicle.mode === 'rail' || vehicle.mode === 'tram') ?? vehicle.progressMetersAlongShape;
-      next.set(vehicle.id, { vehicle, progress: displayed ?? target, speed, at: now });
+      const scheduled = new TimelineMotion(vehicle.mode === 'rail' || vehicle.mode === 'tram', vehicle.progressMetersAlongShape);
+      scheduled.retime(vehicle.timeline, now, displayed);
+      next.set(vehicle.id, { vehicle, progress: scheduled.position(now), speed, at: now, scheduled });
     }
     this.states = next;
   }
@@ -125,14 +120,14 @@ export class TransitRenderer {
     const vehicles = this.getVehicles().filter((vehicle) => !this.focusRoute || (vehicle.routeKey === this.focusRoute && (this.direction === "all" || String(vehicle.directionId ?? "unknown") === this.direction)));
     const modelsReady = !!this.models?.ready && !!this.map.getLayer('transit-models');
     const prepareModels = zoom >= MODEL_MIN_ZOOM && modelsReady;
-    if (now - this.snapshotAt > 180_000) {
+    if (now - this.snapshotAt > REALTIME_MAX_AGE_MS) {
       for (const id of ["vehicles", "selected-vehicle", "vehicle-bodies"]) (this.map.getSource(id) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [] });
       this.models?.update([], false); this.modelCars = 0; this.modelVehicles = 0;
       return;
     }
     let modelVehicles = 0;
     for (const vehicle of vehicles) {
-      if (vehicle.positionQuality !== "scheduled" && vehicle.observationTimestamp && now - vehicle.observationTimestamp > 180_000) continue;
+      if (vehicle.positionQuality !== "scheduled" && vehicle.observationTimestamp && now - vehicle.observationTimestamp > REALTIME_MAX_AGE_MS) continue;
       const state = this.states.get(vehicle.id)!;
       const shape = this.shapes.get(vehicle.shapeKey);
       if (shape) state.motion?.setEnd(shape.total);

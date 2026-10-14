@@ -167,7 +167,7 @@ test('stale provider stop forecasts never become motion anchors or fresh timesta
   const provider = city.providers.find((p) => p.operatorId === 'bilbobus')!;
   provider.arrivals = {
     departures: async () => [], warm: async () => {},
-    peek: (_gtfs, stopId) => stopId === 'stop:2' ? { arrival: now + 120_000, sourceTimestamp: now - 181_000 } : null,
+    peek: (_gtfs, stopId) => stopId === 'stop:2' ? { arrival: now + 120_000, sourceTimestamp: now - 271_000 } : null,
   };
   const snapshot = await network.getPresentationSnapshot();
   const vehicle = snapshot.vehicles.find((v) => v.providerId === 'bilbobus')!;

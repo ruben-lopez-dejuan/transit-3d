@@ -77,6 +77,8 @@ export function resolveServiceDate(gtfs: BizkaibusGtfs, descriptor: TripDescript
   return best?.date ?? null;
 }
 
+/** Feeds that echo the timetable round it by up to a second. */
+const ECHO_TOLERANCE_SECONDS = 1;
 function eventDelay(event: RealtimeEvent | undefined, scheduled: number): number | null {
   // Absolute times take precedence. In particular, an explicitly supplied zero delay is data.
   if (Number.isFinite(event?.time) && event!.time! > 0) return (event!.time! * 1000 - scheduled) / 1000;
@@ -110,6 +112,8 @@ export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage 
     }
     if (!valid) continue;
     let propagated: number | null = Number.isFinite(update.delay) ? update.delay! : null;
+    // A journey built from the feed itself (Renfe ADDED) matches its own times by construction.
+    let predictive = Math.abs(propagated ?? 0) > ECHO_TOLERANCE_SECONDS || !!gtfs.trips.get(tripId)?.serviceId.startsWith('realtime-added:');
     const stops = new Map<number, UpdatedStop>();
     for (const stop of scheduled) {
       const arrivalSeconds = parseGtfsTime(stop.arrivalTime) ?? parseGtfsTime(stop.departureTime);
@@ -123,12 +127,15 @@ export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage 
       const effectiveArrival = arrivalDelay ?? departureDelay ?? propagated;
       const effectiveDeparture = departureDelay ?? arrivalDelay ?? propagated;
       if (departureDelay !== null || arrivalDelay !== null) propagated = departureDelay ?? arrivalDelay;
+      if (skipped || Math.abs(arrivalDelay ?? 0) > ECHO_TOLERANCE_SECONDS || Math.abs(departureDelay ?? 0) > ECHO_TOLERANCE_SECONDS) predictive = true;
       const arrival = scheduledArrival + (effectiveArrival ?? 0) * 1000;
       const departure = scheduledDeparture + (effectiveDeparture ?? 0) * 1000;
       if (departure < arrival) { valid = false; break; }
       stops.set(stop.sequence, { stopId: stop.stopId, sequence: stop.sequence, scheduledArrival, scheduledDeparture, arrival, departure, arrivalRealtime: effectiveArrival !== null, departureRealtime: effectiveDeparture !== null, skipped });
     }
-    if (valid && stops.size) result.set(key, { tripId, serviceDate: date, updatedAt, canceled: false, stops });
+    // An update that only repeats the timetable is not a prediction: it must
+    // not outrank GPS or be labelled realtime (Bizkaibus, most of Euskotren).
+    if (valid && stops.size && predictive) result.set(key, { tripId, serviceDate: date, updatedAt, canceled: false, stops });
   }
   return result;
 }

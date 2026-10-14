@@ -1,3 +1,4 @@
+import { REALTIME_MAX_AGE_MS } from '../shared/transit/freshness';
 import type { Departure, Vehicle, Route } from './transit/networkTypes';
 import type { CityManifest } from '../shared/transit/contracts';
 
@@ -26,7 +27,7 @@ export function positionExplanation(v: Vehicle, now = Date.now()) {
   return `Posición estimada con horarios actualizados por el operador${v.timetableTimestamp ? ` hace ${age(v.timetableTimestamp)} s` : ''}.`;
 }
 export const departures = (items: Departure[], operatorName: (id: string) => string, now = Date.now()) => items.length ? `<div class="departures">${items.map((d) => {
-  const expired = !!d.updatedAt && now - d.updatedAt > 180_000;
+  const expired = !!d.updatedAt && now - d.updatedAt > REALTIME_MAX_AGE_MS;
   const realtime = d.source === 'realtime' && !expired, canceled = !!d.canceled && !expired;
   const at = expired ? d.scheduledAt ?? d.at : d.at;
   const source = realtime ? 'Tiempo real' : d.source === 'gps' && !expired ? 'Estimado por GPS' : 'Horario';

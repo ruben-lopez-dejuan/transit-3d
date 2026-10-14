@@ -3,6 +3,7 @@ import { freshTimestamp, type RealtimeMessage, type TripUpdate } from '../../tra
 import { formatServiceDate } from '../../transit/gtfsCalendar';
 import { invalidateTripPlan, serviceEpoch, shapeMetric, shiftDate } from '../../transit/plans';
 import { projectOntoShape } from '../../transit/motionEngine';
+import { REALTIME_MAX_AGE_MS } from '../../../shared/transit/freshness';
 
 /** Official ADDED journeys have no static trip_id. Join only the route and ordered
  * station IDs supplied by Renfe; never guess a journey from a C1/C2 display label. */
@@ -21,7 +22,7 @@ export class RenfeAddedTrips {
     const present = new Set([...(feed?.entity ?? []).filter((e) => !e.isDeleted).map((e) => e.tripUpdate?.trip.tripId), ...(gps?.entity ?? []).filter((e) => !e.isDeleted && freshTimestamp(e.vehicle?.timestamp, now.getTime()) !== null).map((e) => e.vehicle?.trip?.tripId)]);
     // Two current full datasets explicitly removing a journey are not a network
     // outage. Do not leave an ADDED timetable ghost after its service disappears.
-    for (const [id, state] of this.active) if (now.getTime() - state.at > 180_000 || bothCurrent && !present.has(id)) {
+    for (const [id, state] of this.active) if (now.getTime() - state.at > REALTIME_MAX_AGE_MS || bothCurrent && !present.has(id)) {
       gtfs.trips.delete(id); gtfs.tripStops.delete(id); invalidateTripPlan(gtfs, id);
       this.active.delete(id);
     }

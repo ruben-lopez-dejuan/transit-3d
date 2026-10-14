@@ -11,6 +11,7 @@ import { distanceMeters } from "./motionEngine";
 import { passengerHeadsign } from './labels';
 import { anchorGpsTimeline } from './gpsTimeline';
 import { mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
+import { withStationDwell } from './stationDwell';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape, MotionAnchor, TimelineSource } from '../../shared/transit/network';
 import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
@@ -235,6 +236,8 @@ function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
   // estimates, and the static timetable only as fallback.
   const stopForecasts = plan ? cachedStopForecasts(vehicle, gtfs, plan, fullTimeline, now) : [];
   fullTimeline = mergeStopForecasts(fullTimeline, stopForecasts);
+  // Trains stop at every station, even when the source publishes no dwell.
+  if (vehicle.mode === 'rail' || vehicle.mode === 'tram') fullTimeline = withStationDwell(fullTimeline);
   if (vehicle.observationTimestamp !== null) {
     // The actual GPS anchors the map position; the forecasts control the following station times.
     fullTimeline = anchorGpsTimeline(fullTimeline, { at: vehicle.observationTimestamp, progress: vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape });

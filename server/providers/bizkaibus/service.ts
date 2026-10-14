@@ -1,3 +1,4 @@
+import { REALTIME_MAX_AGE_MS } from '../../../shared/transit/freshness';
 import type {
   BizkaibusGtfs,
   GtfsRoute,
@@ -241,7 +242,7 @@ export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<Pr
     const snapshot = await getBizkaibusSnapshot();
     sourceTimestamp = snapshot.feedTimestamp;
     receivedTimestamp = snapshot.receivedTimestamp ?? null;
-    if (sourceTimestamp !== null && now.getTime() - sourceTimestamp * 1000 > 180_000) {
+    if (sourceTimestamp !== null && now.getTime() - sourceTimestamp * 1000 > REALTIME_MAX_AGE_MS) {
       status = "degraded";
       error = "Realtime feed timestamp is stale; showing scheduled service when available.";
     }
@@ -249,7 +250,7 @@ export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<Pr
       const observedAt = freshTimestamp(vehicle.timestamp ?? undefined, now.getTime());
       if (observedAt === null) continue;
       const ageMs = Math.max(0, now.getTime() - observedAt);
-      if (ageMs > 180_000) continue;
+      if (ageMs > REALTIME_MAX_AGE_MS) continue;
       const { longitude, latitude, bearing, progressMetersAlongShape } = vehicle;
       const date = resolveServiceDate(gtfs, { tripId: vehicle.tripId }, new Date(observedAt));
       if (!date) continue;

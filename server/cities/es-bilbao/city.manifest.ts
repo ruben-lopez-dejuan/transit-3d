@@ -2,7 +2,7 @@ import { CITY_PACKAGE_API_VERSION, type CityManifest, type ProviderCapabilities,
 import { primary, regionalSources, renfeSource } from './sources';
 const capabilities = (overrides: Partial<ProviderCapabilities> = {}): ProviderCapabilities => ({ staticGtfs: true, vehiclePositions: false, tripUpdates: false, serviceAlerts: false, occupancy: false, speed: false, bearing: false, stopArrivals: false, ...overrides });
 const definitions: ProviderDefinition[] = [
-  ...primary.map((s) => ({ id: s.id, name: s.name, color: s.color, realtime: true, primary: true, capabilities: capabilities({ tripUpdates: true }), ...(s.id === 'euskotren' ? { layers: [{ name: 'Euskotren · tren', mode: 'rail' as const }, { name: 'Tranvía · Bilbao / Vitoria', mode: 'tram' as const }] } : {}) })),
+  ...primary.map((s) => ({ id: s.id, name: s.name, color: s.color, realtime: true, primary: true, capabilities: capabilities({ vehiclePositions: !!s.vehiclePositions, tripUpdates: !!s.tripUpdates }), ...(s.id === 'euskotren' ? { layers: [{ name: 'Euskotren · tren', mode: 'rail' as const }, { name: 'Tranvía · Bilbao / Vitoria', mode: 'tram' as const }] } : {}) })),
   { id: renfeSource.id, name: renfeSource.name, color: renfeSource.color, realtime: true, primary: true, capabilities: capabilities({ vehiclePositions: true, tripUpdates: true }) },
   { id: 'bizkaibus', name: 'Bizkaibus', color: '#177857', realtime: true, primary: true, capabilities: capabilities({ vehiclePositions: true, tripUpdates: true }) },
   { id: 'bilbobus', name: 'Bilbobus', color: '#c33b42', realtime: true, primary: true, capabilities: capabilities({ vehiclePositions: true, stopArrivals: true, speed: true }) },

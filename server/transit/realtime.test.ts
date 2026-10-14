@@ -56,7 +56,7 @@ test('TripUpdates must not erase fresh base GPS at timetable boundaries, but can
   const data = fixture(), evaluatedAt = new Date(serviceEpoch(date, 10 * 3600 + 31 * 60));
   const observedAt = evaluatedAt.getTime() - 149_000;
   const base = generateScheduledVehicles(data, now, 'bizkaibus').map((v) => ({ ...v, positionQuality: 'predicted' as const, positionSource: 'gps' as const, observationTimestamp: observedAt, receivedTimestamp: evaluatedAt.getTime() - 1000, vehicleId: 'physical-bus' }));
-  const input = feed({ delay: 0, stopTimeUpdate: [{ stopSequence: 2, stopId: 'b', arrival: { delay: 0 } }] }); input.header!.timestamp = evaluatedAt.getTime() / 1000;
+  const input = feed({ delay: 20, stopTimeUpdate: [{ stopSequence: 2, stopId: 'b', arrival: { delay: 20 } }] }); input.header!.timestamp = evaluatedAt.getTime() / 1000;
   const updates = normalizeTripUpdates(data, input, evaluatedAt);
   const result = applyRealtime(data, base, 'bizkaibus', updates, null, evaluatedAt);
   assert.equal(result.length, 1);
@@ -93,9 +93,9 @@ test('Missing delay is unknown rather than an on-time prediction', () => {
 });
 test('Stale headers/entities, differential feeds, invalid dates/routes, and unknown trips are ignored', () => {
   const data = fixture();
-  const stale = feed(); stale.header!.timestamp! -= 181;
+  const stale = feed(); stale.header!.timestamp! -= 271;
   const differential = feed(); differential.header!.incrementality = 'DIFFERENTIAL';
-  for (const input of [stale, differential, feed({ timestamp: now.getTime() / 1000 - 181 }), feed({ trip: { tripId: 'unknown' } }), feed({ trip: { tripId: 't', routeId: 'other' } }), feed({ trip: { tripId: 't', startDate: '20260231' } }), feed({ trip: { tripId: 't', startTime: '10:00:00' } })]) assert.equal(normalizeTripUpdates(data, input, now).size, 0);
+  for (const input of [stale, differential, feed({ timestamp: now.getTime() / 1000 - 271 }), feed({ trip: { tripId: 'unknown' } }), feed({ trip: { tripId: 't', routeId: 'other' } }), feed({ trip: { tripId: 't', startDate: '20260231' } }), feed({ trip: { tripId: 't', startTime: '10:00:00' } })]) assert.equal(normalizeTripUpdates(data, input, now).size, 0);
 });
 test('Stops must match both ID and sequence; repeated stations without sequence are ambiguous', () => {
   const data = fixture();

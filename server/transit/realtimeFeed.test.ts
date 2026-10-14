@@ -33,14 +33,14 @@ test('restarting a provider immediately restores fresh cache while exactly one d
   finish(); await flush();
   const received = await client.get(now + 10_000);
   assert.ok(received.receivedTimestamp); assert.equal(received.sourceTimestamp, source);
-  assert.equal((await client.get(source + 181_000)).feed, null, 'successful HTTP cannot renew old source time');
+  assert.equal((await client.get(source + 271_000)).feed, null, 'successful HTTP cannot renew old source time');
 });
 
 test('expired, future, differential and corrupt caches cannot become live after restart', async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'transit-rt-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const now = Math.floor(Date.now() / 1000) * 1000;
-  for (const [name, bytes] of [['expired', encode(now - 181_000)], ['future', encode(now + 61_000)], ['differential', encode(now, 1)], ['corrupt', Buffer.from('not protobuf')]] as const) {
+  for (const [name, bytes] of [['expired', encode(now - 271_000)], ['future', encode(now + 61_000)], ['differential', encode(now, 1)], ['corrupt', Buffer.from('not protobuf')]] as const) {
     fs.writeFileSync(path.join(directory, `${name}.pb`), bytes);
     const client = new RealtimeFeedClient(name, 'unused:no-network', { cacheDirectory: directory, download: async () => { throw new Error('offline'); } });
     const state = await client.get(now); assert.equal(state.feed, null); assert.equal(state.receivedTimestamp, null);

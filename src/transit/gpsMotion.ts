@@ -1,3 +1,4 @@
+import { REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 import type { MotionAnchor, TransitMode } from './networkTypes';
 import { progressAt } from './motion';
 import { advanceProgress, motionLimits } from './progressFollower';
@@ -15,7 +16,7 @@ type Options = {
   forecastTimestamp?: number | null;
 };
 const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n));
-const freshness = 180_000;
+const freshness = REALTIME_MAX_AGE_MS;
 /** A stop report is a dwell, not a parking: after this the bus is predicted to leave. */
 const stopHold = (mode: TransitMode) => mode === 'bus' ? 30_000 : 45_000;
 
