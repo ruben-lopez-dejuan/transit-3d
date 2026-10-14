@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import AdmZip from "adm-zip";
-import { parseGtfsDirectory } from '../../transit/gtfsParser';
+import { parseGtfsDirectoryStreaming } from '../../transit/gtfsParser';
 export { parseGtfsDirectory } from '../../transit/gtfsParser';
 import { readParsedFeed, writeParsedFeed } from '../../lib/gtfsCache';
 
@@ -142,7 +142,9 @@ async function loadBizkaibusGtfs(): Promise<BizkaibusGtfs> {
 
   await ensureGtfsFiles();
   const parsedPath = path.join(BIZKAIBUS_GTFS_DIR, 'parsed.v8');
-  memoryCache = readParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP) ?? parseGtfsDirectory(BIZKAIBUS_GTFS_DIR);
+  // The feed exceeds the .v8 cache limit, so it is parsed on every refresh. The streaming
+  // parser builds the same model but yields; the synchronous one froze the whole API.
+  memoryCache = readParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP) ?? await parseGtfsDirectoryStreaming(BIZKAIBUS_GTFS_DIR);
   writeParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP, memoryCache);
   memoryExpires = Date.now() + STATIC_GTFS_MAX_AGE_MS;
   console.log(`[Bizkaibus] GTFS ready: ${memoryCache.routes.size} routes, ${memoryCache.trips.size} trips.`);
