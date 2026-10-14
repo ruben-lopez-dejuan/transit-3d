@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { progressAt, positionAlong, correctionOffset, positionQuality } from './motion';
+import { progressAt, positionAlong, correctionOffset, positionQuality, nextStopAhead } from './motion';
 import { searchNetwork } from './search';
 import { esc, badge, departures, positionExplanation, createShell } from '../ui';
 import { chooseCityId, cityUrl } from './cities';
@@ -76,6 +76,11 @@ test('client movement preserves station dwell and clamps the timeline', () => {
   assert.equal(progressAt([], 0), null);
   assert.ok(progressAt(anchors, 1000, true)! < progressAt(anchors, 1000)!);
   assert.ok(progressAt(anchors, 9000, true)! > progressAt(anchors, 9000)!);
+});
+test('the next stop follows rendered progress instead of an older server snapshot', () => {
+  const stops = [{ id: 'already-passed', progress: 100 }, { id: 'next', progress: 200 }];
+  assert.equal(nextStopAhead(stops, 150)?.id, 'next');
+  assert.equal(nextStopAhead(stops, 205), undefined);
 });
 test('rendered positions use cumulative meters and preserve segment bearing', () => {
   const shape = { key: 'op:shape', coordinates: [[0, 0], [.001, 0], [.001, .002]] as [number, number][], cumulative: [0, 100, 300], total: 300 };

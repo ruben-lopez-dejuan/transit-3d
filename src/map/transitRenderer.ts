@@ -80,6 +80,10 @@ export class TransitRenderer {
     }
     this.states = next;
   }
+  progressMeters(id: string) {
+    const state = this.states.get(id);
+    return state ? this.progress(state, Date.now() + this.clockOffset) : null;
+  }
   coordinate(id: string) {
     const state = this.states.get(id); if (!state) return null;
     const shape = this.shapes.get(state.vehicle.shapeKey);

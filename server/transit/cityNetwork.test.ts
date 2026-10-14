@@ -92,6 +92,33 @@ test('city catalog, vehicles, geometry, line, stop and trip details share normal
     assert.equal(parseEntityId(trip!.stops[0].id)?.kind, 'stop');
   }
 });
+test('a physical vehicle assigned to a future public trip stays hidden until its first departure', async () => {
+  const now = Date.now();
+  const timezone = 'UTC';
+  const date = formatServiceDate(new Date(now), timezone).date;
+  const serviceSecond = Math.floor((now - serviceEpoch(date, 0, timezone)) / 1000);
+  const gtfsTime = (seconds: number) => `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  const gtfs = fixture();
+  const stops = gtfs.tripStops.get('trip:1')!;
+  stops[0].arrivalTime = stops[0].departureTime = gtfsTime(serviceSecond + 1200);
+  stops[1].arrivalTime = stops[1].departureTime = gtfsTime(serviceSecond + 3600);
+  const definition = bilbaoManifest.providers.find((entry) => entry.id === 'bizkaibus')!;
+  const manifest = { ...bilbaoManifest, id: 'future-trip-fixture', timezone, providers: [definition] };
+  const vehicle = generateScheduledVehicles(gtfs, new Date(now + 1800_000), definition.id, timezone)[0];
+  assert.ok(vehicle, 'fixture vehicle should be active later in the same trip');
+  const provider = new RegisteredProvider(manifest, definition, {
+    operatorId: definition.id,
+    getSnapshot: async () => ({
+      operatorId: definition.id, fetchedAt: now, sourceTimestamp: now - 10_000, receivedTimestamp: now,
+      status: 'ok', vehicles: [{ ...vehicle, observationTimestamp: now - 10_000, predictionTimestamp: now, positionQuality: 'live', positionSource: 'gps' }],
+    }),
+  }) as ProviderRuntime;
+  provider.getGtfs = async () => gtfs;
+  const city: RuntimeCityPackage = { manifest, providers: [provider], infrastructure: () => [], places: () => [] };
+  const snapshot = await createCityNetwork(city).getPresentationSnapshot();
+  assert.equal(snapshot.vehicles.length, 0);
+  assert.equal(snapshot.providers[0].health.state, 'healthy');
+});
 test('failed or disabled providers leave the remaining Bilbao vehicles and station services available', async () => {
   const { city, network } = memoryCity({ broken: 'bizkaibus' });
   const snapshot = await network.getPresentationSnapshot();

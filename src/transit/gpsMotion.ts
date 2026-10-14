@@ -41,6 +41,9 @@ export class GpsMotion {
   private rejection: string | null = null;
   private end = Infinity;
   private forecastTimestamp = 0;
+  private realtimeTimetable = false;
+  private holdingForRealtimeAnchor = false;
+  private recoveringToRealtimeAnchor = false;
   constructor(private readonly seed?: { progress: number; speed: number }) {}
 
   update(observation: MotionAnchor, now: number, options: Options) {
@@ -51,7 +54,7 @@ export class GpsMotion {
     if (this.observation && observation.at <= this.observation.at) {
       if (observation.at !== this.observation.at || Math.abs(observation.progress - this.observation.progress) >= 2) this.rejection = 'regressive/conflicting observation';
       else if (options.forecastTimestamp && options.forecastTimestamp > this.forecastTimestamp) {
-        this.timeline = options.timeline; this.forecastTimestamp = options.forecastTimestamp;
+        this.timeline = options.timeline; this.forecastTimestamp = options.forecastTimestamp; this.realtimeTimetable = !!options.realtimeTimetable;
       }
       return false;
     }
@@ -78,6 +81,7 @@ export class GpsMotion {
     this.sourceSpeed = clamp(reported ?? this.planSpeed(observation.at), 0, maximum);
     this.measuredSpeed = reported !== null;
     this.forecastTimestamp = options.forecastTimestamp ?? 0;
+    this.realtimeTimetable = !!options.realtimeTimetable;
     if (!options.realtimeTimetable && reported !== null && reported > 0 && this.timeline.length > 1) {
       // A theoretical timetable must not accelerate a late bus to scheduled pace.
       // Estimate future travel at observed pace, retaining explicit station dwell.
@@ -145,7 +149,19 @@ export class GpsMotion {
     const stop = this.timeline.find((anchor) => anchor.at >= at && anchor.progress > this.observation!.progress && anchor.progress >= this.progress);
     const brakingLimit = stop ? Math.sqrt(2 * this.acceleration * Math.max(0, stop.progress - this.progress - this.velocity * dt)) : this.maximumSpeed;
     const cadenceSeconds = this.cadence / 1000;
-    const next = advanceProgress(this.progress, this.velocity, dt, this.target, pace, cadenceSeconds, Math.min(this.maximumSpeed, brakingLimit), this.acceleration, this.end);
+    // A fresh realtime anchor behind the rendered vehicle means extrapolation
+    // has already gone too far. We cannot drive backwards. If the operator also
+    // supplies a later stop ahead, recover towards that stop at the pace needed
+    // for its ETA; otherwise brake to a hold while awaiting coherent data.
+    const overshotRealtime = this.realtimeTimetable && this.target < this.progress - 2;
+    const recoveryAnchor = overshotRealtime ? this.timeline.find((anchor) => anchor.at > at && anchor.progress > this.progress + 2) : undefined;
+    this.recoveringToRealtimeAnchor = !!recoveryAnchor;
+    this.holdingForRealtimeAnchor = overshotRealtime && !recoveryAnchor;
+    const recoverySeconds = recoveryAnchor ? Math.max(dt, (recoveryAnchor.at - at) / 1000) : 0;
+    const movementTarget = recoveryAnchor?.progress ?? this.target;
+    const movementPace = recoveryAnchor ? clamp((recoveryAnchor.progress - this.progress) / recoverySeconds, 0, this.maximumSpeed) : pace;
+    const movementLimit = this.holdingForRealtimeAnchor ? 0 : recoveryAnchor ? Math.min(movementPace, brakingLimit) : Math.min(this.maximumSpeed, brakingLimit);
+    const next = advanceProgress(this.progress, this.velocity, dt, movementTarget, movementPace, cadenceSeconds, movementLimit, this.acceleration, this.end);
     this.progress = next.progress; this.velocity = next.speed; this.correction = next.correction;
     this.lastAt = at;
     return this.progress;
@@ -157,6 +173,6 @@ export class GpsMotion {
     return this.previous && this.progress >= this.previous.progress && this.progress < this.observation.progress ? 'interpolated' : 'estimated';
   }
   get diagnostics() {
-    return { sourceTimestamp: this.observation?.at ?? null, motionTimestamp: this.lastAt, renderedProgress: this.progress, predictedProgress: this.target, renderedSpeed: this.velocity, sourceSpeed: this.measuredSpeed ? this.sourceSpeed : null, predictionPace: this.sourceSpeed, cadenceSeconds: this.hasCadence ? this.cadence / 1000 : null, lastIntervalSeconds: this.lastInterval, correctionSpeed: this.correction, correctionErrorMeters: this.target - this.progress, rejected: this.rejection };
+    return { sourceTimestamp: this.observation?.at ?? null, motionTimestamp: this.lastAt, renderedProgress: this.progress, predictedProgress: this.target, renderedSpeed: this.velocity, sourceSpeed: this.measuredSpeed ? this.sourceSpeed : null, predictionPace: this.sourceSpeed, cadenceSeconds: this.hasCadence ? this.cadence / 1000 : null, lastIntervalSeconds: this.lastInterval, correctionSpeed: this.correction, correctionErrorMeters: this.target - this.progress, recoveringToRealtimeAnchor: this.recoveringToRealtimeAnchor, holdingForRealtimeAnchor: this.holdingForRealtimeAnchor, rejected: this.rejection };
   }
 }
