@@ -58,7 +58,19 @@ export class DebugInspector {
     if (!map.isStyleLoaded()) return;
     if (!map.getSource('debug-position-trace')) map.addSource('debug-position-trace', { type: 'geojson', data: empty() });
     if (!map.getLayer('debug-position-lines')) map.addLayer({ id: 'debug-position-lines', type: 'line', source: 'debug-position-trace', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': .78, 'line-dasharray': [2, 1.5] } });
-    if (!map.getLayer('debug-position-points')) map.addLayer({ id: 'debug-position-points', type: 'circle', source: 'debug-position-trace', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-color': ['get', 'color'], 'circle-radius': ['case', ['==', ['get', 'stage'], 'rendered'], 8, 6], 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': .95 } });
+    if (!map.getLayer('debug-position-points')) map.addLayer({
+      id: 'debug-position-points', type: 'circle', source: 'debug-position-trace',
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        // Largest to smallest, in source order: coincident stages remain visible
+        // as concentric rings without moving their real coordinates.
+        'circle-color': ['get', 'color'],
+        'circle-radius': ['match', ['get', 'stage'], 'provider', 18, 'projected', 14, 'predicted', 10, 7],
+        'circle-opacity': ['match', ['get', 'stage'], 'provider', .22, 'projected', .3, 'predicted', .42, .9],
+        'circle-stroke-color': ['get', 'color'],
+        'circle-stroke-width': 2,
+      },
+    });
     this.updateOverlay();
   }
 
@@ -130,6 +142,9 @@ export class DebugInspector {
     const predicted = shape && diagnostics ? positionAlong(shape, diagnostics.predictedProgress)?.coordinate ?? null : null;
     const history = this.trace?.history.slice().reverse() ?? [];
     const last = this.trace?.history.at(-1);
+    const coordinates = [raw, projected, predicted, rendered].filter((coordinate): coordinate is [number, number] => coordinate !== null);
+    const maximumSeparation = coordinates.reduce((maximum, coordinate, index) => Math.max(maximum, ...coordinates.slice(index + 1).map((other) => distance(coordinate, other) ?? 0)), 0);
+    const overlapping = coordinates.length > 1 && maximumSeparation < 3;
     const rows: [string, unknown][] = [
       ['Fuente', vehicle.positionSource], ['Fuente timestamp', clock(vehicle.sourceTimestamp)], ['Recibido timestamp', clock(vehicle.receivedTimestamp)],
       ['Render timestamp', clock(this.options.renderer.renderedTimestamp(vehicle.id))], ['Antigüedad de fuente', elapsed(vehicle.sourceTimestamp === null ? null : now - vehicle.sourceTimestamp)],
@@ -139,11 +154,12 @@ export class DebugInspector {
       ['Error de corrección', meters(diagnostics?.correctionErrorMeters)], ['Distancia GPS / pantalla', meters(distance(raw, rendered))],
       ['Velocidad fuente', speed(vehicle.speedMetersPerSecond)], ['Velocidad renderizada', speed(diagnostics?.renderedSpeed)], ['Velocidad corrección', speed(diagnostics?.correctionSpeed)],
       ['Cadencia', elapsed(diagnostics?.cadenceSeconds == null ? null : diagnostics.cadenceSeconds * 1000)], ['Calidad renderizada', this.options.renderer.positionSource(vehicle.id) ?? 'desconocida'],
-      ['LOD', this.options.renderer.lod + ' · ' + this.options.renderer.modelFallbackReason],
+      ['Separación máxima', meters(maximumSeparation)], ['LOD', this.options.renderer.lod + ' · ' + this.options.renderer.modelFallbackReason],
     ];
     const selected = this.element.querySelector('#debug-selected')!;
     selected.innerHTML = '<div class="debug-heading"><div><small>' + esc(vehicle.id) + '</small><h2>' + esc(vehicle.label) + ' · ' + esc(vehicle.operatorName) + '</h2><p>' + esc(vehicle.destination || vehicle.headsign) + '</p></div><button data-debug-copy>Copiar informe</button></div>' +
       '<div class="debug-legend"><span><i style="--dot:#e7473c"></i>Proveedor</span><span><i style="--dot:#2584e8"></i>Proyectada</span><span><i style="--dot:#e8a128"></i>Objetivo</span><span><i style="--dot:#27a96b"></i>Pantalla</span></div>' +
+      (overlapping ? '<p class="debug-overlap">Las posiciones coinciden: se muestran como anillos concéntricos, de proveedor (exterior) a pantalla (interior).</p>' : '') +
       '<dl class="debug-metrics">' + rows.map(([label, value]) => '<div><dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd></div>').join('') + '</dl>' +
       (diagnostics?.rejected ? '<p class="debug-warning">Último dato rechazado: ' + esc(diagnostics.rejected) + '</p>' : '') +
       '<details open><summary>Historial de observaciones (' + history.length + ')</summary><div class="debug-history"><table><thead><tr><th>Fuente</th><th>Recibido</th><th>Capturado</th><th>Progress</th></tr></thead><tbody>' +
