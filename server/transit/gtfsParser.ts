@@ -115,6 +115,12 @@ function builder(includeRoute: (route: GtfsRoute) => boolean, serviceDates?: Ser
   function finish() {
     for (const calls of feed.tripStops.values()) calls.sort((a, b) => a.sequence - b.sequence);
     for (const points of feed.shapes.values()) points.sort((a, b) => a.sequence - b.sequence);
+    // A headsign without a word says nothing (La Unión publishes «U» on every trip): name the last stop instead.
+    for (const [id, trip] of feed.trips) {
+      if (/\p{L}{2}/u.test(trip.headsign)) continue;
+      const last = feed.tripStops.get(id)?.at(-1), name = last ? feed.stops.get(last.stopId)?.name : undefined;
+      if (name) trip.headsign = name;
+    }
     if (expandFrequencyTrips) expandFrequencies(feed, frequencies, (trip, seconds) => !frequencyWindow || Boolean(serviceDates?.some(({ date, weekday }) => isServiceActive(feed, trip.serviceId, date, weekday) && serviceEpoch(date, seconds, frequencyWindow.timezone) >= frequencyWindow.from && serviceEpoch(date, seconds, frequencyWindow.timezone) <= frequencyWindow.to)));
     return feed;
   }

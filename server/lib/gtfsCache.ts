@@ -3,7 +3,7 @@ import { serialize, deserialize } from 'node:v8';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
 
 // Bump when parser/preparation semantics change. Files are generated locally only.
-const version = 6;
+const version = 7;
 const maxCacheBytes = 24 * 1024 * 1024;
 const maxModelEntries = 100_000;
 export function readParsedFeed(file: string, zip: string, variant: string | null = null): BizkaibusGtfs | null {

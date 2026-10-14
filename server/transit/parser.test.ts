@@ -96,3 +96,21 @@ test('a feed whose timetable ended before today says so, with the last day of se
   assert.equal(expiredTimetableMessage({ calendars, calendarDates: new Map() }, '20261014'), 'Horario publicado caducado: el último día con servicio es 11/10/2026');
   assert.equal(expiredTimetableMessage({ calendars, calendarDates: new Map([['4', new Map([['20261020', 1 as const]])]]) }, '20261014'), 'El GTFS publicado no tiene servicios para hoy');
 });
+
+test('a headsign without a word names the last stop instead', () => {
+  // La Unión, 14 Oct 2026: every trip_headsign is «U».
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'headsign-gtfs-test-'));
+  const tables = {
+    routes: 'route_id,route_short_name,route_long_name,route_type\nr,3717,VITORIA/GASTEIZ-LEIOA(UPV),3\n',
+    trips: 'route_id,service_id,trip_id,trip_headsign,shape_id\nr,s,u,U,shape\nr,s,named,Leioa,shape\n',
+    stops: 'stop_id,stop_name,stop_lat,stop_lon\na,Vitoria-Gasteiz,42.85,-2.67\nb,Leioa (UPV),43.33,-2.97\n',
+    stop_times: 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nu,08:00:00,08:00:00,a,1\nu,09:00:00,09:00:00,b,2\nnamed,08:00:00,08:00:00,a,1\nnamed,09:00:00,09:00:00,b,2\n',
+    shapes: 'shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence\nshape,42.85,-2.67,1\nshape,43.33,-2.97,2\n',
+  };
+  try {
+    Object.entries(tables).forEach(([name, csv]) => fs.writeFileSync(path.join(directory, `${name}.txt`), csv));
+    const feed = parseGtfsDirectory(directory);
+    assert.equal(feed.trips.get('u')?.headsign, 'Leioa (UPV)');
+    assert.equal(feed.trips.get('named')?.headsign, 'Leioa');
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
