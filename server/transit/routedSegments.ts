@@ -48,6 +48,41 @@ export function simplifyPath(points: Lonlat[], toleranceMeters: number): Lonlat[
   return points.filter((_, i) => keep[i]);
 }
 
+/** A road route much longer than the straight line is probably a different road, not the missing curve. */
+export const MAX_DETOUR_RATIO = 2.2;
+export const MAX_SNAP_METERS = 150;
+/**
+ * Unless the timetable agrees: rural roads in Álava wind around hills, so a bus
+ * scheduled 16 minutes between villages 5.8 km apart really drives the 17 km road.
+ * The route is kept when driving it in the scheduled time stays a bus speed.
+ */
+const TIMETABLE_DETOUR_RATIO = 4, TIMETABLE_SNAP_METERS = 300, MAX_BUS_KMH = 80;
+/** Why a routed road is not the missing curve of a straight segment, or null when it is. */
+export function rejectRoute({ straight, route, snap, scheduledSeconds }: { straight: number; route: number; snap: number; scheduledSeconds?: number | null }): string | null {
+  if (snap <= MAX_SNAP_METERS && route <= straight * MAX_DETOUR_RATIO) return null;
+  const why = snap > MAX_SNAP_METERS ? `extremo a ${Math.round(snap)} m de la carretera` : `ruta ${Math.round(route)} m para ${Math.round(straight)} m en línea recta`;
+  if (snap > TIMETABLE_SNAP_METERS || route > straight * TIMETABLE_DETOUR_RATIO) return why;
+  if (!scheduledSeconds || scheduledSeconds <= 0) return `${why}, sin horario`;
+  const kmh = route / scheduledSeconds * 3.6;
+  return kmh <= MAX_BUS_KMH ? null : `${why}, a ${Math.round(kmh)} km/h según el horario`;
+}
+/**
+ * Fastest scheduled time between the stops at the two ends of a segment (within
+ * 30 m), over the given trips; null when no trip stops at both ends in order.
+ */
+export function scheduledSeconds(trips: { point: Lonlat; arrival: number | null; departure: number | null }[][], from: Lonlat, to: Lonlat): number | null {
+  let best: number | null = null;
+  for (const stops of trips) {
+    const start = stops.findIndex((stop) => straightMeters(stop.point, from) <= 30);
+    if (start < 0) continue;
+    const end = stops.findIndex((stop, i) => i > start && straightMeters(stop.point, to) <= 30);
+    const leave = stops[start].departure ?? stops[start].arrival, arrive = end < 0 ? null : stops[end].arrival ?? stops[end].departure;
+    if (leave === null || arrive === null || arrive <= leave) continue;
+    best = Math.min(best ?? Infinity, arrive - leave);
+  }
+  return best;
+}
+
 const toPoint = ([longitude, latitude]: Lonlat, sequence: number): GtfsShapePoint => ({ longitude, latitude, sequence });
 const lonlat = (point: GtfsShapePoint): Lonlat => [point.longitude, point.latitude];
 

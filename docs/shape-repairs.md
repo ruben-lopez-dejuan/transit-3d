@@ -53,10 +53,24 @@ GTFS ya descargados en `server/cache`. Enruta con el OSRM público de demostraci
 feeds de autobús, y de más de 300 m en los que dibujan de parada a parada
 (La Unión, Oñati). Una ruta se descarta si un extremo queda a más de 150 m de una
 carretera o si mide más de 2,2 veces la línea recta: probablemente es otra carretera.
-Los descartes quedan en el propio fichero con su motivo y no se vuelven a pedir.
+Salvo que el horario la confirme: con un extremo a menos de 300 m de la carretera y
+hasta 4 veces la recta, la ruta se acepta si recorrerla en el tiempo programado
+entre esas dos paradas (el viaje más rápido de la forma) no pasa de 80 km/h. En la
+Álava rural las carreteras rodean los montes: la 19B tarda 16 minutos entre Marañón y
+Bujanda, a 5,8 km en línea recta y 17,4 km por carretera (65 km/h; la recta serían 22).
+Los descartes quedan en el propio fichero con su motivo y no se vuelven a pedir,
+salvo con `--retry-rejected`.
 
 Auditoría 14 oct 2026: La Unión dibujaba sus 259 formas como rectas entre paradas
 (la 3714 Bilbao – Vitoria eran 4 puntos, con un salto de 49,7 km); Alavabus tenía
 saltos de 12 a 19 km y PESA más de un centenar de saltos de más de 1 km.
 
 Resultado (14 oct 2026): 1042 tramos enrutados y 123 descartados (97 por ruta demasiado larga, 26 por quedar lejos de una carretera); unos 51 000 puntos. La peor recta de La Unión baja de 49,7 km a unos 2,6 km, tramos rectos de autopista; la 3717 Leioa – Vitoria sigue la carretera por Murgia.
+
+Reintento con el horario (14 oct 2026): 90 de los 123 descartes pasan a enrutarse,
+entre ellos la 3720 Bilbao Intermodal – aeropuerto (6,3 km en recta, 14,2 km por
+carretera), la 19B Marañón – Bujanda, la 20U Pipaón – Faido y la 09B Zuazo de San
+Millán – Egileor (5,9 km; la parada queda a 160 m de la carretera). Siguen 33 (26 de
+Alavabus, 7 de Bizkaibus, 3 de La Unión y 2 de PESA): rutas que según el horario irían
+a más de 80 km/h, más de 4 veces la recta o tramos sin paradas en sus extremos. Son
+reconstrucciones plausibles por carreteras reales, no el recorrido oficial.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extendShape, extendToTerminals, replaceCorridor, routeStraightSegments, segmentKey, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
+import { extendShape, extendToTerminals, rejectRoute, replaceCorridor, routeStraightSegments, scheduledSeconds, segmentKey, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
 import type { GtfsShapePoint } from '../providers/bizkaibus/gtfs';
 
 const shape = (points: [number, number][]): GtfsShapePoint[] => points.map(([longitude, latitude], i) => ({ longitude, latitude, sequence: i + 1 }));
@@ -60,6 +60,24 @@ test('straight segments with a routed road get its curve; the feed points are ke
   const repaired = routeStraightSegments(shape([bilbao, vitoria, next]), { [segmentKey(bilbao, vitoria)]: road })!;
   assert.deepEqual(coordinates(repaired), [...road, next]);
   assert.equal(routeStraightSegments(shape([vitoria, next]), { [segmentKey(bilbao, vitoria)]: road }), null);
+});
+
+test('a road much longer than the straight line is kept only when the timetable drives it at a bus speed', () => {
+  assert.equal(rejectRoute({ straight: 2000, route: 4000, snap: 20 }), null);
+  // Alavabus 19B Marañón – Bujanda: 5.8 km apart, 17.4 km by road, 16 minutes in the timetable (65 km/h).
+  assert.equal(rejectRoute({ straight: 5768, route: 17414, snap: 30, scheduledSeconds: 960 }), null);
+  assert.equal(rejectRoute({ straight: 5879, route: 7000, snap: 160, scheduledSeconds: 708 }), null);
+  assert.match(rejectRoute({ straight: 4382, route: 13663, snap: 30, scheduledSeconds: 377 })!, /130 km\/h/);
+  assert.match(rejectRoute({ straight: 5768, route: 17414, snap: 30 })!, /sin horario/);
+  assert.match(rejectRoute({ straight: 1692, route: 11964, snap: 30, scheduledSeconds: 3600 })!, /^ruta 11964 m/);
+  assert.match(rejectRoute({ straight: 2000, route: 3000, snap: 400, scheduledSeconds: 600 })!, /^extremo a 400 m/);
+});
+
+test('the scheduled time of a segment is the fastest trip stopping at both ends in order', () => {
+  const a: [number, number] = [-2.4384, 42.6292], b: [number, number] = [-2.4052, 42.6749], c: [number, number] = [-2.39, 42.68];
+  const trip = (times: [number, number][]) => [a, b, c].map((point, i) => ({ point, arrival: times[i][0], departure: times[i][1] }));
+  assert.equal(scheduledSeconds([trip([[0, 60], [1060, 1080], [1500, 1500]]), trip([[0, 0], [960, 960], [1400, 1400]])], a, b), 960);
+  assert.equal(scheduledSeconds([trip([[0, 0], [960, 960], [1400, 1400]])], b, a), null);
 });
 
 test('simplification keeps the bends that matter and the ends', () => {
