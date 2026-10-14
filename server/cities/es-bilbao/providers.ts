@@ -33,13 +33,14 @@ export const realtimeProviders = [
 export const sourceAdapters = [...realtimeProviders, ...staticProviders.filter((p) => !realtimeProviders.some((r) => r.operatorId === p.operatorId))];
 
 /**
- * Fleet paint, not line colour (audited 14 Oct 2026): Metro Bilbao grey with its red-orange,
- * Euskotren blue (trains and trams), Renfe Cercanías white with red, Bilbobus red, Bizkaibus
- * green, Dbus blue, Artxanda funicular red. Operators without a confirmed livery keep the line colour.
+ * Fleet paint, not line colour: Metro Bilbao grey with orange, Euskotren trains white with
+ * blue, Euskotren trams green, Renfe Cercanías white with red, Bilbobus red, Bizkaibus green,
+ * Dbus blue, Artxanda funicular red. Operators without a confirmed livery keep the line colour.
  */
 const LIVERIES: Record<string, VehicleLivery> = {
-  'metro-bilbao': { body: '#c8cfd3', accent: '#e2401c' },
-  euskotren: { body: '#1d4e98', accent: '#7db7e5' },
+  'metro-bilbao': { body: '#c3c9ce', accent: '#f08419' },
+  euskotren: { body: '#f2f4f6', accent: '#1d5aa8' },
+  'euskotren:tram': { body: '#5fae3c', accent: '#f4f4f4' },
   renfe: { body: '#f2f3f4', accent: '#cf102d' },
   bilbobus: { body: '#c8102e', accent: '#f4f4f4' },
   bizkaibus: { body: '#5da832', accent: '#f4f4f4' },
@@ -63,7 +64,7 @@ function consistFor(providerId: string, mode: AdapterVehicle['mode'], shortName:
 export function bilbaoAppearance(providerId: string, vehicle: Pick<AdapterVehicle, 'mode' | 'routeId'>, shortName: string): VehicleAppearance {
   const kind = vehicle.mode === 'rail' ? providerId === 'metro-bilbao' ? 'metro' : 'train' : vehicle.mode;
   const lateralOffsetMeters = (vehicle.mode === 'rail' || vehicle.mode === 'tram') && !(providerId === 'renfe' && /^C[45]/.test(shortName)) ? 1.7 : 0;
-  const livery = LIVERIES[providerId];
+  const livery = LIVERIES[`${providerId}:${vehicle.mode}`] ?? LIVERIES[providerId];
   return { kind, composition: consistFor(providerId, vehicle.mode, shortName), lateralOffsetMeters, ...(livery ? { livery } : {}) };
 }
 export const providers: ProviderRuntime[] = sourceAdapters.map((adapter) => {

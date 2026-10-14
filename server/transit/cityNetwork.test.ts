@@ -72,12 +72,13 @@ test('built-in Bilbao remains registered with honest capabilities and existing s
 test('vehicles carry their fleet livery and real consist, not the line colour', () => {
   const look = (id: string, mode: 'rail' | 'tram' | 'bus', line: string) => bilbaoAppearance(id, { mode, routeId: 'x' }, line);
   assert.deepEqual(look('metro-bilbao', 'rail', 'MB').composition.count, 4);
-  assert.equal(look('metro-bilbao', 'rail', 'MB').livery?.body, '#c8cfd3');
+  assert.deepEqual(look('metro-bilbao', 'rail', 'MB').livery, { body: '#c3c9ce', accent: '#f08419' }, 'grey with orange');
   assert.equal(look('euskotren', 'rail', 'L3').composition.count, 3, 'L3 runs 950 series, three cars');
   assert.equal(look('euskotren', 'rail', 'E1').composition.count, 4, 'the 900 series has four');
   assert.equal(look('euskotren', 'tram', 'TG1').composition.count, 5, 'Vitoria trams, five modules');
   assert.equal(look('euskotren', 'tram', 'TR').composition.count, 3, 'Bilbao trams, three modules');
-  assert.equal(look('euskotren', 'tram', 'TR').livery?.body, look('euskotren', 'rail', 'E1').livery?.body, 'Euskotren is blue on every mode');
+  assert.deepEqual(look('euskotren', 'rail', 'E1').livery, { body: '#f2f4f6', accent: '#1d5aa8' }, 'Euskotren trains: white with blue');
+  assert.equal(look('euskotren', 'tram', 'TR').livery?.body, '#5fae3c', 'the tram is green');
   assert.deepEqual(look('renfe', 'rail', 'C1').livery, { body: '#f2f3f4', accent: '#cf102d' });
   assert.equal(look('la-union', 'bus', '3714').livery, undefined, 'no confirmed livery: the line colour stays');
 });
