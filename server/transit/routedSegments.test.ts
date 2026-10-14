@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bearing, extendShape, extendToTerminals, rejectRoute, replaceCorridor, routeStraightSegments, segmentKey, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
+import { bearing, extendShape, extendToTerminals, rejectRoute, replaceCorridor, routeStraightSegments, segmentKey, trimRoute, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
 import type { GtfsShapePoint } from '../providers/bizkaibus/gtfs';
 
 const shape = (points: [number, number][]): GtfsShapePoint[] => points.map(([longitude, latitude], i) => ({ longitude, latitude, sequence: i + 1 }));
@@ -70,6 +70,17 @@ test('a road route is kept unless it loops or ends far from the stops', () => {
   // PESA DG05: 1.4 km apart, 23.5 km by the only connected road in OSM.
   assert.equal(rejectRoute({ straight: 1420, route: 23504, snap: 3 }), 'ruta 23504 m para 1420 m en línea recta');
   assert.equal(rejectRoute({ straight: 2000, route: 3000, snap: 400 }), 'extremo a 400 m de la carretera');
+});
+
+test('a route to the next point is cut where it passes the point OSRM snapped elsewhere', () => {
+  // PESA DG05 in the AP-1 Zarimutz tunnel: B lies under a surface lane, so the route goes A → C and is cut at B.
+  const a: [number, number] = [-2.60226, 42.97121], b: [number, number] = [-2.5906, 42.9807], c: [number, number] = [-2.58401, 42.98611];
+  const route: [number, number][] = [a, [-2.596, 42.976], [-2.588, 42.9832], c];
+  const { path, miss } = trimRoute(route, a, b);
+  assert.deepEqual(path.slice(0, 2), [a, [-2.596, 42.976]]);
+  assert.equal(path.length, 3);
+  assert.ok(straightMeters(path[2], b) < 40 && miss < 40);
+  assert.equal(trimRoute(route, a, [-2.6, 43]).miss > 2000, true);
 });
 
 test('bearings point in the direction of travel', () => {

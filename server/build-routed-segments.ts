@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from 'csv-parse/sync';
-import { bearing, rejectRoute, segmentKey, simplifyPath, straightMeters, MAX_DETOUR_RATIO, MAX_SNAP_METERS, ROUTED_SEGMENTS_FILE, type RoutedSegments } from './transit/routedSegments';
+import { bearing, rejectRoute, segmentKey, trimRoute, simplifyPath, straightMeters, MAX_DETOUR_RATIO, MAX_SNAP_METERS, ROUTED_SEGMENTS_FILE, type RoutedSegments } from './transit/routedSegments';
 
 /**
  * Some bus feeds draw their shapes as straight lines between stops (La Unión,
@@ -29,7 +29,9 @@ const existing: RoutedSegments = fs.existsSync(ROUTED_SEGMENTS_FILE) ? JSON.pars
 const segments = new Map(Object.entries(existing.segments));
 const rejected = new Map(Object.entries(existing.rejected ?? {}));
 
-const wanted = new Map<string, { from: [number, number]; to: [number, number]; feeds: Set<string> }>();
+type Lonlat = [number, number];
+/** The shape points around a segment, for when OSRM snaps one of its ends to the wrong road. */
+const wanted = new Map<string, { from: Lonlat; to: Lonlat; before?: Lonlat; after?: Lonlat; feeds: Set<string> }>();
 for (const feed of fs.readdirSync(cache).sort()) {
   if (RAIL_FEEDS.has(feed)) continue;
   const directory = fs.existsSync(path.join(cache, feed, 'gtfs', 'shapes.txt')) ? path.join(cache, feed, 'gtfs') : path.join(cache, feed);
@@ -48,7 +50,7 @@ for (const feed of fs.readdirSync(cache).sort()) {
       const from = points[i - 1].point, to = points[i].point;
       if (straightMeters(from, to) <= minimum) continue;
       const key = segmentKey(from, to);
-      if (!wanted.has(key)) wanted.set(key, { from, to, feeds: new Set() });
+      if (!wanted.has(key)) wanted.set(key, { from, to, before: points[i - 2]?.point, after: points[i + 1]?.point, feeds: new Set() });
       wanted.get(key)!.feeds.add(feed);
     }
   }
@@ -83,22 +85,37 @@ async function osrm(url: string) {
   const route = body?.code === 'Ok' ? body.routes?.[0] : undefined;
   return { body, route, snap: Math.max(...(body?.waypoints ?? [{ distance: Infinity }]).map((w) => w.distance)) };
 }
-for (const [key, { from, to }] of pending) {
+const pause = () => new Promise((resolve) => setTimeout(resolve, 1100));
+const routeUrl = (waypoints: Lonlat[]) => `${ENDPOINT}/${waypoints.map(([lon, lat]) => `${lon},${lat}`).join(';')}?overview=full&geometries=geojson`;
+for (const [key, { from, to, before, after }] of pending) {
   const straight = straightMeters(from, to);
-  let { body, route, snap } = await osrm(`${ENDPOINT}/${from[0]},${from[1]};${to[0]},${to[1]}?overview=full&geometries=geojson`);
+  let { body, route, snap } = await osrm(routeUrl([from, to]));
   if (!route || route.distance > straight * RETRY_WITH_BEARINGS_RATIO) {
     // A stop on a dual carriageway snapped to the opposite side makes the route loop at the next junction.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await pause();
     const direction = bearing(from, to);
-    const retry = await osrm(`${ENDPOINT}/${from[0]},${from[1]};${to[0]},${to[1]}?overview=full&geometries=geojson&bearings=${direction},60;${direction},60&radiuses=${MAX_SNAP_METERS};${MAX_SNAP_METERS}`);
+    const retry = await osrm(`${routeUrl([from, to])}&bearings=${direction},60;${direction},60&radiuses=${MAX_SNAP_METERS};${MAX_SNAP_METERS}`);
     if (retry.route && (!route || retry.route.distance < route.distance)) ({ body, route, snap } = retry);
   }
-  const reason = body?.code !== 'Ok' || !route ? `sin ruta (${body?.code ?? 'error'})`
-    : rejectRoute({ straight, route: route.distance, snap });
+  let path = route?.geometry.coordinates;
+  let reason = body?.code !== 'Ok' || !route ? `sin ruta (${body?.code ?? 'error'})` : rejectRoute({ straight, route: route.distance, snap });
+  // Last resort for an end OSRM snaps to another road (a point in a tunnel under a lane):
+  // route past it to the neighbouring shape point and cut the route where it passes the end.
+  for (const waypoints of [[from, after], [before, to], [before, after]]) {
+    if (!reason) break;
+    if (!waypoints[0] || !waypoints[1]) continue;
+    await pause();
+    const wider = await osrm(routeUrl(waypoints as Lonlat[]));
+    if (!wider.route) continue;
+    const trimmed = trimRoute(wider.route.geometry.coordinates, from, to);
+    const length = trimmed.path.slice(1).reduce((sum, point, i) => sum + straightMeters(trimmed.path[i], point), 0);
+    if (rejectRoute({ straight, route: length, snap: Math.max(wider.snap, trimmed.miss) })) continue;
+    ({ path } = trimmed); reason = null;
+  }
   if (reason) rejected.set(key, reason);
-  else { rejected.delete(key); segments.set(key, simplifyPath(route!.geometry.coordinates, 3).map(([lon, lat]) => [Number(lon.toFixed(5)), Number(lat.toFixed(5))])); }
+  else { rejected.delete(key); segments.set(key, simplifyPath(path!, 3).map(([lon, lat]) => [Number(lon.toFixed(5)), Number(lat.toFixed(5))])); }
   if (++done % 25 === 0) { save(); console.log(JSON.stringify({ done, of: pending.length, routed: segments.size, rejected: rejected.size })); }
-  await new Promise((resolve) => setTimeout(resolve, 1100));
+  await pause();
 }
 save();
 console.log(JSON.stringify({ output: ROUTED_SEGMENTS_FILE, routed: segments.size, rejected: rejected.size }));

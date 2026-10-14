@@ -57,7 +57,11 @@ puede engancharse a la calzada contraria, y la ruta da la vuelta en el siguiente
 enlace. Se queda la más corta. Son autocares y en la Álava rural las carreteras
 rodean los montes (la 19B Marañón – Bujanda: 5,8 km en línea recta, 17,4 km por
 carretera), así que la ruta solo se descarta si un extremo queda a más de 300 m de
-una carretera o si mide más de 8 veces la recta, que ya es un bucle.
+una carretera o si mide más de 8 veces la recta, que ya es un bucle. Antes de
+descartarla se prueba un último recurso para un extremo que OSRM engancha a otra
+carretera: pedir la ruta hasta el punto vecino de la forma y cortarla donde pasa por
+ese extremo. OSRM no distingue alturas: un punto dentro de un túnel con un camino
+encima puede acabar en el camino.
 Los descartes quedan en el propio fichero con su motivo y no se vuelven a pedir,
 salvo con `--retry-rejected`.
 
@@ -67,13 +71,16 @@ saltos de 12 a 19 km y PESA más de un centenar de saltos de más de 1 km.
 
 Resultado (14 oct 2026): 1042 tramos enrutados y 123 descartados (97 por ruta demasiado larga, 26 por quedar lejos de una carretera); unos 51 000 puntos. La peor recta de La Unión baja de 49,7 km a unos 2,6 km, tramos rectos de autopista; la 3717 Leioa – Vitoria sigue la carretera por Murgia.
 
-Reintento de los descartes (14 oct 2026): 122 de los 123 pasan a enrutarse, entre
+Reintento de los descartes (14 oct 2026): los 123 pasan a enrutarse, entre
 ellos la 3720 Bilbao Intermodal – aeropuerto (6,3 km en recta, 14,2 km por carretera),
 la 19B, la 20U Pipaón – Faido y la 09B Zuazo de San Millán – Egileor (5,9 km; la
 parada queda a 160 m de la carretera). El sentido de la marcha deshace los bucles de
 autopista: las Bizkaibus A3512, A3915, A3916, A3923, A3926 y A3933 cerca de Basauri pasan de
 9,1 km a 1,3 km. Las más largas respecto a la recta son la 17U Treviño (1,6 km en recta,
-11,5 km por carretera) y la 12U Villabezana – San Miguel (2,3 km, 12,1 km). Queda recta la
-PESA DG05 Eibar – Vitoria entre (-2,60226; 42,97121) y (-2,59060; 42,98070): 1,4 km
-que en OSM solo se unen por un rodeo de 23,5 km en cualquier sentido. Son
+11,5 km por carretera) y la 12U Villabezana – San Miguel (2,3 km, 12,1 km). El último, la PESA
+DG05 Eibar – Vitoria entre (-2,60226; 42,97121) y (-2,59060; 42,98070), son 1,4 km
+dentro del túnel de Zarimutz de la AP-1. El segundo punto queda a 3 m del camino del
+barrio de Barreiatua (Leintz-Gatzaga), que pasa por encima, y OSRM daba un rodeo de
+23,5 km por la GI-627; enrutado hasta el punto siguiente y cortado, sigue el túnel,
+que ahí es recto. No queda ningún descarte. Son
 reconstrucciones por carreteras reales, no el recorrido oficial.

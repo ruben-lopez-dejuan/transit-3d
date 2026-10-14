@@ -68,6 +68,29 @@ export function bearing(from: Lonlat, to: Lonlat) {
   return Math.round((Math.atan2((to[0] - from[0]) * k, to[1] - from[1]) * 180 / Math.PI + 360) % 360);
 }
 
+/**
+ * The stretch of a longer route between the places it passes nearest to `from` and
+ * then `to`, with how far it passes from them. For a feed point OSRM snaps to the
+ * wrong road: PESA DG05 has a point inside the AP-1 Zarimutz tunnel, 3 m from a
+ * lane on the surface above, so it is routed to the next point and cut there.
+ */
+export function trimRoute(path: Lonlat[], from: Lonlat, to: Lonlat): { path: Lonlat[]; miss: number } {
+  const k = Math.cos(from[1] * Math.PI / 180);
+  const project = (target: Lonlat, first: number) => {
+    let best = { segment: first, point: path[first], distance: Infinity };
+    for (let i = first; i < path.length - 1; i++) {
+      const [ax, ay] = path[i], [bx, by] = path[i + 1];
+      const dx = (bx - ax) * k, dy = by - ay, length = dx * dx + dy * dy;
+      const t = length ? Math.max(0, Math.min(1, ((target[0] - ax) * k * dx + (target[1] - ay) * dy) / length)) : 0;
+      const point: Lonlat = [ax + t * (bx - ax), ay + t * (by - ay)], distance = straightMeters(point, target);
+      if (distance < best.distance) best = { segment: i, point, distance };
+    }
+    return best;
+  };
+  const start = project(from, 0), end = project(to, start.segment);
+  return { path: [start.point, ...path.slice(start.segment + 1, end.segment + 1), end.point], miss: Math.max(start.distance, end.distance) };
+}
+
 const toPoint = ([longitude, latitude]: Lonlat, sequence: number): GtfsShapePoint => ({ longitude, latitude, sequence });
 const lonlat = (point: GtfsShapePoint): Lonlat => [point.longitude, point.latitude];
 
