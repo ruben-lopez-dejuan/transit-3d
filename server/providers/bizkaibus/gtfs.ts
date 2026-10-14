@@ -5,6 +5,7 @@ import AdmZip from "adm-zip";
 import { parseGtfsDirectoryStreaming } from '../../transit/gtfsParser';
 export { parseGtfsDirectory } from '../../transit/gtfsParser';
 import { readParsedFeed, writeParsedFeed } from '../../lib/gtfsCache';
+import { repairShapes } from '../../transit/routedSegments';
 
 import { downloadFile } from "../../lib/download";
 import {
@@ -145,6 +146,7 @@ async function loadBizkaibusGtfs(): Promise<BizkaibusGtfs> {
   // The feed exceeds the .v8 cache limit, so it is parsed on every refresh. The streaming
   // parser builds the same model but yields; the synchronous one froze the whole API.
   memoryCache = readParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP) ?? await parseGtfsDirectoryStreaming(BIZKAIBUS_GTFS_DIR);
+  repairShapes(memoryCache, 'bizkaibus');
   writeParsedFeed(parsedPath, BIZKAIBUS_GTFS_ZIP, memoryCache);
   memoryExpires = Date.now() + STATIC_GTFS_MAX_AGE_MS;
   console.log(`[Bizkaibus] GTFS ready: ${memoryCache.routes.size} routes, ${memoryCache.trips.size} trips.`);

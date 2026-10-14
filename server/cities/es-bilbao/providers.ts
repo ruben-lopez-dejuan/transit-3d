@@ -8,6 +8,7 @@ import { StaticGtfsProvider } from '../../providers/staticGtfs';
 import { RealtimeProvider } from '../../providers/realtimeProvider';
 import { RealtimeFeedClient } from '../../providers/realtimeFeed';
 import { RegisteredProvider } from '../../transit/registeredProvider';
+import { repairShapes, shapeRepairVersion } from '../../transit/routedSegments';
 import type { ProviderRuntime } from '../../transit/cityPackage';
 import type { AdapterVehicle, VehicleAppearance } from '../../../shared/transit/contracts';
 import { entityId } from '../../../shared/transit/ids';
@@ -15,7 +16,9 @@ import { bilbaoManifest } from './city.manifest';
 import { primary, regionalSources, renfeSource, type Source } from './sources';
 
 export const definitions = bilbaoManifest.providers;
-export const staticProviders = [bilbobusProvider, renfeProvider, ...[...primary, ...regionalSources].map((source) => new StaticGtfsProvider(source.id, source.gtfs, { timezone: bilbaoManifest.timezone }))];
+// Some operator shapes are drawn wrong (straight stop-to-stop lines, a detour to a dead end); see routedSegments.ts.
+const shapeRepairs = (operatorId: string) => ({ prepare: (gtfs: Parameters<typeof repairShapes>[0]) => { repairShapes(gtfs, operatorId); }, prepareVersion: shapeRepairVersion });
+export const staticProviders = [bilbobusProvider, renfeProvider, ...[...primary, ...regionalSources].map((source) => new StaticGtfsProvider(source.id, source.gtfs, { timezone: bilbaoManifest.timezone, ...shapeRepairs(source.id) }))];
 export const gtfsLoaders = new Map(staticProviders.map((p) => [p.operatorId, () => p.getGtfs()]));
 gtfsLoaders.set('bizkaibus', getBizkaibusGtfs);
 const sourceById = new Map<string, Source>([...primary, ...regionalSources, renfeSource].map((s) => [s.id, s]));

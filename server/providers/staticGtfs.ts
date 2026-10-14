@@ -16,7 +16,7 @@ export class StaticGtfsProvider implements TransitProvider {
   private expires = 0;
   private stale = false;
   private receivedTimestamp: number | null = null;
-  constructor(readonly operatorId: string, source: string | SourceSupplier, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; timezone?: string; cacheNamespace?: string; filterActiveServices?: boolean; expandFrequencies?: boolean } = {}) { this.source = typeof source === 'string' ? async (): Promise<ResolvedSource> => ({ url: source, identity: `http:${source}`, temporary: false }) : source; }
+  constructor(readonly operatorId: string, source: string | SourceSupplier, private readonly options: { includeRoute?: (route: GtfsRoute) => boolean; prepare?: (gtfs: BizkaibusGtfs) => void | Promise<void>; /** Changes when what prepare applies changes, so an older parsed cache is not reused. */ prepareVersion?: () => string; timezone?: string; cacheNamespace?: string; filterActiveServices?: boolean; expandFrequencies?: boolean } = {}) { this.source = typeof source === 'string' ? async (): Promise<ResolvedSource> => ({ url: source, identity: `http:${source}`, temporary: false }) : source; }
   private readonly source: SourceSupplier;
   getGtfs(): Promise<BizkaibusGtfs> {
     if (!this.data || Date.now() >= this.expires) {
@@ -40,7 +40,7 @@ export class StaticGtfsProvider implements TransitProvider {
     const today = formatServiceDate(new Date(), this.options.timezone);
     const serviceDates = this.options.filterActiveServices === false ? undefined : [-1, 0, 1].map((delta) => shiftDate(today.date, delta));
     const now = Date.now();
-    const cacheVariant = serviceDates ? serviceDates.map(({ date }) => date).join(',') + ':' + Math.floor(now / (3 * 3600_000)) : 'all-services';
+    const cacheVariant = (serviceDates ? serviceDates.map(({ date }) => date).join(',') + ':' + Math.floor(now / (3 * 3600_000)) : 'all-services') + (this.options.prepareVersion ? `:${this.options.prepareVersion()}` : '');
     this.receivedTimestamp = fs.statSync(zipPath).mtimeMs;
     const parsed = readParsedFeed(parsedPath, zipPath, cacheVariant);
     if (parsed) return parsed;
