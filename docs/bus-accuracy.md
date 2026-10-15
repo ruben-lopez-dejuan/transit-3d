@@ -50,3 +50,20 @@ el peor 25 %, a cambio de mezclar dos fuentes en el movimiento. No se usan.
 De los 255 autobuses del feed de Bizkaibus, unos 25 se descartan porque su GPS queda a
 kilómetros de la forma de su viaje (en vacío o con el viaje mal asignado), y unos 50
 esperan en cabecera a la salida de su viaje: no se muestran hasta esa hora.
+
+## Resultado y lo que queda
+
+Medición tras los cambios (25 min, mismo método):
+
+| | Antes | Después |
+|---|---|---|
+| Bilbobus, distancia en el mapa (mediana / p90) | 121 / 322 m | 94 / 266 m |
+| Bilbobus, sesgo a lo largo | 107 m por delante | 18 m |
+| Bizkaibus, distancia en el mapa (mediana / p90) | 286 / 1031 m | 270 / 907 m |
+| Bizkaibus, sesgo a lo largo | 123 m por delante | −15 m |
+
+La posición objetivo de la predicción acierta más que lo dibujado: 64 m de mediana en
+Bilbobus y 237 m en Bizkaibus. La diferencia es el seguidor, que nunca hace retroceder al
+autobús: cuando un GPS nuevo muestra que iba más lento de lo previsto, el dibujado ya se
+ha pasado y espera parado (Bilbobus el 45 % del tiempo, 111 m por delante de mediana;
+Bizkaibus 247 m); cuando va por detrás, la aceleración limitada lo recupera despacio.
