@@ -232,6 +232,10 @@ test('EMT arrivals hook scopes bus IDs and only claims forecasts; the fleet rema
   const rows = await provider.arrivals.departures(g, 'b'); assert.equal(rows[0].source, 'realtime'); assert.equal(rows[0].updatedAt, at); assert.equal(rows[0].vehicleId, 'es-test:emt:vehicle:7');
   assert.equal(provider.arrivals.peek(g, 'b', null), null); assert.equal((await provider.getSnapshot(new Date(at))).vehicles.length, 0);
 });
+test('EMT renewing an open session (01) is a login, and a stop with no buses due (01) is not an error', async () => {
+  const client = new EmtClient({ clientId: 'x', passKey: 'y' }, async (url) => new Response(JSON.stringify(String(url).includes('/login/') ? { code: '01', description: 'Token extend into control-cache', data: [{ accessToken: 'token', tokenSecExpiration: 300 }] } : { code: '01', description: 'No estimations found', datetime: '2026-10-03T12:00:00', data: [{ Arrive: [], StopInfo: [] }] })), () => at);
+  assert.deepEqual(await client.get('1'), []); assert.equal(client.error, undefined);
+});
 test('Madrid extensions remain code-owned; topology capabilities are honest and other data-only cities are unchanged', () => {
   const config = parseCityPackage(JSON.parse(fs.readFileSync('city-packages/es-madrid/city.json', 'utf8')));
   const extensions = madridExtensions(config);

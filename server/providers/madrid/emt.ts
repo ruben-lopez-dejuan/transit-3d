@@ -25,7 +25,8 @@ export function emtTimestamp(value: string, receivedAt: number): number | null {
   return candidates[0] === undefined ? null : candidates[0] + Number((m[7] ?? '').padEnd(3, '0').slice(0, 3));
 }
 export function parseEmtArrivals(response: ApiResponse, stop: string, receivedAt: number): EmtArrival[] {
-  if (response.code !== '00') throw new Error('EMT rechazó la consulta de llegadas');
+  // 01 is a stop with no buses due ("No estimations found"), not a failure.
+  if (response.code !== '00' && response.code !== '01') throw new Error('EMT rechazó la consulta de llegadas');
   const source = emtTimestamp(response.datetime ?? '', receivedAt);
   if (source === null || !isFresh(source, receivedAt)) return [];
   const data = response.data?.[0] as { Arrive?: unknown[] } | undefined;
@@ -62,7 +63,8 @@ export class EmtClient {
       if (!this.configured) throw new Error('EMT requiere credenciales');
       const result = await this.json(ROOT + '/mobilitylabs/user/login/', { headers: { 'X-ClientId': this.credentials!.clientId, passKey: this.credentials!.passKey } });
       const data = result.data?.[0] as { accessToken?: string; tokenSecExpiration?: number } | undefined;
-      if (result.code !== '00' || !data?.accessToken || !Number.isFinite(Number(data.tokenSecExpiration)) || Number(data.tokenSecExpiration) <= 0) throw new Error('EMT no autorizó el acceso');
+      // 01 renews a session that is still open (another server with the same credentials).
+      if (!['00', '01'].includes(result.code ?? '') || !data?.accessToken || !Number.isFinite(Number(data.tokenSecExpiration)) || Number(data.tokenSecExpiration) <= 0) throw new Error('EMT no autorizó el acceso');
       this.token = { value: data.accessToken, expires: this.clock() + Math.max(1000, Number(data.tokenSecExpiration) * 1000 - 60_000) };
       return this.token.value;
     })().finally(() => { this.login = undefined; });
