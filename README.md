@@ -10,10 +10,10 @@ vez, casi la mitad con su posición en tiempo real.
 
 ## Qué puedes hacer
 
-- **Ver la ciudad en movimiento.** Cada vehículo se dibuja con su librea real (Bilbobus
-  rojo, Bizkaibus verde, Metro Bilbao gris y naranja, Euskotren blanco y azul, tranvía
-  verde, Renfe blanco y rojo) y con su número real de coches: un metro de cuatro o cinco
-  coches, un tranvía de tres o cinco módulos.
+- **Ver la ciudad en movimiento.** Cada vehículo se dibuja con su librea real: Bilbobus
+  rojo, Bizkaibus blanco con verde, Metro Bilbao gris con su franja naranja, Euskotren blanco
+  con azul, el tranvía blanco con verde y Renfe blanco con rojo. Y con su número real de
+  coches: un metro de cuatro o cinco coches, un tranvía de tres o cinco módulos.
 - **Tocar cualquier vehículo** para saber a dónde va, cuál es su próxima parada, cuánto
   le falta y de dónde sale su posición.
 - **Buscar una línea, una parada o una estación** y ver su recorrido, los vehículos que
