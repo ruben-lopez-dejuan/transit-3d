@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import bindings from 'gtfs-realtime-bindings';
 import { downloadFile } from '../lib/download';
-import { freshTimestamp, type RealtimeMessage } from '../transit/realtime';
+import { freshTimestamp, REALTIME_MAX_AGE_MS, type RealtimeMessage } from '../transit/realtime';
 import type { ResolvedSource, SourceSupplier } from '../sources/types';
 
 export type RealtimeFeedState = { feed: RealtimeMessage | null; sourceTimestamp: number | null; receivedTimestamp: number | null; error?: string };
@@ -48,7 +48,7 @@ export class RealtimeFeedClient {
     const fresh = this.feed && freshTimestamp(this.feed.header?.timestamp, now) !== null;
     const timestamp = this.feed?.header?.timestamp;
     const sourceTimestamp = typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0 ? timestamp * 1000 : null;
-    return { feed: fresh ? this.feed : null, sourceTimestamp, receivedTimestamp: this.receivedTimestamp, ...(this.error ? { error: this.error } : !fresh ? { error: 'Realtime ausente o con más de 180 s de antigüedad; se usa el horario.' } : {}) };
+    return { feed: fresh ? this.feed : null, sourceTimestamp, receivedTimestamp: this.receivedTimestamp, ...(this.error ? { error: this.error } : !fresh ? { error: `Realtime ausente o con más de ${REALTIME_MAX_AGE_MS / 1000} s de antigüedad; se usa el horario.` } : {}) };
   }
   private async refresh() {
     const file = this.file, candidate = `${file}.${process.pid}.candidate`;
