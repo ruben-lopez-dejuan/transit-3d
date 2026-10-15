@@ -113,6 +113,67 @@ test('Metro dwell anchors stop at a station, speeds stay bounded and stale/ambig
   assert.equal(estimator.vehicles(g, boards().map((b) => ({ ...b, destination: 'unknown' })), at, 'metro').length, 0);
   assert.equal(generateScheduledVehicles(g, new Date(at), 'metro').length, 0);
 });
+/** An 8-station line (~850 m apart) and the boards it publishes for trains that pass station 0 at `departures`:
+ * 85 s between stations plus 20 s dwell, whole minutes, each board emitted up to 90 s before the poll. */
+const stations = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+function longLine(): BizkaibusGtfs {
+  const g = fixture();
+  g.stops = new Map(stations.map((id, i) => [id, { stopId: id, stopCode: String(i + 1), name: id.toUpperCase(), latitude: 40.4, longitude: -3.7 + i * .01 }]));
+  g.shapes.set('forward', stations.map((_, i) => ({ sequence: i, latitude: 40.4, longitude: -3.7 + i * .01 })));
+  g.tripStops.set('forward', stations.map((id, i) => ({ stopId: id, sequence: i + 1, arrivalTime: '00:00:00', departureTime: '00:00:00' })));
+  g.trips.set('forward', { ...g.trips.get('forward')!, headsign: 'H' });
+  return g;
+}
+function lineBoards(departures: number[], now: number, skip: (station: number) => boolean = () => false): MetroBoard[] {
+  return stations.slice(0, -1).flatMap((name, k) => {
+    if (skip(k)) return [];
+    const source = now - (k * 37_000) % 90_000;
+    const arrivals = departures.map((t) => t + k * 105_000).filter((a) => a + 20_000 > source).sort((a, b) => a - b).slice(0, 2).map((a) => source + Math.max(0, Math.round((a - source) / 60_000)) * 60_000);
+    return [{ line: '1', station: name.toUpperCase(), stationId: name, platform: '1', destination: 'H', sourceTimestamp: source, recordTimestamp: source, arrivals }];
+  });
+}
+function track(departures: number[], skip?: (station: number, now: number) => boolean) {
+  const g = longLine(), estimator = new MetroEstimates(new Map([['1', '1']])), frames: { now: number; vehicles: ReturnType<MetroEstimates['vehicles']> }[] = [];
+  for (let now = at; now <= at + 14 * 60_000; now += 15_000) frames.push({ now, vehicles: estimator.vehicles(g, lineBoards(departures, now, skip && ((k) => skip(k, now))), now, 'metro') });
+  return frames;
+}
+function steadiness(frames: ReturnType<typeof track>) {
+  const last = new Map<string, { now: number; progress: number }>();
+  let backwards = 0, fastest = 0;
+  for (const { now, vehicles } of frames) for (const v of vehicles) {
+    const previous = last.get(v.id);
+    if (previous) { backwards += Number(v.progressMetersAlongShape! < previous.progress - 1); fastest = Math.max(fastest, (v.progressMetersAlongShape! - previous.progress) / ((now - previous.now) / 1000)); }
+    last.set(v.id, { now, progress: v.progressMetersAlongShape! });
+  }
+  return { ids: last.size, backwards, fastest };
+}
+test('a Metro train keeps one identity from station to station while its ETAs change, never reversing or jumping', () => {
+  const frames = track([at + 60_000]), shown = frames.filter((f) => f.vehicles.length);
+  assert.ok(shown.length >= 30, `drawn in ${shown.length} polls`);
+  assert.ok(shown.every((f) => f.vehicles.length === 1));
+  const { ids, backwards, fastest } = steadiness(frames);
+  assert.equal(ids, 1); assert.equal(backwards, 0); assert.ok(fastest <= 25, `${fastest} m/s`);
+  // Followed up to the last stretch, where only the terminus approach remains.
+  assert.ok(shown.at(-1)!.vehicles[0].progressMetersAlongShape! > 5 * 848);
+});
+test('two Metro trains of one direction keep their own identities and order', () => {
+  const frames = track([at + 30_000, at + 240_000]), order = new Map<string, number>();
+  const { ids, backwards } = steadiness(frames);
+  assert.equal(ids, 2); assert.equal(backwards, 0);
+  for (const { vehicles } of frames) if (vehicles.length === 2) {
+    const [behind, ahead] = [...vehicles].sort((a, b) => a.progressMetersAlongShape! - b.progressMetersAlongShape!);
+    order.set(ahead.id, (order.get(ahead.id) ?? 0) + 1); assert.ok(ahead.progressMetersAlongShape! - behind.progressMetersAlongShape! > 1000);
+  }
+  assert.equal(order.size, 1); // The leading train never swaps identity with the following one.
+});
+test('a missing board does not end a Metro train; one ETA alone never creates one', () => {
+  // Station d stops publishing for two minutes while the train is around it.
+  const frames = track([at + 60_000], (k, now) => k === 3 && now > at + 300_000 && now < at + 420_000);
+  const { ids, backwards } = steadiness(frames);
+  assert.equal(ids, 1); assert.equal(backwards, 0);
+  const g = longLine(), lone = lineBoards([at + 60_000], at).map((b, k) => k === 0 ? b : { ...b, arrivals: [] });
+  assert.equal(new MetroEstimates(new Map([['1', '1']])).vehicles(g, lone, at, 'metro').length, 0);
+});
 test('native topology install uses official IDs, order and geometry but cannot activate a scheduled service', () => {
   const g = fixture(), stations: TopologyDocument = { features: ['a', 'b', 'c'].map((code, i) => ({ attributes: { CODIGOESTACION: code, DENOMINACION: code.toUpperCase() }, geometry: { x: -3.7 + .01 * i, y: 40.4 } })) };
   const segments: TopologyDocument = { features: ['b', 'c'].map((code, i) => ({ attributes: { CODIGOESTACION: code, NUMEROORDEN: i + 2, SENTIDO: '1', IDFLINEA: '10T1' }, geometry: { paths: [[[-3.7 + .01 * i, 40.4], [-3.695 + .01 * i, 40.401], [-3.69 + .01 * i, 40.4]]] } })) };
