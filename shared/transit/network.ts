@@ -13,7 +13,11 @@ export type Vehicle = NormalizedVehicle & { routeKey: string; shapeKey: string; 
   /** The timetable was shifted to pass through the GPS fix: its pace is commercial speed, not a schedule to catch up with. */
   gpsAnchoredTimeline?: boolean; timelineSource?: TimelineSource; nextStop: { key: string; name: string; at: number } | null; delayEstimated: boolean };
 export type Snapshot = { cityId: string; fetchedAt: number; serverTime?: number; vehicles: Vehicle[]; providers: Omit<NormalizedProviderSnapshot, 'vehicles'>[] };
-export type Shape = { key: string; coordinates: [number, number][]; cumulative: number[]; total: number; underground?: { from: number; to: number; depthMeters: number; approximate: boolean }[] };
+/**
+ * underground: stretches in tunnel, in metres along the shape. tunnelBeforeStart/tunnelAfterEnd:
+ * the tunnel goes on past that end of the shape (an underground terminus), so there is no portal there.
+ */
+export type Shape = { key: string; coordinates: [number, number][]; cumulative: number[]; total: number; underground?: { from: number; to: number; depthMeters: number; approximate: boolean; tunnelBeforeStart?: boolean; tunnelAfterEnd?: boolean }[] };
 export type Departure = { routeKey: string; tripId: string; label: string; headsign: string; operatorId: string; at: number; quality: PositionQuality; delaySeconds: number | null; scheduledAt?: number; updatedAt?: number | null; source?: 'realtime' | 'gps' | 'schedule'; canceled?: boolean; directionId?: number | null; vehicleId?: string };
 export type LineDetail = { route: Route; shapes: Shape[]; stops: Stop[]; departures: Departure[] };
 export type StopDetail = { stop: Stop; nearbyStops: Stop[]; departures: Departure[] };

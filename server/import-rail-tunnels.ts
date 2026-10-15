@@ -5,7 +5,7 @@ import path from 'node:path';
  * Import reviewed OSM rail tunnels for one operator from an Overpass response;
  * never download infrastructure during app startup.
  *
- * Usage: npx tsx server/import-rail-tunnels.ts <euskotren|renfe> <overpass-response.json>
+ * Usage: npx tsx server/import-rail-tunnels.ts <euskotren|metro-bilbao|renfe> <overpass-response.json>
  */
 type Tags = Record<string, string>;
 const QUERY = '[out:json][timeout:60];way["railway"~"^(rail|narrow_gauge|subway)$"]["tunnel"]["tunnel"!="no"](43.0,-3.4,43.46,-1.74);out tags geom;';
@@ -14,6 +14,11 @@ const OPERATORS: Record<string, { output: string; accept: (tags: Tags) => boolea
   euskotren: {
     output: 'server/cities/es-bilbao/euskotren-tunnels.json',
     accept: (tags) => tags.railway === 'narrow_gauge' && tags.gauge === '1000' && tags.operator === 'Euskal Trenbide Sarea' && tags.tunnel === 'yes' && tags.electrified !== 'no' && tags.usage !== 'industrial',
+  },
+  // Metro Bilbao (L1/L2): ETS-owned subway lines, mapped as railway=subway.
+  'metro-bilbao': {
+    output: 'server/cities/es-bilbao/metro-tunnels.json',
+    accept: (tags) => running(tags) && tags.railway === 'subway' && tags.tunnel === 'yes' && tags.operator === 'Euskal Trenbide Sarea',
   },
   // Cercanías Bilbao and San Sebastián: Adif Iberian gauge (C1–C3, Donostia C1) and metre gauge (ex-FEVE C4/C5).
   // Some main-line tunnels have no operator tag; they are still Adif's, never ETS (narrow_gauge ETS is excluded).

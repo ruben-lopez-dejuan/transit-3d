@@ -8,6 +8,7 @@ import { infrastructureFor } from './infrastructure';
 import { TunnelGeometryIndex } from './tunnelGeometry';
 import { buildShapeMetric, type Coordinate } from './motionEngine';
 import tunnelDataset from '../cities/es-bilbao/euskotren-tunnels.json';
+import metroTunnels from '../cities/es-bilbao/metro-tunnels.json';
 
 function fixture(longitude = 0): BizkaibusGtfs {
   return {
@@ -53,17 +54,22 @@ test('shape packets preserve short corners before long segments', () => {
   assert.equal(shapePacket(shapeMetric(gtfs, 'corner')!, 'corner').coordinates.length, 3);
 });
 
-test('Metro tunnel metadata includes the GTFS Eliptikoa name and excludes Urbinaga viaduct', () => {
+test('Metro tunnels come from OSM, and a shape drawn off the tunnel stays underground between underground stations', () => {
+  // A real mapped tunnel west of Zazpikaleak/Casco Viejo, about 5 km long.
+  const way = metroTunnels.ways.find((item) => item.id === 262052936)!.coordinates as Coordinate[];
+  const middle = Math.floor(way.length / 2);
+  // A stretch drawn 400 m away from the tunnel, as in the coarse GTFS shapes rounded to 100 m.
+  const shape = [...way.slice(0, middle - 3), ...way.slice(middle - 3, middle + 3).map(([longitude, latitude]): Coordinate => [longitude, latitude + .004]), ...way.slice(middle + 3)];
   const metro = fixture();
-  ['Abando', 'Eliptikoa', 'Indautxu'].forEach((name, i) => { metro.stops.get(String(i))!.name = name; });
+  metro.shapes.set('s', shape.map(([longitude, latitude], sequence) => ({ longitude, latitude, sequence })));
+  [way[0], way[middle + 10], way.at(-1)!].forEach(([longitude, latitude], i) => Object.assign(metro.stops.get(String(i))!, { name: ['Abando', 'Moyua', 'Indautxu'][i], longitude, latitude }));
   const ranges = infrastructureFor(metro, 'metro-bilbao', 's')!;
-  assert.equal(ranges.length, 1);
-  assert.ok(ranges[0].to > ranges[0].from);
+  assert.equal(ranges.length, 1, 'no surfacing between two underground stations');
   assert.equal(ranges[0].approximate, true);
   assert.deepEqual(infrastructureFor(metro, 'euskotren', 's'), []);
-  const viaduct = fixture();
-  ['Bagatza', 'Urbinaga', 'Sestao'].forEach((name, i) => { viaduct.stops.get(String(i))!.name = name; });
-  assert.deepEqual(infrastructureFor(viaduct, 'metro-bilbao', 's'), []);
+  // Urbinaga is in the open: a gap next to it stays a gap.
+  ['Bagatza', 'Urbinaga', 'Sestao'].forEach((name, i) => { metro.stops.get(String(i))!.name = name; });
+  assert.equal(infrastructureFor(metro, 'metro-bilbao', 's')!.length, 2);
 });
 
 const tunnelMetric = (coordinates: Coordinate[]) => buildShapeMetric(coordinates.map(([longitude, latitude], sequence) => ({ longitude, latitude, sequence })));
@@ -102,6 +108,12 @@ test('connected source ways bridge GTFS axis deviations while unrelated surface 
   assert.equal(index.rangesFor(offset).length, 1);
   const distant = tunnelMetric([[0, 0], [.003, 0], [.004, .004], [.006, .004], [.007, 0], [.01, 0]]);
   assert.equal(index.rangesFor(distant).length, 2, 'a path far outside the mapped tunnel must stay above ground');
+});
+test('a shape ending in an underground terminus keeps the tunnel past its end; one ending at a portal does not', () => {
+  const index = new TunnelGeometryIndex([[[0, 0], [.01, 0]]]);
+  const [range] = index.rangesFor(tunnelMetric([[.005, 0], [.01, 0]]));
+  assert.equal(range.tunnelBeforeStart, true, '550 m from the nearest tunnel end: Matiko, Kabiezes');
+  assert.equal(range.tunnelAfterEnd, undefined, 'at the tunnel end: Concordia, Lezama');
 });
 test('a surface excursion returning to the same tunnel portal is not filled in as underground', () => {
   const index = new TunnelGeometryIndex([[[0, 0], [.003, 0]]]);

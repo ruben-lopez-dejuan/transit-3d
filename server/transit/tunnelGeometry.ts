@@ -4,6 +4,11 @@ import type { Shape } from '../../shared/transit/network';
 type Range = NonNullable<Shape['underground']>[number];
 type Point = { x: number; y: number };
 type Segment = { a: Point; dx: number; dy: number; length: number; component: number };
+/**
+ * A shape end this close to a loose tunnel end starts or stops at the portal. Audit 15 Oct 2026:
+ * portal termini are 3–18 m away (95 m at Ardantza and Anoeta), underground ones 450 m or more.
+ */
+const PORTAL_MATCH_METERS = 100;
 
 /** Match infrastructure to the existing GTFS shape, without changing its coordinates. */
 export class TunnelGeometryIndex {
@@ -12,18 +17,24 @@ export class TunnelGeometryIndex {
   private readonly lonScale: number;
   private readonly origin: Coordinate;
   private readonly cellMeters = 200;
+  /** Way ends joined to no other tunnel way: portals, or the dead end of a tunnel. */
+  private readonly looseEnds: Point[];
   constructor(lines: readonly (readonly Coordinate[])[], private readonly depthMeters = 12, private readonly toleranceMeters = 25) {
     this.origin = lines.find((line) => line.length)?.[0] ?? [0, 0];
     this.lonScale = 111_320 * Math.cos(this.origin[1] * Math.PI / 180);
     // Source ways are split at stations/tag changes. Join only shared source nodes.
-    const parent = lines.map((_, i) => i), nodes = new Map<string, number>();
+    const parent = lines.map((_, i) => i), nodes = new Map<string, number>(), neighbours = new Map<string, Set<string>>();
     const root = (i: number): number => parent[i] === i ? i : (parent[i] = root(parent[i]));
-    lines.forEach((line, i) => line.forEach((coordinate) => {
+    lines.forEach((line, i) => line.forEach((coordinate, j) => {
       const key = coordinate.join(':');
       const other = nodes.get(key);
       if (other !== undefined) parent[root(i)] = root(other);
       nodes.set(key, i);
+      if (!neighbours.has(key)) neighbours.set(key, new Set());
+      for (const next of [line[j - 1], line[j + 1]]) if (next) neighbours.get(key)!.add(next.join(':'));
     }));
+    // A node with a single neighbour is where the tunnel ends; a duplicated way does not change that.
+    this.looseEnds = lines.flatMap((line) => line.length ? [line[0], line.at(-1)!] : []).filter((end) => neighbours.get(end.join(':'))!.size === 1).map((end) => this.point(end));
     for (const [lineIndex, line] of lines.entries()) for (let i = 1; i < line.length; i++) {
       const a = this.point(line[i - 1]), b = this.point(line[i]);
       const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
@@ -96,8 +107,17 @@ export class TunnelGeometryIndex {
         lastPoint = point; gap = [];
       }
     }
-    const result = ranges.filter((range) => range.to - range.from >= 30).map(({ component: _component, ...range }) => range);
+    const result: Range[] = ranges.filter((range) => range.to - range.from >= 30).map(({ component: _component, ...range }) => range);
+    // A shape that ends inside a tunnel either ends at its portal (Concordia, Lezama) or in an
+    // underground terminus (Matiko, Kabiezes), where trains must not come up to the surface.
+    const first = result[0], last = result.at(-1);
+    if (first && first.from === 0 && !this.nearPortal(metric.coordinates[0])) first.tunnelBeforeStart = true;
+    if (last && last.to >= metric.totalMeters - .001 && !this.nearPortal(metric.coordinates.at(-1)!)) last.tunnelAfterEnd = true;
     this.cache.set(metric, result);
     return result;
+  }
+  private nearPortal(coordinate: Coordinate) {
+    const point = this.point(coordinate);
+    return this.looseEnds.some((end) => Math.hypot(end.x - point.x, end.y - point.y) <= PORTAL_MATCH_METERS);
   }
 }

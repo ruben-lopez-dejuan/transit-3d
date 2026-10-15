@@ -78,3 +78,30 @@ Bilbao, C1 de Donostia) y en ancho métrico (antigua FEVE, C4/C5). Se generan co
 consulta que figura en el propio fichero. Auditoría 14 oct 2026: 133 ways; la C1
 y la C2 bajan en Abando y recorren unos 2,3 km soterradas hacia Zabalburu y
 Ametzola, y la C4 sale de Concordia con 3,5 km de túnel.
+
+## Metro Bilbao
+
+Antes se marcaba soterrado cada tramo entre dos estaciones de una lista, de andén a
+andén, así que los portales caían siempre en una estación (un tren salía a la
+superficie en Sestao o San Inazio). Ahora `server/cities/es-bilbao/metro-tunnels.json`
+(71 ways `railway=subway` + `tunnel=yes` de ETS; `npx tsx server/import-rail-tunnels.ts
+metro-bilbao <respuesta-overpass.json>`) da los portales reales. Auditoría 15 oct 2026:
+
+- Bolueta está en superficie: la boca queda 124 m al oeste; entre Etxebarri y Bolueta
+  hay además un túnel corto de unos 200 m.
+- San Inazio: el túnel sigue unos 600 m hacia Lutxana; Gurutzeta, Ansio, Barakaldo y
+  Bagatza, en túnel continuo hasta unos 315 m antes de Urbinaga.
+- Urbinaga, en abierto entre dos bocas; la de Sestao, unos 350 m después.
+- L2: túnel desde unos 690 m pasado Etxebarri hasta Ariz y Basauri.
+- L1 en Getxo/Uribe Kosta: tramos cubiertos en Erandio, Areeta, Algorta, Bidezabal,
+  Ibarbengoa, Urduliz y Plentzia.
+
+La lista de estaciones subterráneas queda solo para cerrar huecos: algunas formas
+GTFS (Ansio–Basauri) están redondeadas a 100 m y pierden el eje del túnel en Casco
+Viejo; un hueco cuyos dos extremos caen entre estaciones subterráneas no sale a la
+superficie.
+
+Una forma que empieza o acaba dentro de un túnel indica si el túnel sigue más allá
+(`tunnelBeforeStart` / `tunnelAfterEnd`): a más de 100 m de una boca OSM es una
+terminal subterránea (Matiko, Kabiezes, San Inazio, Durango, Casco Viejo); si no,
+la forma arranca en la boca (Concordia, Lezama, Irun).
