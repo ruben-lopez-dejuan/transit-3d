@@ -7,7 +7,8 @@ import { estimatedBusDwell } from '../transit/stopMotion';
 import type { VehicleModels, ModelItem } from './vehicleModels';
 import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
 import { renderedPositionSource, REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
-import { liveryFor } from '../../shared/transit/appearance';
+import { bodyFor, liveryFor } from '../../shared/transit/appearance';
+import { carRole } from './vehicleShapes';
 import { vehicleIconId, vehicleIconPixels } from './networkMap';
 
 type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion; scheduled?: TimelineMotion };
@@ -199,7 +200,7 @@ export class TransitRenderer {
           if (at < 0) continue;
           const pose = shape ? vehiclePose(shape, at, vehicle, scale.width) : car === 0 ? { coordinate, bearing, altitude: 0, underground: false } : null;
           if (!pose) continue;
-          models.push({ ...pose, color: livery.body, accent: livery.accent, front: livery.front ?? livery.body, band: livery.band ?? 'thin', length: consist.length, kind: vehicleKind(vehicle), scale, selected: vehicle.id === this.selectedId });
+          models.push({ ...pose, color: livery.body, accent: livery.accent, front: livery.front ?? livery.body, band: livery.band ?? 'thin', length: consist.length, gap: consist.gap, kind: vehicleKind(vehicle), body: bodyFor(vehicle), role: carRole(car, consist.count), scale, selected: vehicle.id === this.selectedId });
         }
       }
     }

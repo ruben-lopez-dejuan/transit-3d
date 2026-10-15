@@ -86,6 +86,7 @@ test('vehicles carry their fleet livery and real consist, not the line colour', 
   assert.deepEqual([look('euskotren', 'tram', 'TR').livery?.accent, look('euskotren', 'tram', 'TR').livery?.band], ['#63b33f', 'broad'], 'the tram is green below');
   assert.deepEqual(look('renfe', 'rail', 'C1').livery, { body: '#f2f3f4', accent: '#cf102d', front: '#cf102d', band: 'skirt' });
   assert.equal(look('la-union', 'bus', '3714').livery, undefined, 'no confirmed livery: the line colour stays');
+  assert.deepEqual([look('metro-bilbao', 'rail', 'MB').body?.cab, look('euskotren', 'rail', 'E1').body?.cab, look('renfe', 'rail', 'C1').body?.cab, look('euskotren', 'tram', 'TR').body?.doors], ['round', 'sloped', 'flat', 1], 'each series keeps its own cab and doors');
 });
 test('city catalog, vehicles, geometry, line, stop and trip details share normalized references', async () => {
   const { network, now } = memoryCity();

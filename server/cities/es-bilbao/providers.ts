@@ -11,7 +11,7 @@ import type { RealtimeMessage, StopUpdate } from '../../transit/realtime';
 import { RegisteredProvider } from '../../transit/registeredProvider';
 import { repairShapes, shapeRepairVersion } from '../../transit/routedSegments';
 import type { ProviderRuntime } from '../../transit/cityPackage';
-import type { AdapterVehicle, VehicleAppearance, VehicleLivery } from '../../../shared/transit/contracts';
+import type { AdapterVehicle, VehicleAppearance, VehicleBody, VehicleLivery } from '../../../shared/transit/contracts';
 import { entityId } from '../../../shared/transit/ids';
 import { bilbaoManifest } from './city.manifest';
 import { primary, regionalSources, renfeSource, type Source } from './sources';
@@ -71,6 +71,20 @@ const LIVERIES: Record<string, VehicleLivery> = {
   'funicular-artxanda': { body: '#d22b2b', accent: '#f4f4f4', band: 'thin' },
 };
 /**
+ * The cars' shape, after the same photos and the fleets' data sheets: Metro Bilbao (CAF 500/550/600)
+ * 2.8 m wide with a front rounded in plan and four doors a side; Euskotren 900/950 2.6 m wide and
+ * 3.6 m tall, with a long raked nose and three doors; Renfe Cercanías 446/447 2.94 m wide with an
+ * upright cab and three doors; the CAF Urbos trams 2.4 m wide, rounded, a door per module; the
+ * Artxanda funicular a glazed cabin at both ends.
+ */
+const BODIES: Record<string, VehicleBody> = {
+  'metro-bilbao': { cab: 'round', doors: 4, width: 2.8, height: 3.75 },
+  euskotren: { cab: 'sloped', doors: 3, width: 2.6, height: 3.6 },
+  'euskotren:tram': { cab: 'round', doors: 1, width: 2.4, height: 3.3 },
+  renfe: { cab: 'flat', doors: 3, width: 2.94, height: 3.95 },
+  'funicular-artxanda': { cab: 'cabin', doors: 3, width: 2.6, height: 3.1 },
+};
+/**
  * Consists per fleet: Metro Bilbao series 500 runs 4 cars (72 m) and series 550/600 five, told
  * apart by the unit its TripUpdates name; Euskotren 950 has 3 cars (L3, Txorierri E3/E3a)
  * and 900 has 4; Bilbao trams (series 400) 3 modules, 24.4 m; Vitoria trams (500) 5 modules,
@@ -90,7 +104,8 @@ export function bilbaoAppearance(providerId: string, vehicle: Pick<AdapterVehicl
   // Euskotren tram shapes are matched onto their own OSM track (trackMatching.ts): no diagrammatic offset.
   const lateralOffsetMeters = (vehicle.mode === 'rail' || vehicle.mode === 'tram') && !(providerId === 'renfe' && /^C[45]/.test(shortName)) && !(providerId === 'euskotren' && vehicle.mode === 'tram') ? 1.7 : 0;
   const livery = LIVERIES[`${providerId}:${vehicle.mode}`] ?? LIVERIES[providerId];
-  return { kind, composition: consistFor(providerId, vehicle.mode, shortName, unit), lateralOffsetMeters, ...(livery ? { livery } : {}) };
+  const body = BODIES[`${providerId}:${vehicle.mode}`] ?? BODIES[providerId];
+  return { kind, composition: consistFor(providerId, vehicle.mode, shortName, unit), lateralOffsetMeters, ...(livery ? { livery } : {}), ...(body ? { body } : {}) };
 }
 export const providers: ProviderRuntime[] = sourceAdapters.map((adapter) => {
   const provider = new RegisteredProvider(bilbaoManifest, definitions.find((d) => d.id === adapter.operatorId)!, adapter) as ProviderRuntime;

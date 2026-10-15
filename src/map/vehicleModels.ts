@@ -1,77 +1,15 @@
 import { MercatorCoordinate, type Map as TransitMap, type CustomLayerInterface, type CustomRenderMethodInput } from 'maplibre-gl';
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { MODEL_CAPACITY, MODEL_MIN_ZOOM, MODEL_DETAIL_ZOOM, MODEL_FULL_ZOOM, type VehicleKind } from './vehicleLod';
-import type { LiveryBand } from '../../shared/transit/contracts';
+import { MODEL_CAPACITY, MODEL_MIN_ZOOM, type VehicleKind } from './vehicleLod';
+import { TAIL, vehicleParts, type Tint } from './vehicleShapes';
+import type { LiveryBand, VehicleBody } from '../../shared/transit/contracts';
 
 export type ModelItem = {
-  coordinate: [number, number]; bearing: number; color: string; accent: string; front: string; band: LiveryBand; length: number;
-  kind: VehicleKind; altitude: number; underground: boolean; selected: boolean;
+  coordinate: [number, number]; bearing: number; color: string; accent: string; front: string; band: LiveryBand; length: number; gap: number;
+  kind: VehicleKind; body: VehicleBody; role: number; altitude: number; underground: boolean; selected: boolean;
   scale: { width: number; length: number; height: number };
 };
-/** Tinted parts take the livery: the body colour, its band or the front end. */
-type Tint = 'body' | 'accent' | 'front';
-type Part = { geometry: THREE.BufferGeometry; color: string; tinted?: Tint; minZoom: number };
-type Pool = { mesh: THREE.InstancedMesh; capacity: number; minZoom: number; tinted?: Tint };
-const box = (x: number, y: number, z: number, px = 0, py = 0, pz = 0) => new THREE.BoxGeometry(x, y, z).translate(px, py, pz);
-const merge = (...pieces: THREE.BufferGeometry[]) => {
-  const result = mergeGeometries(pieces)!; pieces.forEach((piece) => piece.dispose()); return result;
-};
-function wheel(x: number, y: number) {
-  const geometry = new THREE.CylinderGeometry(.48, .48, .22, 8);
-  geometry.rotateZ(Math.PI / 2); return geometry.translate(x, y, .55);
-}
-function railBody(width: number, nose: number, height: number) {
-  const shape = new THREE.Shape();
-  shape.moveTo(-width / 2, -5.7); shape.lineTo(width / 2, -5.7);
-  shape.lineTo(width / 2, 4.9); shape.lineTo(nose / 2, 6);
-  shape.lineTo(-nose / 2, 6); shape.lineTo(-width / 2, 4.9); shape.closePath();
-  return new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, steps: 1, curveSegments: 1 }).translate(0, 0, .6);
-}
-/**
- * Where the livery's band runs, after the real fleets: low on the skirt (Metro Bilbao's
- * red-orange, Renfe's red), over the whole lower half (Euskotren's blue, the tram's and
- * Bizkaibus's green) or as a thin line.
- */
-function bandParts(bus: boolean, width: number, nose: number, height: number, band: LiveryBand) {
-  if (bus) {
-    const [z, h] = band === 'broad' ? [1.12, 1.1] : band === 'skirt' ? [.78, .45] : [1.05, .32];
-    return merge(box(.05, 10.2, h, -1.27, -.4, z), box(.05, 10.2, h, 1.27, -.4, z), box(2.3, .05, h, 0, 5.92, z), box(2.3, .05, h, 0, -5.72, z));
-  }
-  // Up to just below the windows, which run along the top of the body.
-  const windowBottom = height - .2 - .425 - .06;
-  const [z, h] = band === 'broad' ? [(.62 + windowBottom) / 2, windowBottom - .62] : band === 'skirt' ? [.92, .36] : [1.25, .3];
-  return merge(box(.05, 10.4, h, -width / 2 - .03, -.3, z), box(.05, 10.4, h, width / 2 + .03, -.3, z), box(nose * .9, .05, h, 0, 6.04, z));
-}
-function parts(kind: VehicleKind, band: LiveryBand): Part[] {
-  const far = MODEL_MIN_ZOOM, medium = MODEL_DETAIL_ZOOM, close = MODEL_FULL_ZOOM;
-  if (kind === 'bus') return [
-    { geometry: merge(box(2.5, 10.8, 2.35, 0, -.3, 1.8), box(2.3, .9, 2.15, 0, 5.45, 1.7)), color: '#fff', tinted: 'body', minZoom: far },
-    { geometry: bandParts(true, 2.5, 2.3, 2.35, band), color: '#fff', tinted: 'accent', minZoom: medium },
-    { geometry: box(2.2, 8.5, .22, 0, -.3, 3.1), color: '#dce4e4', minZoom: far },
-    { geometry: merge(box(.04, 8.7, .85, -1.27, -.3, 2.15), box(.04, 8.7, .85, 1.27, -.3, 2.15), box(2.08, .06, 1.1, 0, 5.93, 2.12)), color: '#1b2328', minZoom: medium },
-    { geometry: merge(wheel(-1.27, 3.1), wheel(1.27, 3.1), wheel(-1.27, -3.9), wheel(1.27, -3.9)), color: '#17252d', minZoom: medium },
-    { geometry: merge(box(.4, .08, .18, -.8, 5.96, .85), box(.4, .08, .18, .8, 5.96, .85)), color: '#fff5c5', minZoom: close },
-    { geometry: merge(box(.25, .08, .35, -.95, -5.74, .85), box(.25, .08, .35, .95, -5.74, .85)), color: '#e73939', minZoom: close },
-  ];
-  const tram = kind === 'tram', metro = kind === 'metro', funicular = kind === 'funicular';
-  const width = tram ? 2.4 : 2.7, height = tram ? 2.3 : funicular ? 2.2 : 2.8;
-  const nose = metro ? 2.5 : tram ? 1.4 : funicular ? 2.4 : 1.1;
-  const result: Part[] = [
-    { geometry: railBody(width, nose, height), color: '#fff', tinted: 'body', minZoom: far },
-    // The cab end in its own colour: Metro Bilbao's dark nose, Renfe's red cab, Euskotren's mask.
-    { geometry: box(nose * .98, .08, height * .96, 0, 5.98, .6 + height * .5), color: '#fff', tinted: 'front', minZoom: far },
-    { geometry: bandParts(false, width, nose, height, band), color: '#fff', tinted: 'accent', minZoom: far },
-    { geometry: box(width * .75, metro ? 9 : tram ? 8 : 9.6, .18, 0, -.4, height + .65), color: metro ? '#384a55' : '#dce4e4', minZoom: far },
-    // A continuous dark glazing band, as on the real cars.
-    { geometry: merge(box(.05, 9.6, .85, -width / 2 - .02, -.3, height - .2), box(.05, 9.6, .85, width / 2 + .02, -.3, height - .2), box(nose * .85, .05, .85, 0, 6.03, height - .15)), color: '#1b2328', minZoom: medium },
-    { geometry: merge(box(.38, .07, .2, -nose * .3, 6.05, .95), box(.38, .07, .2, nose * .3, 6.05, .95)), color: '#fff5c5', minZoom: close },
-    { geometry: merge(box(.08, .07, 1.65, -width / 2 - .04, 1.8, 1.45), box(.08, .07, 1.65, width / 2 + .04, 1.8, 1.45), box(width * .55, 1.4, .28, 0, -.8, height + .85)), color: '#62717b', minZoom: close },
-  ];
-  if (tram) result.push({ geometry: box(width * .8, .55, height * .8, 0, -5.9, height * .5 + .6), color: '#38434a', minZoom: medium });
-  if (tram || funicular) result.push({ geometry: merge(box(.09, 2, .12, -.45, .8, height + 1), box(.09, 2, .12, .45, .8, height + 1), box(1.3, .09, .12, 0, 1.7, height + 1)), color: '#293b43', minZoom: close });
-  return result;
-}
+type Pool = { mesh: THREE.InstancedMesh; capacity: number; minZoom: number; maxZoom: number; tinted?: Tint; on: number };
 
 /** One body per car at every LOD. Extra parts appear, never a second vehicle body. */
 export class VehicleModels implements CustomLayerInterface {
@@ -92,18 +30,20 @@ export class VehicleModels implements CustomLayerInterface {
     this.ready = true;
   }
 
-  /** Meshes for one kind and band, built the first time a vehicle needs them. */
-  private group(kind: VehicleKind, band: LiveryBand, ghost: boolean) {
-    const key = `${kind}:${band}:${ghost}`;
+  /** Meshes for one fleet's shape and band, built the first time a vehicle needs them. A car seen through the ground keeps only its shell. */
+  private group(item: ModelItem, ghost: boolean) {
+    const { kind, band, body, length, gap } = item;
+    const key = `${kind}:${band}:${body.cab}:${body.doors}:${body.width}:${body.height}:${length}:${gap}:${ghost}`;
     let group = this.groups.get(key);
     if (group) return group;
     group = [];
-    for (const part of parts(kind, band)) {
+    for (const part of vehicleParts(kind, band, body, length, gap)) {
+      if (ghost && !part.ghost) { part.geometry.dispose(); continue; }
       const material = new THREE.MeshLambertMaterial({ color: part.color, transparent: ghost, opacity: ghost ? .38 : 1, depthTest: !ghost, depthWrite: !ghost });
       const capacity = kind === 'bus' ? 512 : kind === 'train' ? 256 : 128;
       const mesh = new THREE.InstancedMesh(part.geometry, material, capacity);
       mesh.count = 0; mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      const pool = { mesh, capacity, minZoom: part.minZoom, tinted: part.tinted };
+      const pool = { mesh, capacity, minZoom: part.minZoom, maxZoom: part.maxZoom ?? Infinity, tinted: part.tinted, on: part.on };
       this.scene.add(mesh); this.pools.push(pool); group.push(pool);
     }
     this.groups.set(key, group);
@@ -132,11 +72,12 @@ export class VehicleModels implements CustomLayerInterface {
     for (const item of items) {
       const coordinate = MercatorCoordinate.fromLngLat(item.coordinate), ratio = coordinate.meterInMercatorCoordinateUnits() / this.units;
       this.transform.position.set((coordinate.x - this.origin.x) / this.units, -(coordinate.y - this.origin.y) / this.units, item.altitude * ratio);
-      this.transform.rotation.set(0, 0, -item.bearing * Math.PI / 180);
-      this.transform.scale.set(item.scale.width * ratio, item.length / 12 * item.scale.length * ratio, item.scale.height * ratio);
+      // The tail car is a lead car turned round, its cab facing back.
+      this.transform.rotation.set(0, 0, -item.bearing * Math.PI / 180 + (item.role & TAIL ? Math.PI : 0));
+      this.transform.scale.set(item.scale.width * ratio, item.scale.length * ratio, item.scale.height * ratio);
       this.transform.updateMatrix(); this.color.set(item.color); this.accent.set(item.accent); this.front.set(item.front); if (item.selected) this.color.lerp(this.white, .18);
-      for (const pool of this.group(item.kind, item.band, item.underground)) {
-        if (zoom < pool.minZoom || pool.mesh.count >= MODEL_CAPACITY) continue;
+      for (const pool of this.group(item, item.underground)) {
+        if (!(pool.on & item.role) || zoom < pool.minZoom || zoom >= pool.maxZoom || pool.mesh.count >= MODEL_CAPACITY) continue;
         if (pool.mesh.count >= pool.capacity) this.grow(pool);
         const index = pool.mesh.count++;
         pool.mesh.setMatrixAt(index, this.transform.matrix);
@@ -152,7 +93,7 @@ export class VehicleModels implements CustomLayerInterface {
   render(_gl: WebGLRenderingContext | WebGL2RenderingContext, args: CustomRenderMethodInput) {
     if (!this.enabled || this.map.getZoom() < MODEL_MIN_ZOOM) return;
     this.camera.projectionMatrix.fromArray(args.defaultProjectionData.mainMatrix).multiply(this.local);
-    for (const pool of this.pools) pool.mesh.visible = this.map.getZoom() >= pool.minZoom;
+    for (const pool of this.pools) pool.mesh.visible = pool.mesh.count > 0 && this.map.getZoom() >= pool.minZoom && this.map.getZoom() < pool.maxZoom;
     this.renderer.resetState(); this.renderer.render(this.scene, this.camera); this.renderer.resetState();
   }
 

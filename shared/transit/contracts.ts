@@ -8,7 +8,11 @@ export type VehicleKind = 'bus' | 'train' | 'metro' | 'tram' | 'funicular' | 'un
 export type LiveryBand = 'skirt' | 'broad' | 'thin';
 /** Real paint of the fleet, independent of the line colour: body, band, and cab end when it differs. */
 export type VehicleLivery = { body: string; accent: string; front?: string; band?: LiveryBand };
-export type VehicleAppearance = { kind: VehicleKind; composition: { count: number; length: number; gap: number }; lateralOffsetMeters: number; livery?: VehicleLivery };
+/** Cab end of the real cars: rounded in plan, a long raked nose, an upright cab or a glazed cabin end. */
+export type CabShape = 'round' | 'sloped' | 'flat' | 'cabin';
+/** Shape of the real cars, for the 3D model and the icon: cab, doors per side and car, width and roof height in metres. */
+export type VehicleBody = { cab: CabShape; doors: number; width: number; height: number };
+export type VehicleAppearance = { kind: VehicleKind; composition: { count: number; length: number; gap: number }; lateralOffsetMeters: number; livery?: VehicleLivery; body?: VehicleBody };
 export type ProviderCapabilities = {
   staticGtfs: boolean; vehiclePositions: boolean; tripUpdates: boolean;
   serviceAlerts: boolean; occupancy: boolean; speed: boolean; bearing: boolean;
