@@ -33,19 +33,21 @@ export const realtimeProviders = [
 export const sourceAdapters = [...realtimeProviders, ...staticProviders.filter((p) => !realtimeProviders.some((r) => r.operatorId === p.operatorId))];
 
 /**
- * Fleet paint, not line colour: Metro Bilbao grey with orange, Euskotren trains white with
- * blue, Euskotren trams green, Renfe Cercanías white with red, Bilbobus red, Bizkaibus green,
- * Dbus blue, Artxanda funicular red. Operators without a confirmed livery keep the line colour.
+ * Fleet paint, not line colour, after photos of each fleet: Metro Bilbao grey with a low
+ * red-orange band and a dark nose; Euskotren trains white with a broad blue lower half and a
+ * deep blue mask, recalling its historic blue trains; the Bilbao/Vitoria tram white with green
+ * below; Renfe Cercanías white with a red cab and low red band; Bizkaibus white with its green
+ * lower waves; Bilbobus red; Dbus blue; Artxanda funicular red. Others keep the line colour.
  */
 const LIVERIES: Record<string, VehicleLivery> = {
-  'metro-bilbao': { body: '#c3c9ce', accent: '#f08419' },
-  euskotren: { body: '#f2f4f6', accent: '#1d5aa8' },
-  'euskotren:tram': { body: '#5fae3c', accent: '#f4f4f4' },
-  renfe: { body: '#f2f3f4', accent: '#cf102d' },
-  bilbobus: { body: '#c8102e', accent: '#f4f4f4' },
-  bizkaibus: { body: '#5da832', accent: '#f4f4f4' },
-  dbus: { body: '#1f5aa6', accent: '#f4f4f4' },
-  'funicular-artxanda': { body: '#d22b2b', accent: '#f4f4f4' },
+  'metro-bilbao': { body: '#c6ccd1', accent: '#e5521f', front: '#2b3035', band: 'skirt' },
+  euskotren: { body: '#f1f3f5', accent: '#1f5fae', front: '#173f7a', band: 'broad' },
+  'euskotren:tram': { body: '#f1f3f1', accent: '#63b33f', front: '#24292d', band: 'broad' },
+  renfe: { body: '#f2f3f4', accent: '#cf102d', front: '#cf102d', band: 'skirt' },
+  bilbobus: { body: '#d71a21', accent: '#f4f4f4', band: 'thin' },
+  bizkaibus: { body: '#f2f4f1', accent: '#3fa93a', band: 'broad' },
+  dbus: { body: '#1f5aa6', accent: '#f4f4f4', band: 'thin' },
+  'funicular-artxanda': { body: '#d22b2b', accent: '#f4f4f4', band: 'thin' },
 };
 /**
  * Consists per fleet: Metro Bilbao series 500 runs 4 cars (72 m) and series 550/600 five, told

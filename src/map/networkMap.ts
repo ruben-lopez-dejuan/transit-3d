@@ -2,6 +2,7 @@ import { Map, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 import type { Network, Shape, Stop } from '../transit/networkTypes';
 import { vehicleKind } from './vehicleLod';
 import { compositionFor, liveryFor, type StyledVehicle } from '../../shared/transit/appearance';
+import type { VehicleLivery } from '../../shared/transit/contracts';
 
 export const empty = { type: 'FeatureCollection' as const, features: [] };
 export const styleUrl = (dark: boolean) => `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'positron'}`;
@@ -49,7 +50,7 @@ type IconVehicle = StyledVehicle & { color: string };
 export function vehicleIconId(vehicle: IconVehicle) {
   const livery = liveryFor(vehicle);
   const { count, length } = compositionFor(vehicle);
-  return `${vehicleKind(vehicle)}-${count}x${length}-${livery.body}-${livery.accent}`;
+  return `${vehicleKind(vehicle)}-${count}x${length}-${livery.body}-${livery.accent}-${livery.front ?? ''}-${livery.band ?? 'thin'}`;
 }
 const shade = (hex: string, amount: number) => {
   const value = Number.parseInt(hex.replace('#', ''), 16);
@@ -78,7 +79,7 @@ export function vehicleIconPixels(vehicle: IconVehicle, zoom: number) {
   const { height, width } = iconGeometry(vehicleKind(vehicle), compositionFor(vehicle)), size = iconSize(zoom);
   return { length: height * size, width: (width + 4) * size };
 }
-function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, consist: { count: number; length: number }, body: string, accent: string) {
+function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, consist: { count: number; length: number }, { body, accent, front: cab, band = 'thin' }: VehicleLivery) {
   const { count } = consist, { carLength, width, gap, height } = iconGeometry(kind, consist);
   const canvas = document.createElement('canvas'); canvas.width = 48; canvas.height = height;
   const ctx = canvas.getContext('2d')!, x = (48 - width) / 2;
@@ -89,8 +90,15 @@ function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, consist: { count:
     ctx.beginPath(); ctx.roundRect(x - 2, y - 2, width + 4, carLength + 4, corners.map((c) => c + 2)); ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fill();
     ctx.beginPath(); ctx.roundRect(x, y, width, carLength, corners); ctx.fillStyle = body; ctx.fill();
     ctx.lineWidth = 1.5; ctx.strokeStyle = shade(body, -.35); ctx.stroke();
-    // Side bands in the livery's secondary colour, then the roof.
-    ctx.fillStyle = accent; ctx.fillRect(x + 1.5, y + 4, 2.5, carLength - 8); ctx.fillRect(x + width - 4, y + 4, 2.5, carLength - 8);
+    // Side bands in the livery's secondary colour (wider for a band over the lower half), then the roof.
+    const stripe = band === 'broad' ? 4.5 : band === 'skirt' ? 2.5 : 2;
+    ctx.fillStyle = accent; ctx.fillRect(x + 1.2, y + 4, stripe, carLength - 8); ctx.fillRect(x + width - 1.2 - stripe, y + 4, stripe, carLength - 8);
+    // Trains have a cab at each end, in the livery's front colour.
+    if (cab && kind !== 'bus') {
+      ctx.fillStyle = cab;
+      if (front) { ctx.beginPath(); ctx.roundRect(x, y, width, 12, [corners[0], corners[1], 0, 0]); ctx.fill(); }
+      if (rear) { ctx.beginPath(); ctx.roundRect(x, y + carLength - 7, width, 7, [0, 0, corners[2], corners[3]]); ctx.fill(); }
+    }
     ctx.fillStyle = shade(body, .18); ctx.beginPath(); ctx.roundRect(x + 6, y + (front ? 13 : 5), width - 12, carLength - (front ? 18 : 10) - (rear && kind === 'bus' ? 6 : 0), 3); ctx.fill();
     ctx.fillStyle = '#1d313b';
     if (front) { ctx.beginPath(); ctx.roundRect(x + 3.5, y + 3, width - 7, 7, [4, 4, 1.5, 1.5]); ctx.fill(); }
@@ -105,6 +113,6 @@ export function installVehicleIcons(map: Map, items: readonly IconVehicle[]) {
   for (const route of items) {
     const id = vehicleIconId(route); if (map.hasImage(id)) continue;
     const livery = liveryFor(route);
-    map.addImage(id, drawVehicleIcon(vehicleKind(route), compositionFor(route), livery.body, livery.accent), { pixelRatio: 1 });
+    map.addImage(id, drawVehicleIcon(vehicleKind(route), compositionFor(route), livery), { pixelRatio: 1 });
   }
 }

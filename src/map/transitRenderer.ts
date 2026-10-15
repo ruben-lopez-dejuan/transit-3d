@@ -199,7 +199,7 @@ export class TransitRenderer {
           if (at < 0) continue;
           const pose = shape ? vehiclePose(shape, at, vehicle, scale.width) : car === 0 ? { coordinate, bearing, altitude: 0, underground: false } : null;
           if (!pose) continue;
-          models.push({ ...pose, color: livery.body, accent: livery.accent, length: consist.length, kind: vehicleKind(vehicle), scale, selected: vehicle.id === this.selectedId });
+          models.push({ ...pose, color: livery.body, accent: livery.accent, front: livery.front ?? livery.body, band: livery.band ?? 'thin', length: consist.length, kind: vehicleKind(vehicle), scale, selected: vehicle.id === this.selectedId });
         }
       }
     }

@@ -77,14 +77,14 @@ test('vehicles carry their fleet livery and real consist, not the line colour', 
   assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'MB', '607').composition.count, 5, 'series 600: five cars');
   assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'MB', '555').composition.count, 5, 'series 550: five cars');
   assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'MB', '512').composition.count, 4, 'series 500: four cars');
-  assert.deepEqual(look('metro-bilbao', 'rail', 'MB').livery, { body: '#c3c9ce', accent: '#f08419' }, 'grey with orange');
+  assert.deepEqual(look('metro-bilbao', 'rail', 'MB').livery, { body: '#c6ccd1', accent: '#e5521f', front: '#2b3035', band: 'skirt' }, 'grey, low red-orange band, dark nose');
   assert.equal(look('euskotren', 'rail', 'L3').composition.count, 3, 'L3 runs 950 series, three cars');
   assert.equal(look('euskotren', 'rail', 'E1').composition.count, 4, 'the 900 series has four');
   assert.equal(look('euskotren', 'tram', 'TG1').composition.count, 5, 'Vitoria trams, five modules');
   assert.equal(look('euskotren', 'tram', 'TR').composition.count, 3, 'Bilbao trams, three modules');
-  assert.deepEqual(look('euskotren', 'rail', 'E1').livery, { body: '#f2f4f6', accent: '#1d5aa8' }, 'Euskotren trains: white with blue');
-  assert.equal(look('euskotren', 'tram', 'TR').livery?.body, '#5fae3c', 'the tram is green');
-  assert.deepEqual(look('renfe', 'rail', 'C1').livery, { body: '#f2f3f4', accent: '#cf102d' });
+  assert.deepEqual(look('euskotren', 'rail', 'E1').livery, { body: '#f1f3f5', accent: '#1f5fae', front: '#173f7a', band: 'broad' }, 'Euskotren trains: white with a broad blue lower half');
+  assert.deepEqual([look('euskotren', 'tram', 'TR').livery?.accent, look('euskotren', 'tram', 'TR').livery?.band], ['#63b33f', 'broad'], 'the tram is green below');
+  assert.deepEqual(look('renfe', 'rail', 'C1').livery, { body: '#f2f3f4', accent: '#cf102d', front: '#cf102d', band: 'skirt' });
   assert.equal(look('la-union', 'bus', '3714').livery, undefined, 'no confirmed livery: the line colour stays');
 });
 test('city catalog, vehicles, geometry, line, stop and trip details share normalized references', async () => {
