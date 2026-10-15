@@ -1,8 +1,8 @@
 import { Map, LngLatBounds, type GeoJSONSource } from 'maplibre-gl';
 import type { Network, Shape, Stop } from '../transit/networkTypes';
 import { vehicleKind } from './vehicleLod';
-import { compositionFor, liveryFor, type StyledVehicle } from '../../shared/transit/appearance';
-import type { VehicleLivery } from '../../shared/transit/contracts';
+import { bodyFor, compositionFor, liveryFor, type StyledVehicle } from '../../shared/transit/appearance';
+import type { CabShape, VehicleBody, VehicleLivery } from '../../shared/transit/contracts';
 
 export const empty = { type: 'FeatureCollection' as const, features: [] };
 export const styleUrl = (dark: boolean) => `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'positron'}`;
@@ -46,18 +46,17 @@ export function fitShapes(map: Map, shapes: Shape[], padding: { top: number; bot
 }
 
 type IconVehicle = StyledVehicle & { color: string };
-/** One image per kind, consist length and livery: the icon shows the real number of cars in the fleet's paint. */
+/** One image per kind, consist, livery and car shape: the icon shows the real number of cars in the fleet's paint. */
 export function vehicleIconId(vehicle: IconVehicle) {
-  const livery = liveryFor(vehicle);
+  const livery = liveryFor(vehicle), body = bodyFor(vehicle);
   const { count, length } = compositionFor(vehicle);
-  return `${vehicleKind(vehicle)}-${count}x${length}-${livery.body}-${livery.accent}-${livery.front ?? ''}-${livery.band ?? 'thin'}`;
+  return `${vehicleKind(vehicle)}-${count}x${length}-${livery.body}-${livery.accent}-${livery.front ?? ''}-${livery.band ?? 'thin'}-${body.cab}${body.doors}`;
 }
 const shade = (hex: string, amount: number) => {
   const value = Number.parseInt(hex.replace('#', ''), 16);
   const channel = (shift: number) => Math.max(0, Math.min(255, Math.round(((value >> shift) & 255) * (1 + amount))));
   return `rgb(${channel(16)},${channel(8)},${channel(0)})`;
 };
-/** Top view, front up (the layer rotates it to the bearing): white halo, body, side bands, glazing. */
 /** Pixel geometry of a vehicle's icon image, before the zoom-dependent icon-size. */
 function iconGeometry(kind: ReturnType<typeof vehicleKind>, { count, length }: { count: number; length: number }) {
   // Rail keeps its proportions; a bus is drawn larger than scale so it stays readable among trains.
@@ -79,32 +78,79 @@ export function vehicleIconPixels(vehicle: IconVehicle, zoom: number) {
   const { height, width } = iconGeometry(vehicleKind(vehicle), compositionFor(vehicle)), size = iconSize(zoom);
   return { length: height * size, width: (width + 4) * size };
 }
-function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, consist: { count: number; length: number }, { body, accent, front: cab, band = 'thin' }: VehicleLivery) {
+type End = CabShape | 'joint';
+/** How far a cab's own colour reaches into the car, in pixels. */
+const CAB_PAINT: Record<CabShape, number> = { round: 9, sloped: 13, flat: 11, cabin: 0 };
+/**
+ * Traces one end of a car from one side to the other: a rounded metro front, Euskotren's tapered
+ * nose, an upright cab, or a plain gangway end. `dir` is 1 at the front, -1 at the rear.
+ */
+function traceEnd(ctx: CanvasRenderingContext2D, shape: End, left: number, right: number, edge: number, dir: number, bus: boolean) {
+  const at = (u: number) => left + (right - left) * u, y = (v: number) => edge + dir * v, width = Math.abs(right - left);
+  if (shape === 'sloped' && !bus) {
+    ctx.lineTo(at(0), y(12)); ctx.quadraticCurveTo(at(0), y(2), at(.22), y(0)); ctx.lineTo(at(.78), y(0)); ctx.quadraticCurveTo(at(1), y(2), at(1), y(12));
+    return;
+  }
+  const r = bus ? 6 : shape === 'joint' ? 2 : shape === 'round' ? width * .42 : shape === 'cabin' ? 5 : 4;
+  ctx.lineTo(at(0), y(r)); ctx.quadraticCurveTo(at(0), y(0), at(r / width), y(0)); ctx.lineTo(at(1 - r / width), y(0)); ctx.quadraticCurveTo(at(1), y(0), at(1), y(r));
+}
+function outline(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, length: number, front: End, rear: End, bus: boolean) {
+  ctx.beginPath(); ctx.moveTo(x, y + length / 2);
+  traceEnd(ctx, front, x, x + width, y, 1, bus); traceEnd(ctx, rear, x + width, x, y + length, -1, bus);
+  ctx.closePath();
+}
+/** Top view, front up (the layer rotates it to the bearing): white halo, body, side bands, a cab at each end of a train, doors, roof equipment. */
+function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, consist: { count: number; length: number }, { body, accent, front: cab, band = 'thin' }: VehicleLivery, shape: VehicleBody) {
   const { count } = consist, { carLength, width, gap, height } = iconGeometry(kind, consist);
   const canvas = document.createElement('canvas'); canvas.width = 48; canvas.height = height;
-  const ctx = canvas.getContext('2d')!, x = (48 - width) / 2;
+  const ctx = canvas.getContext('2d')!, x = (48 - width) / 2, bus = kind === 'bus', tram = kind === 'tram', funicular = kind === 'funicular';
   for (let car = 0; car < count; car++) {
-    const y = 3 + car * (carLength + gap), front = car === 0, rear = car === count - 1;
-    const radius = kind === 'bus' ? 6 : kind === 'tram' ? 5 : 4;
-    const corners = [front ? (kind === 'metro' ? radius : 9) : 2, front ? (kind === 'metro' ? radius : 9) : 2, rear ? radius : 2, rear ? radius : 2];
-    ctx.beginPath(); ctx.roundRect(x - 2, y - 2, width + 4, carLength + 4, corners.map((c) => c + 2)); ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fill();
-    ctx.beginPath(); ctx.roundRect(x, y, width, carLength, corners); ctx.fillStyle = body; ctx.fill();
-    ctx.lineWidth = 1.5; ctx.strokeStyle = shade(body, -.35); ctx.stroke();
-    // Side bands in the livery's secondary colour (wider for a band over the lower half), then the roof.
+    const y = 3 + car * (carLength + gap), first = car === 0, last = car === count - 1;
+    const frontCab = first && !bus, rearCab = last && !bus;
+    const frontEnd: End = first ? shape.cab : 'joint', rearEnd: End = rearCab ? shape.cab : last ? 'flat' : 'joint';
+    outline(ctx, x - 2, y - 2, width + 4, carLength + 4, frontEnd, rearEnd, bus); ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fill();
+    outline(ctx, x, y, width, carLength, frontEnd, rearEnd, bus);
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = body; ctx.fillRect(x, y, width, carLength);
+    // Side bands in the livery's secondary colour (wider for a band over the lower half).
     const stripe = band === 'broad' ? 4.5 : band === 'skirt' ? 2.5 : 2;
-    ctx.fillStyle = accent; ctx.fillRect(x + 1.2, y + 4, stripe, carLength - 8); ctx.fillRect(x + width - 1.2 - stripe, y + 4, stripe, carLength - 8);
+    ctx.fillStyle = accent; ctx.fillRect(x, y + 3, stripe + 1.2, carLength - 6); ctx.fillRect(x + width - 1.2 - stripe, y + 3, stripe + 1.2, carLength - 6);
     // Trains have a cab at each end, in the livery's front colour.
-    if (cab && kind !== 'bus') {
-      ctx.fillStyle = cab;
-      if (front) { ctx.beginPath(); ctx.roundRect(x, y, width, 12, [corners[0], corners[1], 0, 0]); ctx.fill(); }
-      if (rear) { ctx.beginPath(); ctx.roundRect(x, y + carLength - 7, width, 7, [0, 0, corners[2], corners[3]]); ctx.fill(); }
-    }
-    ctx.fillStyle = shade(body, .18); ctx.beginPath(); ctx.roundRect(x + 6, y + (front ? 13 : 5), width - 12, carLength - (front ? 18 : 10) - (rear && kind === 'bus' ? 6 : 0), 3); ctx.fill();
+    const paint = bus ? 0 : CAB_PAINT[shape.cab];
+    if (cab && paint) { ctx.fillStyle = cab; if (frontCab) ctx.fillRect(x, y, width, paint); if (rearCab) ctx.fillRect(x, y + carLength - paint, width, paint); }
+    const roofFrom = y + (first ? Math.max(paint, 10) + 2 : 4), roofTo = y + carLength - (rearCab ? Math.max(paint, 8) + 2 : bus && last ? 9 : 4);
+    ctx.fillStyle = shade(body, .18); ctx.beginPath(); ctx.roundRect(x + 6, roofFrom, width - 12, Math.max(2, roofTo - roofFrom), 3); ctx.fill();
+    // Windscreens: a raked nose shows a long one from above; a funicular is glazed at both ends.
     ctx.fillStyle = '#1d313b';
-    if (front) { ctx.beginPath(); ctx.roundRect(x + 3.5, y + 3, width - 7, 7, [4, 4, 1.5, 1.5]); ctx.fill(); }
-    if (rear && kind === 'bus') { ctx.fillRect(x + 5, y + carLength - 5, width - 10, 3); }
-    if (kind === 'bus' || kind === 'tram' || kind === 'funicular') { ctx.fillStyle = shade(body, -.25); ctx.fillRect(x + width / 2 - 4, y + carLength / 2 - 3, 8, 6); }
-    if (!rear) { ctx.fillStyle = '#38434a'; ctx.fillRect(x + 7, y + carLength, width - 14, gap); }
+    const screen = shape.cab === 'sloped' && !bus ? 9 : funicular ? 8 : 7;
+    if (first) { ctx.beginPath(); ctx.roundRect(x + 3.5, y + 3, width - 7, screen, [4, 4, 1.5, 1.5]); ctx.fill(); }
+    if (rearCab) { ctx.beginPath(); ctx.roundRect(x + 3.5, y + carLength - 3 - screen, width - 7, screen, [1.5, 1.5, 4, 4]); ctx.fill(); }
+    if (last && bus) ctx.fillRect(x + 5, y + carLength - 5, width - 10, 3);
+    // Doors, as notches in the sides, spread over the saloon.
+    if (!bus) {
+      const from = y + (frontCab ? paint + 6 : 4), to = y + carLength - (rearCab ? paint + 6 : 4);
+      ctx.fillStyle = shade(body, -.45);
+      for (let door = 0; door < shape.doors; door++) {
+        const at = from + (door + .5) * (to - from) / shape.doors;
+        ctx.fillRect(x, at - 2, 1.8, 4); ctx.fillRect(x + width - 1.8, at - 2, 1.8, 4);
+      }
+    }
+    // Roof equipment: air-conditioning on trains, a tram's long fairing, a bus's unit.
+    ctx.fillStyle = shade(body, -.2);
+    if (tram) ctx.fillRect(x + width / 2 - 4, y + carLength * .25, 8, carLength * .5);
+    else if (bus) ctx.fillRect(x + width / 2 - 4, y + carLength / 2 - 3, 8, 6);
+    else if (!funicular) for (const at of [.3, .7]) ctx.fillRect(x + width / 2 - 4, y + carLength * at - 2.5, 8, 5);
+    // Pantographs: over the inner end of each cab car on trains, on the middle module of a tram.
+    const pantograph = tram ? (count > 1 && car === Math.floor(count / 2) ? y + carLength / 2 : null) : funicular || bus || count === 1 ? null : first ? y + carLength - 8 : last ? y + 8 : null;
+    if (pantograph !== null) {
+      const middle = x + width / 2;
+      ctx.strokeStyle = '#33424a'; ctx.lineWidth = 1.4; ctx.beginPath();
+      ctx.moveTo(middle - 6, pantograph); ctx.lineTo(middle, pantograph - 4); ctx.lineTo(middle + 6, pantograph); ctx.lineTo(middle, pantograph + 4); ctx.closePath();
+      ctx.moveTo(x + 5, pantograph - 4); ctx.lineTo(x + width - 5, pantograph - 4); ctx.stroke();
+    }
+    ctx.restore();
+    outline(ctx, x, y, width, carLength, frontEnd, rearEnd, bus); ctx.lineWidth = 1.5; ctx.strokeStyle = shade(body, -.35); ctx.stroke();
+    if (!last) { ctx.fillStyle = '#38434a'; ctx.fillRect(x + (tram ? 4 : 7), y + carLength, width - (tram ? 8 : 14), gap); }
   }
   return ctx.getImageData(0, 0, 48, height);
 }
@@ -113,6 +159,6 @@ export function installVehicleIcons(map: Map, items: readonly IconVehicle[]) {
   for (const route of items) {
     const id = vehicleIconId(route); if (map.hasImage(id)) continue;
     const livery = liveryFor(route);
-    map.addImage(id, drawVehicleIcon(vehicleKind(route), compositionFor(route), livery), { pixelRatio: 1 });
+    map.addImage(id, drawVehicleIcon(vehicleKind(route), compositionFor(route), livery, bodyFor(route)), { pixelRatio: 1 });
   }
 }
