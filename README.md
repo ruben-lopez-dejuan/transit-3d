@@ -1,153 +1,132 @@
 # Transit 3D
 
-Mapa de transporte público con vehículos, líneas, destinos y próximas llegadas.
-Incluye selector de ciudad y paquetes para Bilbao/Euskadi, Málaga y Madrid.
-Bilbao integra 34 proveedores: Bizkaibus, Bilbobus, Metro Bilbao, Euskotren (tren y
-tranvías), Renfe Cercanías y los feeds adicionales verificados de Moveuskadi,
-incluido el funicular de Artxanda.
+**El transporte público de Euskadi, moviéndose en directo sobre un mapa 3D.**
 
-Madrid añade Metro estimado desde teleindicadores oficiales, Cercanías con GPS
-cuando Renfe lo publica, llegadas EMT opcionales con autenticación y horarios
-CRTM. Estado y configuración: [city-packages/es-madrid/README.md](city-packages/es-madrid/README.md).
+Autobuses, metro, trenes, tranvías y funiculares de Bilbao, Bizkaia, Gipuzkoa y Álava,
+dibujados donde están ahora mismo. En hora punta hay más de 850 vehículos en el mapa a la
+vez, casi la mitad con su posición en tiempo real.
 
-## Calidad de los datos
+![Vista 3D nocturna de la Gran Vía de Bilbao con los autobuses circulando](docs/screenshots/hero-3d.jpg)
 
-- **REAL / INTERPOLADO:** GPS válido de Bizkaibus, Bilbobus y Renfe; también Dbus
-  y Tuvisa cuando sus feeds están frescos. La predicción usa tiempos y progreso
-  originales, ajusta suavemente las nuevas observaciones y se etiqueta ESTIMADO
-  cuando avanza más allá del último GPS. No recupera errores con acelerones.
-- **ESTIMADO con predicciones:** Metro Bilbao tiene TripUpdates con predicciones
-  reales (sus posiciones publicadas son la última estación con ~2 min de retraso y no
-  se usan); Euskotren/tranvías publican TripUpdates que en la práctica repiten el
-  horario y no posiciones. Un TripUpdate que solo repite el horario (Bizkaibus,
-  casi todo Euskotren) no se trata como predicción ni supera al GPS.
-- **ESTIMADO por horario:** Artxanda y los demás operadores sin realtime
-  utilizable; también es el fallback cuando caducan los datos de un operador.
+## Qué puedes hacer
 
-**Prioridad entre fuentes:** 1) GPS fija dónde se observó el vehículo; 2) SIRI
-fija las próximas llegadas y salidas; 3) GTFS-RT u otras predicciones del operador
-cuando son válidas; 4) GTFS estático como respaldo. SIRI nunca se presenta como GPS
-y conserva su propio timestamp. La vista pública habla de «Tiempo real» u «Horario»;
-el detalle por fuente (SIRI, GTFS-RT, API, horario) está en la consola de administración.
+- **Ver la ciudad en movimiento.** Cada vehículo se dibuja con su librea real (Bilbobus
+  rojo, Bizkaibus verde, Metro Bilbao gris y naranja, Euskotren blanco y azul, tranvía
+  verde, Renfe blanco y rojo) y con su número real de coches: un metro de cuatro o cinco
+  coches, un tranvía de tres o cinco módulos.
+- **Tocar cualquier vehículo** para saber a dónde va, cuál es su próxima parada, cuánto
+  le falta y de dónde sale su posición.
+- **Buscar una línea, una parada o una estación** y ver su recorrido, los vehículos que
+  la están haciendo y las próximas salidas.
+- **Filtrar** por bus, metro y tren, tranvía o funicular, y activar o quitar operadores.
+- **Explorar en 3D**, con los edificios y el metro y los trenes bajo tierra en los túneles.
+- **Llevarla en el móvil**: el mapa ocupa la pantalla y la ficha del vehículo es una
+  tarjeta que se despliega deslizando. Se puede instalar como aplicación (PWA).
 
-Moveuskadi republica sus feeds por lotes cada 2 minutos con datos que ya tienen
-60–80 s, así que un dato se considera vigente durante 270 s
-(`shared/transit/freshness.ts`). Sin GPS, el movimiento de trenes y tranvías es
-una función del tiempo y de la línea temporal del servidor, igual en cualquier
-dispositivo o recarga; las correcciones se absorben sin retroceder. Cuando la
-predicción solo da hora de llegada, el servidor añade una parada de unos 20 s en
-cada estación para que el tren no la atraviese sin detenerse.
+| Una línea entera, con sus trenes | Un vehículo, con su próxima parada |
+|---|---|
+| ![Red de Metro Bilbao con los 22 trenes en circulación](docs/screenshots/line-metro.jpg) | ![Ficha de un Bilbobus de la línea 56 por la Gran Vía, en tiempo real](docs/screenshots/vehicle-detail.jpg) |
 
-La hora del dato, la consulta al servidor y la posición animada se mantienen
-separadas. Una consulta HTTP no rejuvenece una señal antigua.
-Fuentes, protocolos, fallos y limitaciones: [docs/data-sources.md](docs/data-sources.md).
+| Bilbao, todo el transporte a la vez | Abando en 3D: metro, tranvía, Renfe y buses |
+|---|---|
+| ![Mapa de Bilbao con cientos de vehículos](docs/screenshots/bilbao-map.jpg) | ![Vista 3D de Abando y la ría con autobuses y trenes](docs/screenshots/abando-3d.jpg) |
 
-Para diagnosticar las fuentes de Euskadi sin abrir el mapa:
-`npm run audit:euskadi-realtime`. Descarga una muestra por fuente conectada,
-comprueba su edad y unión con los horarios, y guarda el informe en
-`server/cache/audit/euskadi/report.json`. Una cabecera reciente no garantiza
-que las observaciones individuales sigan vigentes.
+<p align="center">
+  <img src="docs/screenshots/mobile-card.jpg" alt="En el móvil: tarjeta compacta de un Bilbobus de la línea 28" width="260">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/mobile-map.jpg" alt="En el móvil: Bilbao de noche en 3D" width="260">
+</p>
 
-Para Madrid: `npm run audit:madrid` inspecciona una muestra sin arrancar la app;
-`npm run audit:madrid -- --cached` reproduce la copia en su instante original,
-sin afirmar que sea el estado actual. Pruebas concretas: `npm run test:madrid`.
+## ¿Es fiable lo que veo?
 
-La consola de administración en `/admin` resume, por ciudad y proveedor, el
-catálogo cargado, health, timestamps y el reparto entre GPS, estimaciones,
-interpolación, horario y datos caducados. Solo inicializa la ciudad seleccionada.
-Puede protegerse con `TRANSIT_ADMIN_TOKEN`; uso y semántica:
-[docs/admin-console.md](docs/admin-console.md).
+Cada vehículo y cada hora de llegada llevan una etiqueta sencilla:
 
-## Ejecutar localmente
+- **Tiempo real:** el operador está dando la posición del vehículo (GPS) o su hora de
+  llegada ahora mismo.
+- **Aproximado:** hay datos actuales, pero la posición se estima entre una lectura y la
+  siguiente.
+- **Horario:** no hay datos en directo para ese servicio y se muestra según el horario.
 
-```powershell
+Los operadores publican sus datos con algo de retraso: el GPS de un Bilbobus llega cada 20 s
+y el de un Bizkaibus cada minuto, ya con uno o dos minutos de antigüedad. Entre lectura y
+lectura la app predice el movimiento con la velocidad real a la que va cada vehículo, y
+cuando el operador da a un autobús por «Llegando» a una parada, el mapa lo dibuja junto a
+ella. Las mediciones de precisión están en [docs/bus-accuracy.md](docs/bus-accuracy.md).
+
+## Qué transporte incluye
+
+| | Operadores | Datos en directo |
+|---|---|---|
+| **Bizkaia** | Bizkaibus, Bilbobus | GPS de cada autobús y tiempos de paso oficiales |
+| | Metro Bilbao | Llegadas previstas de cada tren, con su unidad |
+| | Euskotren (tren, L3 y tranvías de Bilbao y Vitoria) | Llegadas previstas cuando el operador las publica |
+| | Renfe Cercanías | GPS de cada tren |
+| | Funicular de Artxanda, Puente Colgante y autobuses municipales | Horario |
+| **Gipuzkoa** | Dbus (Donostia) | GPS de cada autobús |
+| | Lurraldebus y autobuses municipales | Horario |
+| **Álava** | Tuvisa (Vitoria-Gasteiz) | GPS de cada autobús |
+| | Alavabus, La Unión | Horario |
+
+En total son 34 fuentes de datos abiertos (Moveuskadi, Diputación de Bizkaia, Ayuntamiento
+de Bilbao, Renfe…). Hay además paquetes de ciudad para Madrid, Málaga, Pamplona y València
+en [city-packages](city-packages); se eligen con el selector de ciudad. Fuentes, protocolos y
+limitaciones: [docs/data-sources.md](docs/data-sources.md).
+
+## Para desarrolladores
+
+### Ponerla en marcha
+
+```bash
 npm install
 npm run dev
 ```
 
-Abrir http://localhost:5173. La API está en el puerto 3001 y Vite la redirige.
-Para servir la aplicación compilada:
+Abre http://localhost:5173. La primera vez tarda uno o dos minutos en descargar los horarios
+de todos los operadores; después quedan en `server/cache`. La API corre en el puerto 3001 y
+Vite le pasa las peticiones. Para probar en el móvil dentro de la misma wifi, `npx vite --host`
+muestra la dirección de red (la instalación como aplicación necesita HTTPS).
 
-```powershell
+Versión compilada, como en producción:
+
+```bash
 npm run build
 npm start
 ```
 
-Abrir http://localhost:3001. Express sirve la API y el frontend de `dist/`.
-Se requiere salida HTTPS a las fuentes documentadas y espacio escribible para
-`server/cache`. No se necesitan claves privadas del frontend.
+Abre http://localhost:3001. No hace falta ninguna clave: todas las fuentes son abiertas.
+El repositorio incluye `railway.toml` para desplegar; conviene montar un volumen en
+`/app/server/cache`.
 
-El repositorio incluye `railway.toml` para despliegue. En producción conviene
-montar un volumen en `/app/server/cache`; `TRANSIT_WARM_CITY` permite preparar
-una ciudad en segundo plano. Caché HTTP, compresión, timeouts y preferencias:
-[docs/performance.md](docs/performance.md).
+### Comprobaciones
 
-## Interfaz
-
-- Mapa claro/oscuro, búsqueda de líneas/paradas, favoritos y próximas llegadas.
-- Capas independientes por operador y modo: tren, tranvía, bus y funicular.
-- Vehículos reconocibles desde lejos; línea y destino con gestión de colisiones.
-- Modelos 3D desde zoom 11: siluetas por modo, detalles desde 14 y 16,
-  buses con ruedas/ventanas/luces, Bilbobus rojo y
-  composiciones ferroviarias cuyos coches siguen individualmente las curvas.
-- Selección y seguimiento conservan el detalle de los demás vehículos.
-- Metro subterráneo transparente, con profundidad aproximada documentada.
-- Panel lateral en escritorio y panel inferior en móvil.
-- `?debug=1` muestra timestamps, progreso, velocidad y coste de preparación visual.
-
-La separación lateral de trenes y sus composiciones son representaciones
- diagramáticas, sin inventario exacto de vías, cotas o material móvil.
-
-## Arquitectura
-
-Los adaptadores descargan y normalizan GTFS, GTFS-RT o JSON/SIRI. El motor común
-resuelve calendario, viajes activos, geometría, snapping, predicciones y posiciones
-por distancia sobre el shape. El navegador consume `/api/*` y comparte
-interpolación, pose y renderizado para todos los operadores.
-
-`shared/transit` contiene los contratos normalizados. El paquete
-`server/cities/es-bilbao` declara manifest API 1, fuentes, proveedores y aspecto;
-`server/cities/index.ts` registra Bilbao. El frontend recibe esa configuración.
-Registry y cachés por ciudad aíslan identidades, desactivación y fallos.
-Detalle: [docs/architecture.md](docs/architecture.md) y
-[docs/modular-core.md](docs/modular-core.md).
-Los refrescos realtime son independientes. GTFS y catálogo se renuevan cada seis
-horas, con caché de ZIP validado y estructuras preparadas en disco. Se reutilizan
-planes y geometrías por feed. Three.js se carga al acercarse; los modelos utilizan
-instancias y se filtran por área visible.
-
-## Comprobaciones
-
-```powershell
-npm test                     # core + frontend, sin red externa
-npm run typecheck            # comprobación de tipos
-npm run build                # tipos + compilación
-npm run test:network         # API real, requiere servidor activo
-npm run test:bizkaibus-gtfs   # descarga y análisis del feed
-npm run test:bizkaibus-realtime
-npx tsx server/profile-network.ts
-npx tsx server/validate-live.ts
+```bash
+npm test             # pruebas del servidor y del navegador, sin red
+npm run typecheck    # tipos
+npm run build        # tipos y compilación
 ```
 
-`TRANSIT_TEST_URL` cambia la URL del smoke test. Los scripts de perfil y observación
-guardan diagnósticos en la caché ignorada por Git. Resultados y límites:
-[docs/validation.md](docs/validation.md). MapLibre y Three.js todavía producen
-avisos de tamaño de bundle; queda pendiente medir rendimiento sostenido en Android
-físico.
+Herramientas que trabajan con datos en vivo (con la app en marcha):
 
-El paquete de pulido visual se valida con código, unit tests y build;
-las comprobaciones visuales quedan a cargo del usuario. Causas, LOD, cambios y
-lista manual: [docs/visual-motion.md](docs/visual-motion.md).
+- `npm run audit:euskadi-realtime`: estado y antigüedad de cada fuente de Euskadi.
+- `node --use-system-ca --import tsx server/monitor-bus-accuracy.ts 25 salida.jsonl`:
+  distancia entre los autobuses dibujados y su GPS real.
+- `node --use-system-ca --import tsx server/monitor-arriving.ts 10`: comprueba que un
+  autobús «Llegando» se dibuja junto a su parada.
+- `node --import tsx server/capture-screenshots.ts`: regenera las capturas de este README.
+- `/admin` es la consola de administración (catálogos, fuentes, reparto entre GPS y horario)
+  y `/debug` el inspector de posiciones de un vehículo.
 
-El núcleo modular pasa 81 tests y conserva las comprobaciones de movimiento/LOD.
-Después de actualizar, reinicia el servidor para cargar los endpoints de ciudad
-y recarga la web con Ctrl+F5. Lista manual de esta fase:
-[docs/modular-core.md](docs/modular-core.md#pruebas-manuales-para-el-usuario).
+### Cómo funciona
 
-## Instalación web existente
+Cada operador tiene un adaptador que descarga sus horarios (GTFS) y sus datos en directo
+(GTFS-RT, SIRI o JSON) y los traduce a un modelo común. El servidor decide para cada vehículo
+dónde está y por dónde va a pasar, y el navegador lo anima con MapLibre y Three.js. Algunas
+formas de línea publicadas están mal dibujadas y se corrigen con datos de OpenStreetMap
+([docs/shape-repairs.md](docs/shape-repairs.md)).
 
-Se conserva el manifest y service worker existentes. Para instalar en un móvil
-se requiere HTTPS. El worker almacena shell y assets; no almacena `/api/*`, feeds
-ni teselas. Sin conexión se muestra la edad del último snapshot y se retiran
-posiciones después de tres minutos. Capacitor y el planificador A → B quedan
-fuera de este trabajo.
+Más detalle: [notas técnicas](docs/technical-overview.md), [arquitectura](docs/architecture.md),
+[motor de movimiento](docs/motion-engine.md), [paquetes de ciudad](docs/city-packages.md),
+[consola de administración](docs/admin-console.md) y [rendimiento](docs/performance.md).
+
+Datos de mapa © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright),
+teselas de [OpenFreeMap](https://openfreemap.org).
