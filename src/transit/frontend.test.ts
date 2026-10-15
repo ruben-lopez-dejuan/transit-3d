@@ -7,7 +7,7 @@ import { chooseCityId, cityUrl } from './cities';
 import { loadCities, loadCity, loadNetwork, loadSnapshot, loadShapes } from './client';
 import type { Network, Vehicle } from './networkTypes';
 import { estimatedBusDwell } from './stopMotion';
-import { composition, vehiclePose } from './vehiclePose';
+import { composition, vehiclePose, trackDepth, CUTTING_METERS, COVER_METERS } from './vehiclePose';
 import { bilbaoManifest } from '../../server/cities/es-bilbao/city.manifest';
 import { migrateFavorites } from './favorites';
 import { entityId } from '../../shared/transit/ids';
@@ -119,7 +119,7 @@ test('estimated bus stops preserve published arrival times and existing explicit
 });
 
 test('rail cars follow different tangents around curves, with opposite directions separated', () => {
-  const shape = { key: 's', coordinates: [[0, 0], [.001, 0], [.001, .001]] as [number, number][], cumulative: [0, 100, 200], total: 200, underground: [{ from: 0, to: 200, depthMeters: 12, approximate: true }] };
+  const shape = { key: 's', coordinates: [[0, 0], [.001, 0], [.001, .001]] as [number, number][], cumulative: [0, 100, 200], total: 200, underground: [{ from: 0, to: 200, depthMeters: 12, approximate: true, tunnelBeforeStart: true, tunnelAfterEnd: true }] };
   const vehicle = { mode: 'rail', operatorId: 'metro-bilbao', label: 'L1' } as const;
   assert.equal(vehiclePose(shape, 120, vehicle)?.bearing, 0);
   assert.equal(vehiclePose(shape, 80, vehicle)?.bearing, 90);
@@ -130,6 +130,35 @@ test('rail cars follow different tangents around curves, with opposite direction
   assert.notDeepEqual(vehiclePose(shape, 50, vehicle)?.coordinate, vehiclePose(reverse, 150, vehicle)?.coordinate);
 });
 
+test('a train goes down a cutting into the tunnel mouth smoothly, car after car', () => {
+  // 2 km straight, with a portal at 1000 m and the tunnel running on past the end of the shape.
+  const shape = { key: 's', coordinates: [[0, 0], [.018, 0]] as [number, number][], cumulative: [0, 2003.8], total: 2003.8, underground: [{ from: 1000, to: 2003.8, depthMeters: 12, approximate: true, tunnelAfterEnd: true }] };
+  const vehicle = { mode: 'rail', operatorId: 'metro-bilbao', label: 'L1' } as const;
+  const pose = (progress: number) => vehiclePose(shape, progress, vehicle)!;
+  assert.equal(pose(1000 - CUTTING_METERS - 1).altitude, 0, 'level track before the cutting');
+  assert.equal(pose(2000).altitude, -12);
+  const portal = pose(1000);
+  assert.ok(-portal.altitude >= COVER_METERS - .3 && -portal.altitude <= COVER_METERS + .6, 'at the mouth the roof is just under ground');
+  assert.ok(pose(980).buried > 0 && pose(980).buried < 1 && !pose(980).underground, 'in the cutting a car is partly below ground');
+  assert.ok(pose(1010).underground);
+  let previous = pose(800);
+  for (let progress = 801; progress <= 1400; progress++) {
+    const next = pose(progress);
+    assert.ok(next.altitude <= previous.altitude, 'always going down');
+    assert.ok(previous.altitude - next.altitude < .06, 'no steps steeper than 6 %');
+    assert.ok(next.slope >= 0 && next.slope < .06);
+    previous = next;
+  }
+  // A four-car train straddling the mouth: the cars go in one after another.
+  const cars = [0, 1, 2, 3].map((car) => pose(1010 - car * 18.1).buried);
+  assert.ok(cars[0] === 1 && cars.every((buried, car) => car === 0 || buried < cars[car - 1]), String(cars));
+  assert.equal(trackDepth(shape, 2003.8).depth, 12, 'no portal at an underground terminus');
+});
+test('two tunnels close together keep the train down in between instead of surfacing', () => {
+  const shape = { key: 's', coordinates: [[0, 0], [.018, 0]] as [number, number][], cumulative: [0, 2003.8], total: 2003.8, underground: [{ from: 200, to: 900, depthMeters: 12, approximate: true }, { from: 1000, to: 1800, depthMeters: 12, approximate: true }] };
+  assert.ok(trackDepth(shape, 950).depth > 2, 'a 100 m open cutting between two tunnels');
+  assert.equal(trackDepth(shape, 1999).depth, 0);
+});
 test('search ranks exact route codes, handles accents, and respects mode/operator filters', () => {
   const first = searchNetwork(network, 'a3', 'bus', new Set(['bus', 'rail']))[0];
   assert.equal(first.type, 'route');

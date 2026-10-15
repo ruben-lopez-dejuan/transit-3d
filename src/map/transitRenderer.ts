@@ -2,7 +2,7 @@ import type { Map as TransitMap, GeoJSONSource } from "maplibre-gl";
 import type { Shape, Vehicle, TransitMode } from "../transit/networkTypes";
 import { GpsMotion } from '../transit/gpsMotion';
 import { TimelineMotion } from '../transit/timelineMotion';
-import { composition, vehiclePose } from '../transit/vehiclePose';
+import { composition, vehiclePose, trackDepth, COVER_METERS } from '../transit/vehiclePose';
 import { estimatedBusDwell } from '../transit/stopMotion';
 import type { VehicleModels, ModelItem } from './vehicleModels';
 import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
@@ -27,6 +27,10 @@ function distanceToPolyline(point: { x: number; y: number }, line: { x: number; 
     best = Math.min(best, Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)));
   }
   return best;
+}
+/** Whether the last car of a train is in the tunnel too, so nothing of it is left above ground. */
+function trainBuried(shape: Shape, progress: number, cars: number, spacing: number) {
+  return trackDepth(shape, Math.max(0, progress - (cars - 1) * spacing)).depth >= COVER_METERS;
 }
 export class TransitRenderer {
   private states = new Map<string, State>();
@@ -118,10 +122,10 @@ export class TransitRenderer {
       if (!state) continue;
       const progress = this.progress(state, now), scale = vehicleScale(vehicle, zoom, vehicle.latitude);
       const head = shape ? vehiclePose(shape, progress, vehicle, zoom >= MODEL_MIN_ZOOM ? scale.width : 1) : null;
-      if (head?.underground && !this.showUnderground) continue;
+      const consist = composition(vehicle), icon = vehicleIconPixels(vehicle, zoom);
+      if (!this.showUnderground && shape && head?.buried === 1 && trainBuried(shape, progress, consist.count, (consist.length + consist.gap) * scale.length)) continue;
       const headPoint = this.map.project(head?.coordinate ?? [vehicle.longitude, vehicle.latitude]);
       const metersPerPixel = 40075016.686 * Math.cos(vehicle.latitude * Math.PI / 180) / (512 * 2 ** zoom);
-      const consist = composition(vehicle), icon = vehicleIconPixels(vehicle, zoom);
       const modelMeters = (consist.count * consist.length + (consist.count - 1) * consist.gap) * scale.length;
       const ahead = icon.length / 2 * metersPerPixel, behind = Math.max(modelMeters, ahead);
       const reach = (ahead + behind) / metersPerPixel + tolerance + icon.width;
@@ -187,20 +191,22 @@ export class TransitRenderer {
       if (!bounds.contains(coordinate) && this.selectedId !== vehicle.id) continue;
       const bearing = position?.bearing ?? vehicle.bearing;
       const underground = position?.underground ?? false;
-      if (underground && !this.showUnderground) continue;
+      const consist = composition(vehicle), carSpacing = (consist.length + consist.gap) * scale.length;
+      // Without underground trains, one entering a tunnel goes on showing until its last car is in.
+      if (!this.showUnderground && shape && position?.buried === 1 && trainBuried(shape, progress, consist.count, carSpacing)) continue;
       const livery = liveryFor(vehicle);
-      const properties = { id: vehicle.id, label: vehicle.label, destination: vehicle.headsign.length > 27 ? vehicle.headsign.slice(0, 26) + '…' : vehicle.headsign, mode: vehicle.mode, kind: vehicleKind(vehicle), color: livery.body, icon: vehicleIconId(vehicle), bearing, quality: this.dataQuality(vehicle.id), underground, focused: true, selected: this.selectedId === vehicle.id };
+      const properties = { id: vehicle.id, label: vehicle.label, destination: vehicle.headsign.length > 27 ? vehicle.headsign.slice(0, 26) + '…' : vehicle.headsign, mode: vehicle.mode, kind: vehicleKind(vehicle), color: livery.body, icon: vehicleIconId(vehicle), bearing, quality: this.dataQuality(vehicle.id), underground, buried: position?.buried ?? 0, focused: true, selected: this.selectedId === vehicle.id };
       features.push({ type: "Feature" as const, properties, geometry: { type: "Point" as const, coordinates: coordinate } });
       if (this.selectedId === vehicle.id) { selected.push(features.at(-1)!); this.onSelectedPosition?.(coordinate); }
       if (prepareModels && bounds.contains(coordinate)) {
         modelVehicles++;
-        const consist = composition(vehicle);
         for (let car = 0; car < consist.count; car++) {
-          const at = progress - car * (consist.length + consist.gap) * scale.length;
+          const at = progress - car * carSpacing;
           if (at < 0) continue;
-          const pose = shape ? vehiclePose(shape, at, vehicle, scale.width) : car === 0 ? { coordinate, bearing, altitude: 0, underground: false } : null;
-          if (!pose) continue;
-          models.push({ ...pose, color: livery.body, accent: livery.accent, front: livery.front ?? livery.body, band: livery.band ?? 'thin', length: consist.length, gap: consist.gap, kind: vehicleKind(vehicle), body: bodyFor(vehicle), role: carRole(car, consist.count), scale, selected: vehicle.id === this.selectedId });
+          const pose = shape ? vehiclePose(shape, at, vehicle, scale.width) : car === 0 ? { coordinate, bearing, altitude: 0, slope: 0, buried: 0 } : null;
+          if (!pose || (pose.buried === 1 && !this.showUnderground)) continue;
+          // Depth is exaggerated like the car's height, so a car sinks by the same share of itself at every zoom.
+          models.push({ coordinate: pose.coordinate, bearing: pose.bearing, altitude: pose.altitude * scale.height, pitch: -Math.atan(Math.max(-.35, Math.min(.35, pose.slope * scale.height))), buried: pose.buried, color: livery.body, accent: livery.accent, front: livery.front ?? livery.body, band: livery.band ?? 'thin', length: consist.length, gap: consist.gap, kind: vehicleKind(vehicle), body: bodyFor(vehicle), role: carRole(car, consist.count), scale, selected: vehicle.id === this.selectedId });
         }
       }
     }
@@ -215,7 +221,7 @@ export class TransitRenderer {
     this.lod = useModels ? modelLevel(zoom) : zoom < MODEL_MIN_ZOOM ? 'cluster / silhouette' : 'silhouette fallback';
     source.setData({ type: "FeatureCollection", features });
     (this.map.getSource("selected-vehicle") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: selected });
-    this.models?.update(useModels ? models : [], useModels); if (useModels) this.map.triggerRepaint();
+    this.models?.update(useModels ? models : [], useModels, this.showUnderground); if (useModels) this.map.triggerRepaint();
     this.modelCars = useModels ? models.length : 0; this.modelVehicles = useModels ? modelVehicles : 0;
     this.renderedVehicles = features.length; this.renderMilliseconds = performance.now() - started;
   }
