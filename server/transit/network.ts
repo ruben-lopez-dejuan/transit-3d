@@ -202,7 +202,9 @@ function enrich(observed: NormalizedVehicle, now: Date): Vehicle | null {
   const serviceDate = vehicle.serviceDate;
   const update = updateFor(vehicle.operatorId, serviceDate, trip.tripId);
   const firstServiceStop = plan?.stops.find((stop) => !update?.stops.get(stop.sequence)?.skipped);
-  if (firstServiceStop) {
+  // A provider timeline (Metro de Madrid) only borrows the trip as topology: its
+  // static times are not a departure, e.g. the L1 template starts at 01:00.
+  if (firstServiceStop && !vehicle.motionTimeline) {
     const changed = update?.stops.get(firstServiceStop.sequence);
     const startsAt = changed?.departure ?? serviceEpoch(serviceDate, firstServiceStop.departure, city.manifest.timezone);
     // A physical vehicle may already be moving as deadhead or may be assigned
