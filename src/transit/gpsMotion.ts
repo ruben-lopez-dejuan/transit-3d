@@ -17,6 +17,8 @@ type Options = {
 };
 const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n));
 const freshness = REALTIME_MAX_AGE_MS;
+/** Behind a new observation by more than this, the vehicle is placed rather than chased. */
+const CATCH_UP_JUMP_METERS = 800;
 /** A stop report is a dwell, not a parking: after this the bus is predicted to leave. */
 const stopHold = (mode: TransitMode) => mode === 'bus' ? 30_000 : 45_000;
 
@@ -98,6 +100,7 @@ export class GpsMotion {
     // With no observed pace, retroactively applying a theoretical timetable to
     // an old first fix invents movement. Start at the physical observation.
     // A previous real fix does justify extrapolating at its measured pace.
+    const drawnBefore = this.lastAt !== null;
     if (this.lastAt === null) {
       this.progress = this.seed?.progress ?? (reported !== null ? this.reference(now) : observation.progress);
       this.velocity = clamp(this.seed?.speed ?? (this.stopped ? 0 : this.referenceSpeed(now)), 0, maximum);
@@ -106,6 +109,9 @@ export class GpsMotion {
     // New data must not be applied retroactively across a stale/suspended interval.
     this.lastAt = now;
     this.target = this.reference(now);
+    // Far behind a fresh observation, the bounded chase took minutes (2.8 km after the Artxanda
+    // tunnels, while the app already said the bus was arriving): place the vehicle there instead.
+    if (drawnBefore && this.target - this.progress > CATCH_UP_JUMP_METERS) { this.progress = this.target; this.velocity = clamp(this.referenceSpeed(now), 0, maximum); }
     return true;
   }
 

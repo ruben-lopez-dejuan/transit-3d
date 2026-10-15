@@ -67,3 +67,29 @@ Bilbobus y 237 m en Bizkaibus. La diferencia es el seguidor, que nunca hace retr
 autobús: cuando un GPS nuevo muestra que iba más lento de lo previsto, el dibujado ya se
 ha pasado y espera parado (Bilbobus el 45 % del tiempo, 111 m por delante de mediana;
 Bizkaibus 247 m); cuando va por detrás, la aceleración limitada lo recupera despacio.
+
+## «Llegando» y la posición dibujada
+
+La app ponía «Llegando» a un Bizkaibus que se dibujaba a kilómetros de la parada, sobre todo
+en los túneles de Artxanda. La hora sale de los tiempos de paso de la Diputación, que reflejan
+dónde está el autobús al consultarlos; la posición, del GPS, que llega con 60–90 s de retraso y
+se extrapola con el ritmo medio de los últimos 4 minutos. En vía rápida (80–120 km/h; en el feed
+se ven 20–35 m/s en ese corredor) eso deja el dibujo 1,5–3 km por detrás. Además, con una
+diferencia de más de 1 km el tiempo de paso ni siquiera se emparejaba con el autobús.
+
+- El emparejamiento cuenta con lo que el autobús ha podido recorrer desde su GPS: espera la
+  distancia del GPS menos 8 m/s por segundo de antigüedad y acepta hasta 30 m/s.
+- Si la Diputación sitúa al autobús más de 250 m por delante de su GPS extrapolado, esa es su
+  última observación (`server/transit/officialPosition.ts`), con la velocidad real del tramo.
+- Si el autobús dibujado queda más de 800 m por detrás de una observación nueva, se coloca en
+  su sitio en vez de perseguirla: la persecución tardaba más de 5 minutos en cubrir 2,8 km.
+
+`server/monitor-arriving.ts` comprueba la coherencia: cada 5 s mide a qué distancia de su
+próxima parada se dibuja cada autobús al que la app pone «Llegando».
+- En la ficha, una hora estimada (no de la Diputación) ya vencida con el autobús dibujado a más
+  de 150 m de la parada pasa a ser el tiempo de recorrer esa distancia a la velocidad dibujada:
+  «Llegando» queda para el autobús que está en la parada o al que la Diputación da por llegando.
+
+Medición (5 min, 15 oct 2026): cuando la Diputación da a un Bizkaibus por llegando a una parada,
+el mapa lo dibuja a 126 m de mediana de ella (p90 413 m, máximo 775 m), sin ningún caso a más de
+1 km. Antes eran 1,5–3 km en el corredor de Artxanda.

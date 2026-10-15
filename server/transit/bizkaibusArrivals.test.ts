@@ -66,6 +66,16 @@ test('at its terminal a bus is not given the minutes until its next departure', 
   assert.ok(!coveringStops(gtfs, [vehicle('last-leg', 't1', 2500, 'DENIA')]).stopIds.includes('e'));
 });
 
+test('a bus whose GPS is a minute old still pairs with its reading after a fast stretch', () => {
+  // Artxanda tunnels: the last fix put the bus 2.3 km from the stop 90 s ago; at 25 m/s it is now 100 m away.
+  const gtfs = fixture(), at = Date.parse('2026-10-15T16:00:00Z');
+  const stale = { ...vehicle('tunnel', 't1', 100, 'DENIA'), timestamp: at / 1000 - 90 };
+  assert.equal(matchPassingTimes(gtfs, 'd', [{ line: 'A1', destination: 'DENIA', minutes: 0, meters: 100 }], [stale], at)[0].vehicleId, 'tunnel');
+  // A fresh fix cannot be paired with a reading it could not have reached.
+  const fresh = { ...stale, timestamp: at / 1000 - 5 };
+  assert.equal(matchPassingTimes(gtfs, 'd', [{ line: 'A1', destination: 'DENIA', minutes: 0, meters: 100 }], [fresh], at)[0].vehicleId, null);
+});
+
 test('the fleet is covered with the fewest stops, two buses per line and destination each', () => {
   const gtfs = fixture();
   const one = coveringStops(gtfs, [vehicle('a', 't1', 100, 'Dénia'), vehicle('b', 't2', 900, 'DENIA')]);

@@ -37,8 +37,14 @@ export function parsePassingTimes(xml: string): PassingTime[] {
 }
 
 const normalize = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
-/** The official meters are measured about a feed cycle later than our GPS, so the tolerance allows that travel. */
-const tolerance = (meters: number) => Math.max(1000, meters * .2);
+/**
+ * The official meters describe the bus when they are queried; its GPS fix is 60–90 s older.
+ * In that time a bus covers anything from nothing to kilometres on a fast road (the Artxanda
+ * tunnels, 80–120 km/h), so the expected meters are the GPS distance minus a typical travel,
+ * and anything down to a fast travel still pairs.
+ */
+const tolerance = (meters: number) => Math.max(500, meters * .15);
+const TYPICAL_SPEED = 8, FAST_SPEED = 30;
 const DESTINATION_MISMATCH_METERS = 500;
 
 /** Pair passing times with GPS vehicles by line, destination and distance along the trip to the stop. */
@@ -48,16 +54,19 @@ export function matchPassingTimes(gtfs: BizkaibusGtfs, stopId: string, rows: Pas
     const stop = stops.find((s) => s.stopId === stopId && s.progress >= vehicle.progressMetersAlongShape - 30);
     // At a terminal the service lists only departures: for a bus finishing its trip there it
     // gives the meters still to go but the minutes until it leaves again, never its arrival.
-    return stop && stop !== stops.at(-1) && vehicle.vehicleId ? [{ vehicle, line: gtfs.routes.get(vehicle.routeId)?.shortName ?? '', headsign: normalize(vehicle.headsign), distance: Math.max(0, stop.progress - vehicle.progressMetersAlongShape) }] : [];
+    const age = vehicle.timestamp ? Math.max(0, recordedAt / 1000 - vehicle.timestamp) : 0;
+    return stop && stop !== stops.at(-1) && vehicle.vehicleId ? [{ vehicle, line: gtfs.routes.get(vehicle.routeId)?.shortName ?? '', headsign: normalize(vehicle.headsign), distance: Math.max(0, stop.progress - vehicle.progressMetersAlongShape), age }] : [];
   });
   const pairs = rows.flatMap((row, index) => candidates.flatMap((candidate) => {
     if (candidate.line !== row.line) return [];
     // The official destination often names a route variant (A2326 «EHU/UPV» for a «BARAKALDO» trip):
     // it breaks ties, but the distance decides.
     const destination = normalize(row.destination);
-    const difference = Math.abs(candidate.distance - row.meters);
+    const expected = Math.max(0, candidate.distance - TYPICAL_SPEED * candidate.age);
+    const reachable = row.meters >= candidate.distance - FAST_SPEED * candidate.age - tolerance(row.meters) && row.meters <= candidate.distance + tolerance(row.meters);
+    const difference = Math.abs(expected - row.meters);
     const penalty = destination && candidate.headsign && destination !== candidate.headsign ? DESTINATION_MISMATCH_METERS : 0;
-    return difference <= tolerance(row.meters) ? [{ index, candidate, difference: difference + penalty }] : [];
+    return reachable ? [{ index, candidate, difference: difference + penalty }] : [];
   })).sort((a, b) => a.difference - b.difference);
   const assigned = new Map<number, (typeof candidates)[number]>(), taken = new Set<string>();
   for (const pair of pairs) {

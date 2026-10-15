@@ -196,3 +196,12 @@ test('a first delayed GPS fix without observed pace starts at the fix instead of
   assert.equal(motion.position(90000), 500);
   assert.equal(motion.diagnostics.sourceSpeed, null);
 });
+
+test('far behind a fresh observation the vehicle is placed there instead of chasing it for minutes', () => {
+  // Artxanda tunnels: drawn at 2200 m, the next observation puts the bus at 4900 m.
+  const motion = new GpsMotion();
+  motion.update({ at: 0, progress: 1000 }, 60_000, { mode: 'bus', timeline: [], speed: 8 });
+  for (let at = 60_000; at <= 150_000; at += 50) motion.position(at);
+  motion.update({ at: 150_000, progress: 4900 }, 155_000, { mode: 'bus', timeline: [], speed: 26, previous: { at: 0, progress: 1000 } });
+  assert.ok(Math.abs(motion.position(155_000)! - 5030) < 5);
+});

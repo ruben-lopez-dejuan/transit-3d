@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { progressAt, positionAlong, correctionOffset, positionQuality, nextStopAhead } from './motion';
 import { searchNetwork } from './search';
-import { esc, badge, departures, positionExplanation, createShell, arrivalLabel } from '../ui';
+import { esc, badge, departures, positionExplanation, createShell, arrivalLabel, consistentArrival } from '../ui';
 import { chooseCityId, cityUrl } from './cities';
 import { loadCities, loadCity, loadNetwork, loadSnapshot, loadShapes } from './client';
 import type { Network, Vehicle } from './networkTypes';
@@ -166,6 +166,14 @@ test('the position line is short and always gives the age of its data in seconds
   assert.equal(positionExplanation(v, 16000), 'Sin GPS · previsión hace 15 s');
   assert.equal(positionExplanation({ ...v, observationTimestamp: 6000 }, 77000), 'GPS hace 71 s');
   assert.equal(positionExplanation({ ...v, observationTimestamp: 6000, tripIdentityQuality: 'estimated' } as Vehicle, 77000), 'GPS hace 71 s · servicio sin confirmar');
+});
+
+test('"Llegando" only for a bus drawn at the stop, unless the operator itself says it is arriving', () => {
+  const now = 1_000_000;
+  assert.equal(consistentArrival(now - 5000, now, true, 1200, 10), now - 5000, 'an official 0 minutes stands');
+  assert.equal(consistentArrival(now - 5000, now, false, 100, 10), now - 5000, 'an estimate due with the bus at the stop');
+  assert.equal(consistentArrival(now - 5000, now, false, 750, 10), now + 75_000, 'an estimate due 750 m away: 75 s at 10 m/s');
+  assert.equal(consistentArrival(now + 60_000, now, false, 750, 10), now + 60_000);
 });
 
 test('a next-stop forecast already due reads as arriving, not as a time in the past', () => {

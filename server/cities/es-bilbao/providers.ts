@@ -84,7 +84,7 @@ export const providers: ProviderRuntime[] = sourceAdapters.map((adapter) => {
   if (adapter.operatorId === 'bizkaibus') provider.arrivals = {
     departures: async (gtfs, stopId) => (await bizkaibusArrivals.departures(gtfs, stopId)).map(({ routeId, tripId, ...row }) => ({ ...row, routeKey: entityId(bilbaoManifest.id, adapter.operatorId, 'route', routeId), tripId: entityId(bilbaoManifest.id, adapter.operatorId, 'trip', tripId) })),
     warm: async (gtfs, stopIds) => { await Promise.allSettled(stopIds.map((id) => bizkaibusArrivals.get(gtfs, id))); },
-    peek: (_gtfs, stopId, vehicleId) => { const row = bizkaibusArrivals.peek(stopId, vehicleId); return row ? { arrival: row.arrival, sourceTimestamp: row.recordedAt } : null; },
+    peek: (_gtfs, stopId, vehicleId) => { const row = bizkaibusArrivals.peek(stopId, vehicleId); return row ? { arrival: row.arrival, sourceTimestamp: row.recordedAt, distanceMeters: row.meters } : null; },
   };
   return provider;
 });

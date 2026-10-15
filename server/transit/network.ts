@@ -12,6 +12,7 @@ import { anchorGpsTimeline } from './gpsTimeline';
 import { mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
 import { withStationDwell } from './stationDwell';
 import { bearingDegrees, sameSpotStops } from './sameSpotStops';
+import { withOfficialPosition } from './officialPosition';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape, MotionAnchor, TimelineSource } from '../../shared/transit/network';
 import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
@@ -190,13 +191,15 @@ async function loadNetwork(): Promise<Network> {
   return { city: city.manifest, operators, routes: [...routeMap.values()].filter((r) => available.has(r.operatorId)).sort((a, b) => a.shortName.localeCompare(b.shortName, 'es', { numeric: true })), stops, places };
 }
 
-function enrich(vehicle: NormalizedVehicle, now: Date): Vehicle | null {
-  const gtfs = feeds.get(vehicle.operatorId);
-  const trip = gtfs?.trips.get(vehicle.externalTripId);
-  const route = routeMap.get(vehicle.routeId);
+function enrich(observed: NormalizedVehicle, now: Date): Vehicle | null {
+  const gtfs = feeds.get(observed.operatorId);
+  const trip = gtfs?.trips.get(observed.externalTripId);
+  const route = routeMap.get(observed.routeId);
   if (!gtfs || !trip || !route) return null;
-  const serviceDate = vehicle.serviceDate;
   const plan = tripPlan(gtfs, trip.tripId);
+  const provider = providerFor(observed.operatorId), arrivals = provider?.enabled ? provider.arrivals : undefined;
+  const vehicle = plan && arrivals ? withOfficialPosition(observed, gtfs, plan, now, arrivals.peek.bind(arrivals)) : observed;
+  const serviceDate = vehicle.serviceDate;
   const update = updateFor(vehicle.operatorId, serviceDate, trip.tripId);
   const firstServiceStop = plan?.stops.find((stop) => !update?.stops.get(stop.sequence)?.skipped);
   if (firstServiceStop) {

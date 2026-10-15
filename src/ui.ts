@@ -20,6 +20,18 @@ export const badge = (route: Pick<Route, 'color' | 'shortName'> | Pick<Vehicle, 
 };
 /** The next stop is still ahead of the vehicle, so a forecast time already gone means it is about to arrive. */
 export const arrivalLabel = (at: number, now = Date.now()) => at <= now ? 'Llegando' : eta(at, now);
+/** Within this of the drawn bus, a due stop really is being reached. */
+const ARRIVING_METERS = 150;
+/**
+ * The arrival time to show for the next stop, consistent with where the bus is drawn. An
+ * operator's real-time time is shown as is: at 0 minutes the map also puts the bus at the stop.
+ * An estimated time already due while the bus is still drawn far away would say "Llegando" for
+ * a bus that visibly is not; it becomes the time to cover that distance at the drawn speed.
+ */
+export function consistentArrival(at: number, now: number, official: boolean, metersAhead: number | null, speed: number) {
+  if (official || at > now || metersAhead === null || metersAhead <= ARRIVING_METERS) return at;
+  return now + metersAhead / Math.max(speed, 4) * 1000;
+}
 export const delayLabel = (seconds: number) => Math.abs(seconds) < 30 ? 'En hora' : `${seconds < 0 ? '−' : '+'}${Math.round(Math.abs(seconds) / 60)} min`;
 export function positionExplanation(v: Vehicle, now = Date.now()) {
   const reliability = vehicleReliability(v, now);
