@@ -4,9 +4,11 @@
 
 La aplicación abre en el mapa de Bilbao. Los filtros principales seleccionan Todos, Bus, Metro/tren o Tranvía. Capas permite desactivar operadores y consultar el tipo de fuente. El buscador encuentra líneas por número y paradas/estaciones por nombre, sin depender de mayúsculas ni tildes; también ofrece algunos lugares de la red. No es un geocodificador general ni un planificador de rutas.
 
-Al seleccionar un vehículo se ve destino, calidad de posición, próxima parada, desfase estimado cuando existe, recorrido y seguimiento de cámara. Mover el mapa manualmente detiene el seguimiento. Una línea muestra sentidos, vehículos activos, próximas salidas desde cabecera y paradas de un recorrido de referencia. Una parada muestra próximos servicios, combinando las paradas a menos de 80 m.
+Al seleccionar un vehículo se ve destino, calidad de posición, próxima parada, desfase estimado cuando existe, recorrido y seguimiento de cámara. Sus acciones (Seguir, Ver línea, Recorrido) están ya en la tarjeta compacta del móvil; tocar la próxima parada abre su ficha, y la estrella guarda la línea del vehículo en favoritos. Desde la línea o la parada abiertas así, «Volver al vehículo» regresa a él. Arrastrar el mapa con un dedo (o el ratón) detiene el seguimiento y lo avisa; pellizcar o girar con dos dedos lo mantiene.
 
-Desktop usa panel lateral; móvil usa panel inferior con asa para reducir/expandir. Las líneas y paradas pueden guardarse como favoritos en el dispositivo. La búsqueda permite flechas y Enter, `/` para enfocar y Escape para cerrar. La ubicación solo se solicita cuando la persona pulsa Mi ubicación.
+Modo zen (Z, botón del loto o Capas): oculta etiquetas e interfaz. Con un vehículo seleccionado, su tarjeta se oculta y la cámara pasa a seguirlo; al salir vuelve la tarjeta y el seguimiento sigue activo. En el móvil los botones del mapa se colocan encima de la tarjeta (sin los de zoom, que se sustituyen por el pellizco) y se apartan si la tarjeta desplegada no les deja sitio. Una línea muestra sentidos, vehículos activos, próximas salidas desde cabecera y paradas de un recorrido de referencia. Una parada muestra próximos servicios, combinando las paradas a menos de 80 m.
+
+Desktop usa panel lateral; móvil usa panel inferior con asa para reducir/expandir: la tarjeta compacta se abre tocándola o deslizándola hacia arriba y se cierra deslizándola hacia abajo. Las líneas y paradas pueden guardarse como favoritos en el dispositivo. La búsqueda permite flechas y Enter, `/` para enfocar y Escape para cerrar. La ubicación solo se solicita cuando la persona pulsa Mi ubicación.
 
 ## Datos y fallos
 

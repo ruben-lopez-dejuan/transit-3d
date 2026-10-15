@@ -60,6 +60,10 @@ $<HTMLSelectElement>('#theme').value = theme;
 setWorkerUrl(workerUrl);
 const savedCamera = cityPreferences.camera;
 const map = new TransitMap({ container: 'map', style: styleUrl(isDark()), center: savedCamera?.center ?? city.center, zoom: savedCamera?.zoom ?? city.presentation.initialZoom, bearing: savedCamera?.bearing ?? 0, pitch: savedCamera?.pitch ?? 0, attributionControl: { compact: true }, maxPitch: 65 });
+// On a phone the credits start folded into their ⓘ button, which sits just above the tab bar.
+// MapLibre unfolds them once the first source brings its attribution.
+const foldAttribution = () => { const attribution = document.querySelector('.maplibregl-ctrl-attrib.maplibregl-compact-show'); if (attribution) { attribution.classList.remove('maplibregl-compact-show'); map.off('sourcedata', foldAttribution); } };
+if (innerWidth < 700) map.on('sourcedata', foldAttribution);
 const renderer = new TransitRenderer(map);
 renderer.showUnderground = cityPreferences.underground ?? true;
 $<HTMLInputElement>('#underground').checked = renderer.showUnderground;
@@ -70,6 +74,8 @@ let detail: LineDetail | StopDetail | TripDetail | null = null, detailVersion = 
 let following = false, polling = false, toastTimer = 0, cameraSaveTimer = 0, sheetTimer = 0, nextNetworkRefreshAt = 0;
 let results: SearchResult[] = [], resultIndex = -1;
 let zen = false, zenWakeTimer = 0;
+/** The vehicle whose card led to this line or stop, so the card can go back to it. */
+let returnVehicle: string | null = null;
 const zenLayers = new ZenLayers();
 const inFlightShapes = new Set<string>();
 let detailRequest: AbortController | null = null, operatorRenderKey = '';
@@ -216,25 +222,26 @@ function beginDetailRequest() {
   detailRequest = new AbortController();
   return { version: ++detailVersion, signal: detailRequest.signal };
 }
-function favoriteKey() { return selection?.kind === 'route' ? `route:${selection.route.key}` : selection?.kind === 'stop' ? `stop:${selection.stop.key}` : null; }
+/** A vehicle has no favorite of its own: its star saves the line it runs on. */
+function favoriteKey() { const vehicleRoute = selectedVehicle()?.routeKey; return selection?.kind === 'route' ? `route:${selection.route.key}` : selection?.kind === 'stop' ? `stop:${selection.stop.key}` : vehicleRoute && network?.routes.some((r) => r.key === vehicleRoute) ? `route:${vehicleRoute}` : null; }
 function closeDetails() { detailRequest?.abort(); detailRequest = null; window.clearTimeout(sheetTimer); selection = null; detail = null; detailVersion++; following = false; renderer.focusRoute = null; renderer.selectedId = null; renderer.direction = 'all'; $('#details').hidden = true; $('#debug').hidden = true; map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: duration(300) }); setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); }
 async function selectRoute(route: Route, direction = 'all', fit = true) {
   renderer.operators.add(route.operatorId); renderer.disabledLayers.delete(route.operatorId + ':' + route.mode); if (mode !== 'all' && mode !== route.mode) mode = route.mode; filters();
-  selection = { kind: 'route', route, direction }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = route.key; renderer.direction = direction; openPanel(); renderDetails();
+  selection = { kind: 'route', route, direction }; detail = null; returnVehicle = null; following = false; renderer.selectedId = null; renderer.focusRoute = route.key; renderer.direction = direction; openPanel(); renderDetails();
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
   const { version, signal } = beginDetailRequest();
   try { const result = await loadLine(route, direction, signal); if (version !== detailVersion) return; detail = result; result.shapes.forEach((s) => renderer.shapes.set(s.key, s)); setData(map, 'selected-route', routeData(result.shapes, route.color)); setData(map, 'selected-stops', stopsData(result.stops)); if (fit) fitShapes(map, result.shapes, padding(), duration(850)); renderDetails(); }
   catch (error) { if (!signal.aborted && version === detailVersion) { detailError = String((error as Error).message); renderDetails(); } }
 }
 async function selectStop(stop: Stop) {
-  selection = { kind: 'stop', stop }; detail = null; following = false; renderer.selectedId = null; renderer.focusRoute = null; openPanel(); setData(map, 'selected-route', empty); setData(map, 'selected-stops', stopsData([stop])); map.easeTo({ center: [stop.longitude, stop.latitude], zoom: Math.max(map.getZoom(), 15), padding: padding(), duration: duration(700) }); renderDetails();
+  selection = { kind: 'stop', stop }; detail = null; returnVehicle = null; following = false; renderer.selectedId = null; renderer.focusRoute = null; openPanel(); setData(map, 'selected-route', empty); setData(map, 'selected-stops', stopsData([stop])); map.easeTo({ center: [stop.longitude, stop.latitude], zoom: Math.max(map.getZoom(), 15), padding: padding(), duration: duration(700) }); renderDetails();
   $('#detail-content').scrollTop = 0; const { version, signal } = beginDetailRequest();
   try { const result = await loadStop(stop, signal); if (version !== detailVersion) return; detail = result; setData(map, 'selected-stops', stopsData(result.nearbyStops)); renderDetails(); }
   catch (error) { if (!signal.aborted && version === detailVersion) { detailError = (error as Error).message; renderDetails(); } }
 }
 async function selectVehicle(vehicle: Vehicle) {
   renderer.operators.add(vehicle.operatorId); renderer.disabledLayers.delete(vehicle.operatorId + ':' + vehicle.mode); if (mode !== 'all' && mode !== vehicle.mode) mode = vehicle.mode; filters();
-  selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; debugInspector?.select(vehicle); renderer.direction = 'all';
+  selection = { kind: 'vehicle', id: vehicle.id }; detail = null; returnVehicle = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; debugInspector?.select(vehicle); renderer.direction = 'all';
   // On a phone a vehicle opens as a compact card, so the map around it stays visible; swipe up for the stops.
   openPanel(innerWidth < 700); renderDetails();
   const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: duration(700) });
@@ -246,8 +253,10 @@ async function selectVehicle(vehicle: Vehicle) {
 function renderDetails() {
   if (!selection) return;
   $('#details').dataset.kind = selection.kind;
-  const key = favoriteKey(); $('#favorite').hidden = !key; $('#favorite').textContent = key && favorites.has(key) ? '★' : '☆'; $('#favorite').setAttribute('aria-pressed', String(!!key && favorites.has(key)));
-  $('#back').hidden = selection.kind !== 'vehicle';
+  const key = favoriteKey(), saved = !!key && favorites.has(key), what = selection.kind === 'stop' ? 'parada' : 'línea';
+  $('#favorite').hidden = !key; $('#favorite').textContent = saved ? '★' : '☆'; $('#favorite').setAttribute('aria-pressed', String(saved));
+  $('#favorite').setAttribute('aria-label', saved ? `Quitar ${what} de favoritos` : `Guardar ${what} en favoritos`); $('#favorite').title = $('#favorite').getAttribute('aria-label')!;
+  $('#back').hidden = selection.kind === 'vehicle' || !returnVehicle || !snapshot?.vehicles.some((v) => v.id === returnVehicle);
   const loading = detailError ? `<div class="detail-error">${esc(detailError)}<button class="text-button" data-retry>Reintentar</button></div>` : '<p class="loading-copy">Consultando servicios…</p>';
   if (selection.kind === 'vehicle') {
     const v = selectedVehicle();
@@ -260,7 +269,7 @@ function renderDetails() {
     const clock = Date.now() + renderer.clockOffset;
     const nextAt = next?.at != null ? consistentArrival(next.at, clock, !!next.realtime, next.progress != null ? next.progress - renderedProgress : null, renderer.diagnostics(v.id)?.renderedSpeed ?? 0) : null;
     const nextArrival = nextAt != null ? `${reliabilityBadge(arrivalReliability(next!.realtime ? 'realtime' : next!.source, null, Date.now()).level)} · ${arrivalLabel(nextAt, clock)}` : 'Sin hora disponible';
-    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${kindIcon(vehicleKind(v))}${esc(v.operatorName)} · ${{ metro: 'Metro', train: 'Tren', tram: 'Tranvía', funicular: 'Funicular', bus: 'Bus' }[vehicleKind(v) as string] ?? 'Transporte'}</div><div class="title-row">${badge(v)}<h1>${esc(v.headsign || 'Servicio en circulación')}</h1></div>${reliabilityBadge(vehicleReliability(v, Date.now() + renderer.clockOffset).level)}<p class="quality-explanation">${esc(positionExplanation(v, Date.now() + renderer.clockOffset))}</p></div><div class="next-stop"><span>Próxima parada</span><strong>${esc(nextName)}</strong><div>${nextArrival}${delay !== null ? `<small> · ${v.delayEstimated ? 'Desfase estimado · ' : ''}${delayLabel(delay)}</small>` : ''}</div></div><div class="detail-actions"><button data-follow class="${following ? 'primary' : ''}">${following ? '● Siguiendo' : '⌖ Seguir vehículo'}</button><button data-fit>Ver recorrido</button></div><section class="detail-section"><div class="section-heading"><h2>Paradas del recorrido</h2><button data-full-line class="text-button">Ver línea →</button></div>${trip ? stopRows(trip.stops, renderedProgress) : loading}</section>`;
+    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${kindIcon(vehicleKind(v))}${esc(v.operatorName)} · ${{ metro: 'Metro', train: 'Tren', tram: 'Tranvía', funicular: 'Funicular', bus: 'Bus' }[vehicleKind(v) as string] ?? 'Transporte'}</div><div class="title-row">${badge(v)}<h1>${esc(v.headsign || 'Servicio en circulación')}</h1></div>${reliabilityBadge(vehicleReliability(v, Date.now() + renderer.clockOffset).level)}<p class="quality-explanation">${esc(positionExplanation(v, Date.now() + renderer.clockOffset))}</p></div><${next ? `button class="next-stop" data-stop="${esc(next.key)}" aria-label="Próxima parada: ${esc(nextName)}. Ver sus próximos servicios"` : 'div class="next-stop"'}><span>Próxima parada</span><strong>${esc(nextName)}</strong><span class="next-arrival">${nextArrival}${delay !== null ? `<small> · ${v.delayEstimated ? 'Desfase estimado · ' : ''}${delayLabel(delay)}</small>` : ''}</span>${next ? '<span class="next-chevron" aria-hidden="true">›</span></button>' : '</div>'}<div class="detail-actions"><button data-follow class="${following ? 'primary' : ''}" aria-pressed="${following}" title="${following ? 'Toca para dejar de seguirlo' : 'Mantener el vehículo en el centro del mapa'}">${icon('follow')}${following ? 'Siguiendo' : 'Seguir'}</button><button data-full-line>${icon('route')}Ver línea</button><button data-fit>${icon('fit')}Recorrido</button></div><section class="detail-section"><h2>Paradas del recorrido</h2>${trip ? stopRows(trip.stops, renderedProgress) : loading}</section>`;
     if (new URLSearchParams(location.search).has('debug')) { $('#debug').hidden = false; $('#debug').textContent = `trip: ${v.tripId}\nshape: ${v.shapeKey}\nprogress: ${v.progressMetersAlongShape.toFixed(1)} m\nrendered coordinate: ${renderer.coordinate(v.id)?.map(n => n.toFixed(6)).join(", ")}\nquality: ${q}\nGPS: ${v.observationTimestamp ? new Date(v.observationTimestamp).toISOString() : 'none'}\nlast query: ${snapshot ? new Date(snapshot.fetchedAt).toISOString() : 'none'}\nrender frame: ${new Date().toISOString()}\nmotion time: ${new Date(renderer.renderedTimestamp(v.id)).toISOString()}\nrendered: ${renderer.renderedVehicles} / ${renderer.getVehicles().length}\nframe: ${renderer.renderMilliseconds.toFixed(2)} ms\nspeed: ${v.speedMetersPerSecond?.toFixed(1) ?? 'unknown'} m/s\nshape cache: ${renderer.shapes.size}\n${following ? 'following' : ''}`; }
     if (new URLSearchParams(location.search).has('debug')) $('#debug').textContent += `\nLOD: ${renderer.lod}\n3D fallback: ${renderer.modelFallbackReason}\n3D vehicles/cars: ${renderer.modelVehicles}/${renderer.modelCars}\nmotion: ${JSON.stringify(renderer.diagnostics(v.id), null, 2)}`;
     if (new URLSearchParams(location.search).has('debug')) $('#debug').textContent += `\nsource timestamp: ${v.sourceTimestamp === null ? 'unknown' : new Date(v.sourceTimestamp).toISOString()}\nreceived timestamp: ${v.receivedTimestamp === null ? 'unknown' : new Date(v.receivedTimestamp).toISOString()}\nposition source: ${v.positionSource}\ntimeline source: ${v.timelineSource ?? 'unknown'}\nrendered position source: ${renderer.positionSource(v.id)}`;
@@ -277,13 +286,15 @@ function stopRows(stops: (Stop & { at?: number | null; progress?: number; skippe
   const level = (s: (typeof stops)[number]) => arrivalReliability(s.realtime ? 'realtime' : s.source, null, Date.now()).level;
   return `<ol class="stop-timeline">${stops.map((s) => `<li class="${s.progress !== undefined && s.progress < progress - 10 ? 'passed' : ''}"><button data-stop="${esc(s.key)}"><span>${esc(s.name)}</span>${s.skipped ? '<small>No para</small>' : s.at ? `<small class="reliability ${level(s)}" title="${RELIABILITY_LABELS[level(s)]}"><i></i>${time(s.at)}</small>` : ''}</button></li>`).join('')}</ol>`;
 }
-/** Zen mode: only the network in motion, without labels or interface. The camera stays free, and keeps following a followed vehicle. */
+/** Zen mode: only the network in motion, without labels or interface. The camera stays free, except with a vehicle selected: then it follows that vehicle. */
 function setZen(enabled: boolean) {
   if (zen === enabled) return;
   zen = enabled;
   document.documentElement.classList.toggle('zen', enabled);
   $('#zen-exit').hidden = !enabled;
   if (enabled) { closeSearch(); $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); (document.activeElement as HTMLElement | null)?.blur(); }
+  // With a vehicle selected, zen mode hides its card and keeps it in view: the camera follows it until the map is dragged.
+  if (enabled && selection?.kind === 'vehicle' && selectedVehicle() && !following) setFollowing(true);
   applyZenMap();
   map.easeTo({ padding: padding(), duration: duration(400) });
   wakeZen(enabled ? 3500 : 0);
@@ -293,8 +304,8 @@ function applyZenMap() {
   // Without clusters every vehicle moves on its own, even with the whole city in view.
   void (map.getSource('vehicles') as import('maplibre-gl').GeoJSONSource | undefined)?.setClusterOptions({ cluster: !zen, clusterMaxZoom: 10, clusterRadius: 42 });
 }
-/** Shows the way out of zen mode for a moment: on a mouse movement, a tap or on entering. */
-function wakeZen(milliseconds = 2500) {
+/** Shows the way out of zen mode for a moment: on a mouse movement, a tap or on entering. A finger gets longer to reach it. */
+function wakeZen(milliseconds = matchMedia('(pointer: coarse)').matches ? 4500 : 2500) {
   window.clearTimeout(zenWakeTimer);
   document.documentElement.classList.toggle('zen-awake', zen && milliseconds > 0);
   if (zen && milliseconds > 0) zenWakeTimer = window.setTimeout(() => document.documentElement.classList.remove('zen-awake'), milliseconds);
@@ -333,8 +344,19 @@ map.on('mousemove', (event) => {
     map.getCanvas().style.cursor = hit ? 'pointer' : '';
   });
 });
-map.on('dragstart', (event) => { if (event.originalEvent && following) { following = false; renderDetails(); } });
+/** Panning the map is looking elsewhere, so it lets go of the vehicle; a two-finger pinch or turn keeps following it. */
+map.on('dragstart', (event) => {
+  const original = event.originalEvent as (MouseEvent | TouchEvent) | undefined;
+  if (!original || !following || ('touches' in original && original.touches.length > 1)) return;
+  setFollowing(false);
+  if (!zen) toast('Ya no sigues el vehículo · toca «Seguir» para volver a él');
+});
 const followCamera = new FollowCamera(map);
+function setFollowing(enabled: boolean) {
+  following = enabled; followCamera.reset();
+  if (enabled) { $('#toast').hidden = true; window.clearTimeout(toastTimer); }
+  renderDetails();
+}
 renderer.onSelectedPosition = (coordinate) => { if (following) followCamera.update(coordinate, Date.now(), padding(), duration(600)); };
 renderer.start();
 $<HTMLInputElement>('#search').addEventListener('input', search);
@@ -353,20 +375,39 @@ $('#underground').onchange = () => { renderer.showUnderground = $<HTMLInputEleme
 map.on('moveend', () => { void ensureShapes(); if (!following) { window.clearTimeout(cameraSaveTimer); cameraSaveTimer = window.setTimeout(persistCityPreferences, 250); } });
 $('#refresh').onclick = () => { void refresh(); };
 $('#close-details').onclick = closeDetails;
-let touchY = 0, ignoreSheetClick = false;
+let touchY = 0, swipeSheet = false, ignoreSheetClick = false;
 $('#sheet-handle').onclick = () => { if (ignoreSheetClick) { ignoreSheetClick = false; return; } setSheetCollapsed(!$('#details').classList.contains('collapsed')); };
-$('#sheet-handle').addEventListener('touchstart', (event) => touchY = event.touches[0].clientY, { passive: true });
-$('#sheet-handle').addEventListener('touchend', (event) => { const delta = event.changedTouches[0].clientY - touchY; if (Math.abs(delta) > 30) { ignoreSheetClick = true; setSheetCollapsed(delta > 0); window.setTimeout(() => { ignoreSheetClick = false; }, 500); } }, { passive: true });
+// The handle drags the sheet; the compact card can be dragged from anywhere: up to open it, down to close it.
+$('#details').addEventListener('touchstart', (event) => { touchY = event.touches[0].clientY; swipeSheet = innerWidth < 700 && (!!(event.target as HTMLElement).closest('#sheet-handle') || $('#details').classList.contains('collapsed')); }, { passive: true });
+$('#details').addEventListener('touchend', (event) => {
+  const delta = event.changedTouches[0].clientY - touchY; if (!swipeSheet || Math.abs(delta) <= 30) return;
+  ignoreSheetClick = true; window.setTimeout(() => { ignoreSheetClick = false; }, 500);
+  if (delta > 0 && $('#details').classList.contains('collapsed')) closeDetails(); else setSheetCollapsed(delta > 0);
+}, { passive: true });
+// A tap on the compact card, outside its buttons, opens it.
+$('#details').addEventListener('click', (event) => { if (innerWidth < 700 && !ignoreSheetClick && $('#details').classList.contains('collapsed') && !(event.target as HTMLElement).closest('button, select, a')) setSheetCollapsed(false); });
+/** On a phone the map buttons sit above the card, and give way while an open card leaves them no room. */
+function placeMapControls() {
+  const panel = $('#details'), controls = $('.map-controls'), open = innerWidth < 700 && !!selection && !panel.hidden;
+  const cover = open ? Math.max(0, innerHeight - panel.getBoundingClientRect().top) : 0;
+  document.documentElement.classList.toggle('sheet-open', open);
+  document.documentElement.style.setProperty('--sheet-cover', `${Math.round(cover)}px`);
+  controls.classList.toggle('crowded', open && innerHeight - cover - 10 - controls.offsetHeight < $('.search-shell').getBoundingClientRect().bottom + 8);
+}
+new ResizeObserver(placeMapControls).observe($('#details'));
+window.addEventListener('resize', placeMapControls);
 $('#favorite').onclick = () => { const key = favoriteKey(); if (!key) return; if (favorites.has(key)) favorites.delete(key); else favorites.add(key); write('transit:favorites', JSON.stringify([...favorites])); renderDetails(); };
-$('#back').onclick = () => { const v = selectedVehicle(), route = network?.routes.find((r) => r.key === v?.routeKey); if (route) void selectRoute(route, 'all', false); };
+$('#back').onclick = () => { const v = snapshot?.vehicles.find((v) => v.id === returnVehicle); if (v) void selectVehicle(v); };
+/** Opens a line or stop from the vehicle card, keeping the way back to the vehicle. */
+function openFromVehicle(open: () => void) { const from = selection?.kind === 'vehicle' ? selection.id : null; open(); returnVehicle = from; renderDetails(); }
 $('#detail-content').onclick = (event) => {
   const target = (event.target as HTMLElement).closest<HTMLElement>('button'); if (!target) return;
-  if (target.dataset.stop) { const s = network?.stops.find((s) => s.key === target.dataset.stop); if (s) void selectStop(s); }
+  if (target.dataset.stop) { const s = network?.stops.find((s) => s.key === target.dataset.stop); if (s) openFromVehicle(() => void selectStop(s)); }
   if (target.dataset.route) { const r = network?.routes.find((r) => r.key === target.dataset.route); if (r) void selectRoute(r); }
   if (target.dataset.vehicle) { const v = snapshot?.vehicles.find((v) => v.id === target.dataset.vehicle); if (v) void selectVehicle(v); }
-  if (target.hasAttribute('data-follow')) { following = !following; followCamera.reset(); renderDetails(); }
+  if (target.hasAttribute('data-follow')) setFollowing(!following);
   if (target.hasAttribute('data-fit') && detail && 'shape' in detail && detail.shape) { following = false; fitShapes(map, [detail.shape], padding(), duration(850)); renderDetails(); }
-  if (target.hasAttribute('data-full-line')) $('#back').click();
+  if (target.hasAttribute('data-full-line')) { const v = selectedVehicle(), route = network?.routes.find((r) => r.key === v?.routeKey); if (route) openFromVehicle(() => void selectRoute(route, 'all', false)); }
   if (target.hasAttribute('data-retry')) { if (selection?.kind === 'route') void selectRoute(selection.route, selection.direction, false); else if (selection?.kind === 'stop') void selectStop(selection.stop); else { const v = selectedVehicle(); if (v) void selectVehicle(v); } }
 };
 $('#detail-content').addEventListener('change', (event) => { const select = event.target as HTMLSelectElement; if (select.id === 'direction' && selection?.kind === 'route') void selectRoute(selection.route, select.value); });

@@ -15,13 +15,15 @@ vez, casi la mitad con su posición en tiempo real.
   con azul, el tranvía blanco con verde y Renfe blanco con rojo. Y con su número real de
   coches: un metro de cuatro o cinco coches, un tranvía de tres o cinco módulos.
 - **Tocar cualquier vehículo** para saber a dónde va, cuál es su próxima parada, cuánto
-  le falta y de dónde sale su posición.
+  le falta y de dónde sale su posición, y **seguirlo** con un toque: la cámara lo lleva en
+  el centro hasta que arrastras el mapa.
 - **Buscar una línea, una parada o una estación** y ver su recorrido, los vehículos que
   la están haciendo y las próximas salidas.
 - **Filtrar** por bus, metro y tren, tranvía o funicular, y activar o quitar operadores.
 - **Explorar en 3D**, con los edificios y el metro y los trenes bajo tierra en los túneles.
 - **Mirar sin distracciones** con el modo zen (tecla Z o el botón del loto): sin etiquetas
-  ni interfaz, solo el transporte moviéndose. Esc o un toque en el móvil para salir.
+  ni interfaz, solo el transporte moviéndose. Con un vehículo seleccionado, su tarjeta se
+  oculta y la cámara lo sigue. Esc o un toque en el móvil para salir.
 - **Llevarla en el móvil**: el mapa ocupa la pantalla y la ficha del vehículo es una
   tarjeta que se despliega deslizando. Se puede instalar como aplicación (PWA).
 
