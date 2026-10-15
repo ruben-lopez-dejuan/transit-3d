@@ -20,6 +20,8 @@ vez, casi la mitad con su posición en tiempo real.
   la están haciendo y las próximas salidas.
 - **Filtrar** por bus, metro y tren, tranvía o funicular, y activar o quitar operadores.
 - **Explorar en 3D**, con los edificios y el metro y los trenes bajo tierra en los túneles.
+- **Mirar sin distracciones** con el modo zen (tecla Z o el botón del loto): sin etiquetas
+  ni interfaz, solo el transporte moviéndose. Esc o un toque en el móvil para salir.
 - **Llevarla en el móvil**: el mapa ocupa la pantalla y la ficha del vehículo es una
   tarjeta que se despliega deslizando. Se puede instalar como aplicación (PWA).
 

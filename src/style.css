@@ -83,3 +83,15 @@ button,a,input,select { -webkit-tap-highlight-color: transparent; }
   .mode-nav button>span { font-size: 16px; }
   .detail-heading { padding-inline: 16px; }
 }
+
+/* Zen mode: only the map in motion. The way out appears for a moment on a mouse movement or a tap. */
+.zen-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 10px 0; margin-top: 9px; border-top: 1px solid var(--border); text-align: left; } .zen-row>.icon { width: 22px; height: 22px; color: var(--accent); } .zen-row>span { flex: 1; } .zen-row strong { display: block; font-size: 13px; } .zen-row small { display: block; font-size: 10px; margin-top: 4px; line-height: 1.4; } .zen-row:hover strong { color: var(--accent); }
+.map-controls #zen .icon { width: 22px; height: 22px; vertical-align: middle; }
+.zen :is(.brand,.search-shell,.mode-nav,.top-actions,.floating-panel,.detail-panel,.map-controls,.map-status,#empty-map,#toast,#debug) { opacity: 0 !important; visibility: hidden; pointer-events: none; transition: opacity .35s ease, visibility 0s .35s; }
+.zen .maplibregl-ctrl-attrib { opacity: .55; }
+.zen:not(.zen-awake) .maplibregl-canvas-container.maplibregl-interactive { cursor: none; }
+.zen-exit { position: absolute; z-index: 20; top: calc(env(safe-area-inset-top, 0px) + 20px); right: max(20px, env(safe-area-inset-right, 0px)); display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 13px; border: 1px solid var(--border); border-radius: 22px; background: color-mix(in srgb, var(--surface) 86%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: var(--shadow); font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .45s ease; }
+.zen-exit .icon { width: 18px; height: 18px; color: var(--accent); } .zen-exit kbd { margin-left: 2px; }
+.zen-awake .zen-exit,.zen-exit:hover,.zen-exit:focus-visible { opacity: 1; pointer-events: auto; transition-duration: .2s; }
+@media (pointer: coarse) { .zen-exit kbd { display: none; } }
+@media (max-width: 699px) { .zen-exit { top: calc(env(safe-area-inset-top, 0px) + 12px); right: max(14px, env(safe-area-inset-right, 0px)); } .zen-row>kbd { display: none; } }

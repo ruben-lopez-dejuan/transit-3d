@@ -11,6 +11,8 @@ const paths = {
   stop: '<path d="M12 21v-9"/><rect x="7" y="3" width="10" height="9" rx="2.5"/><path d="M9.8 7.5h4.4"/>',
   place: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.4"/>',
   layers: '<path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 12.5 9 5 9-5M3 16.5l9 5 9-5"/>',
+  zen: '<path d="M12 16.5c-1.9-1.6-2.9-3.8-2.9-6.2S10.1 5.6 12 4c1.9 1.6 2.9 3.9 2.9 6.3s-1 4.6-2.9 6.2Z"/><path d="M12 16.5c-2.6-1.9-5.6-2.5-8.5-2 1.3 3.2 4.6 5 8.5 5s7.2-1.8 8.5-5c-2.9-.5-5.9.1-8.5 2Z"/>',
+  exit: '<path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 8l-4 4 4 4M6 12h9"/>',
 } as const;
 export type IconName = keyof typeof paths;
 export const icon = (name: IconName, label?: string) => svg(paths[name], label);

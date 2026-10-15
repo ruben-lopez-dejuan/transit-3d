@@ -17,6 +17,7 @@ import { icon, kindIcon } from './icons';
 import { vehicleKind } from './map/vehicleLod';
 import { migrateFavorites } from './transit/favorites';
 import { readCityPreferences, writeCityPreferences } from './transit/preferences';
+import { isZenShortcut, ZenLayers } from './map/zenMode';
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const debugMode = location.pathname === '/debug' || location.pathname.startsWith('/debug/');
@@ -68,12 +69,15 @@ let selection: { kind: 'vehicle'; id: string } | { kind: 'route'; route: Route; 
 let detail: LineDetail | StopDetail | TripDetail | null = null, detailVersion = 0, detailError = '';
 let following = false, polling = false, toastTimer = 0, cameraSaveTimer = 0, sheetTimer = 0, nextNetworkRefreshAt = 0;
 let results: SearchResult[] = [], resultIndex = -1;
+let zen = false, zenWakeTimer = 0;
+const zenLayers = new ZenLayers();
 const inFlightShapes = new Set<string>();
 let detailRequest: AbortController | null = null, operatorRenderKey = '';
 const operatorName = (id: string) => network?.operators.find((o) => o.id === id)?.name ?? id;
 const selectedVehicle = () => { const current = selection; return current?.kind === 'vehicle' ? snapshot?.vehicles.find((v) => v.id === current.id) : undefined; };
 const debugInspector = DebugInspectorClass ? new DebugInspectorClass({ map, renderer, cityId: city.id, selectVehicle: (vehicle) => { void selectVehicle(vehicle); } }) : null;
 const padding = () => {
+  if (zen) return { top: 0, bottom: 0, left: 0, right: 0 };
   if (innerWidth >= 700) return { top: 150, bottom: 70, left: selection ? 410 : 70, right: 80 };
   const panel = $('#details');
   const covered = selection && !panel.hidden ? Math.max(0, innerHeight - panel.getBoundingClientRect().top) : 0;
@@ -273,13 +277,35 @@ function stopRows(stops: (Stop & { at?: number | null; progress?: number; skippe
   const level = (s: (typeof stops)[number]) => arrivalReliability(s.realtime ? 'realtime' : s.source, null, Date.now()).level;
   return `<ol class="stop-timeline">${stops.map((s) => `<li class="${s.progress !== undefined && s.progress < progress - 10 ? 'passed' : ''}"><button data-stop="${esc(s.key)}"><span>${esc(s.name)}</span>${s.skipped ? '<small>No para</small>' : s.at ? `<small class="reliability ${level(s)}" title="${RELIABILITY_LABELS[level(s)]}"><i></i>${time(s.at)}</small>` : ''}</button></li>`).join('')}</ol>`;
 }
+/** Zen mode: only the network in motion, without labels or interface. The camera stays free, and keeps following a followed vehicle. */
+function setZen(enabled: boolean) {
+  if (zen === enabled) return;
+  zen = enabled;
+  document.documentElement.classList.toggle('zen', enabled);
+  $('#zen-exit').hidden = !enabled;
+  if (enabled) { closeSearch(); $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); (document.activeElement as HTMLElement | null)?.blur(); }
+  applyZenMap();
+  map.easeTo({ padding: padding(), duration: duration(400) });
+  wakeZen(enabled ? 3500 : 0);
+}
+function applyZenMap() {
+  zenLayers.apply(map, zen);
+  // Without clusters every vehicle moves on its own, even with the whole city in view.
+  void (map.getSource('vehicles') as import('maplibre-gl').GeoJSONSource | undefined)?.setClusterOptions({ cluster: !zen, clusterMaxZoom: 10, clusterRadius: 42 });
+}
+/** Shows the way out of zen mode for a moment: on a mouse movement, a tap or on entering. */
+function wakeZen(milliseconds = 2500) {
+  window.clearTimeout(zenWakeTimer);
+  document.documentElement.classList.toggle('zen-awake', zen && milliseconds > 0);
+  if (zen && milliseconds > 0) zenWakeTimer = window.setTimeout(() => document.documentElement.classList.remove('zen-awake'), milliseconds);
+}
 function drawSelection() {
   if (!detail || !selection) return;
   if (selection.kind === 'route') { const d = detail as LineDetail; setData(map, 'selected-route', routeData(d.shapes, selection.route.color)); setData(map, 'selected-stops', stopsData(d.stops)); }
   if (selection.kind === 'stop') setData(map, 'selected-stops', stopsData((detail as StopDetail).nearbyStops));
   if (selection.kind === 'vehicle') { const d = detail as TripDetail, v = selectedVehicle(); if (d.shape && v) setData(map, 'selected-route', routeData([d.shape], v.color)); setData(map, 'selected-stops', stopsData(d.stops)); }
 }
-map.on('style.load', () => { installLayers(map, network, isDark()); if (snapshot) installVehicleIcons(map, snapshot.vehicles); debugInspector?.installMapLayers(); filters(); drawSelection(); });
+map.on('style.load', () => { installLayers(map, network, isDark()); if (snapshot) installVehicleIcons(map, snapshot.vehicles); debugInspector?.installMapLayers(); filters(); drawSelection(); zenLayers.reset(); if (zen) applyZenMap(); });
 map.on('error', (event) => { if (event.error.message.includes('WebGL')) toast('El mapa necesita un navegador con WebGL activado.'); });
 /** How far from a vehicle or stop a tap still selects it: a finger needs more room than a pointer. */
 const hitTolerance = () => matchMedia('(pointer: coarse)').matches ? 22 : 12;
@@ -288,6 +314,8 @@ const nearbyFeatures = (point: { x: number; y: number }, layers: string[], toler
   return map.queryRenderedFeatures([[point.x - tolerance, point.y - tolerance], [point.x + tolerance, point.y + tolerance]], { layers: present });
 };
 map.on('click', async (event) => {
+  // In zen mode a tap only brings back the way out.
+  if (zen) { wakeZen(); return; }
   const cluster = nearbyFeatures(event.point, ['clusters'], 0)[0];
   if (cluster?.properties?.cluster_id !== undefined) { const source = map.getSource('vehicles') as import('maplibre-gl').GeoJSONSource; const zoom = await source.getClusterExpansionZoom(Number(cluster.properties.cluster_id)); if (cluster.geometry.type === 'Point') map.easeTo({ center: cluster.geometry.coordinates as [number, number], zoom }); return; }
   const vehicleId = renderer.vehicleAt(event.point, hitTolerance());
@@ -298,7 +326,7 @@ map.on('click', async (event) => {
 });
 let hoverFrame = 0;
 map.on('mousemove', (event) => {
-  if (hoverFrame) return;
+  if (hoverFrame || zen) return;
   hoverFrame = requestAnimationFrame(() => {
     hoverFrame = 0;
     const hit = renderer.vehicleAt(event.point, hitTolerance()) || nearbyFeatures(event.point, ['clusters', 'stations', 'bus-stops', 'selected-stops-dot'], hitTolerance() / 2).length;
@@ -343,9 +371,12 @@ $('#detail-content').onclick = (event) => {
 };
 $('#detail-content').addEventListener('change', (event) => { const select = event.target as HTMLSelectElement; if (select.id === 'direction' && selection?.kind === 'route') void selectRoute(selection.route, select.value); });
 $('#zoom-in').onclick = () => map.zoomIn(); $('#zoom-out').onclick = () => map.zoomOut(); $('#north').onclick = () => map.easeTo({ bearing: 0 });
+$('#zen').onclick = () => setZen(true); $('#zen-layers').onclick = () => setZen(true);
+$('#zen-exit').onclick = (event) => { setZen(false); if (event.detail === 0) $('#zen').focus(); };
+document.addEventListener('pointermove', (event) => { if (zen && event.pointerType === 'mouse') wakeZen(); });
 $('#perspective').onclick = () => { const enabled = map.getPitch() < 20; map.easeTo({ pitch: enabled ? 50 : 0, duration: duration(650) }); $('#perspective').classList.toggle('active', enabled); $('#perspective').setAttribute('aria-pressed', String(enabled)); };
 $('#locate').onclick = () => { if (!navigator.geolocation) { toast('Este navegador no ofrece ubicación.'); return; } navigator.geolocation.getCurrentPosition((p) => { const coordinates: [number, number] = [p.coords.longitude, p.coords.latitude]; setData(map, 'user-location', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates } }] }); map.easeTo({ center: coordinates, zoom: 15, padding: padding() }); }, () => toast('No se pudo obtener tu ubicación. Comprueba los permisos del navegador.'), { timeout: 12000, maximumAge: 30000 }); };
-document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { if (!$('#search-results').hidden) closeSearch(); else if (!$('#layers').hidden) $('[data-close-layers]').click(); else closeDetails(); } if (event.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes((event.target as HTMLElement).tagName)) { event.preventDefault(); $('#search').focus(); } });
+document.addEventListener('keydown', (event) => { if (isZenShortcut(event, event.target as HTMLElement)) { event.preventDefault(); setZen(!zen); return; } if (zen && (event.key === 'Escape' || event.key === '/')) { setZen(false); if (event.key === 'Escape') return; } if (event.key === 'Escape') { if (!$('#search-results').hidden) closeSearch(); else if (!$('#layers').hidden) $('[data-close-layers]').click(); else closeDetails(); } if (event.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes((event.target as HTMLElement).tagName)) { event.preventDefault(); $('#search').focus(); } });
 document.addEventListener('pointerdown', (event) => { const target = event.target as HTMLElement; if (!target.closest('.search-shell')) closeSearch(); if (!target.closest('#layers, #layers-button')) { $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
 window.addEventListener('online', () => { void refresh(); }); window.addEventListener('offline', updateStatus);
