@@ -206,7 +206,7 @@ function setSheetCollapsed(collapsed: boolean, adjustMap = true) {
   window.clearTimeout(sheetTimer);
   if (adjustMap && selection && innerWidth < 700) sheetTimer = window.setTimeout(() => map.easeTo({ padding: padding(), duration: duration(220) }), duration(220));
 }
-function openPanel() { $('#details').hidden = false; setSheetCollapsed(false, false); closeSearch(); $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); detailError = ''; }
+function openPanel(collapsed = false) { $('#details').hidden = false; setSheetCollapsed(collapsed, false); closeSearch(); $('#layers').hidden = true; $('#layers-button').setAttribute('aria-expanded', 'false'); detailError = ''; }
 function beginDetailRequest() {
   detailRequest?.abort();
   detailRequest = new AbortController();
@@ -230,7 +230,9 @@ async function selectStop(stop: Stop) {
 }
 async function selectVehicle(vehicle: Vehicle) {
   renderer.operators.add(vehicle.operatorId); renderer.disabledLayers.delete(vehicle.operatorId + ':' + vehicle.mode); if (mode !== 'all' && mode !== vehicle.mode) mode = vehicle.mode; filters();
-  selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; debugInspector?.select(vehicle); renderer.direction = 'all'; openPanel(); renderDetails();
+  selection = { kind: 'vehicle', id: vehicle.id }; detail = null; following = false; renderer.selectedId = vehicle.id; renderer.focusRoute = vehicle.routeKey; debugInspector?.select(vehicle); renderer.direction = 'all';
+  // On a phone a vehicle opens as a compact card, so the map around it stays visible; swipe up for the stops.
+  openPanel(innerWidth < 700); renderDetails();
   const coordinate = renderer.coordinate(vehicle.id); if (coordinate) map.easeTo({ center: coordinate, zoom: Math.max(map.getZoom(), 14.5), padding: padding(), duration: duration(700) });
   setData(map, 'selected-route', empty); setData(map, 'selected-stops', empty); $('#detail-content').scrollTop = 0;
   const { version, signal } = beginDetailRequest();
@@ -277,15 +279,30 @@ function drawSelection() {
 }
 map.on('style.load', () => { installLayers(map, network, isDark()); if (snapshot) installVehicleIcons(map, snapshot.vehicles); debugInspector?.installMapLayers(); filters(); drawSelection(); });
 map.on('error', (event) => { if (event.error.message.includes('WebGL')) toast('El mapa necesita un navegador con WebGL activado.'); });
+/** How far from a vehicle or stop a tap still selects it: a finger needs more room than a pointer. */
+const hitTolerance = () => matchMedia('(pointer: coarse)').matches ? 22 : 12;
+const nearbyFeatures = (point: { x: number; y: number }, layers: string[], tolerance: number) => {
+  const present = layers.filter((l) => map.getLayer(l)); if (!present.length) return [];
+  return map.queryRenderedFeatures([[point.x - tolerance, point.y - tolerance], [point.x + tolerance, point.y + tolerance]], { layers: present });
+};
 map.on('click', async (event) => {
-  const layers = ['vehicle-dot', 'clusters', 'selected-stops-dot', 'stations', 'bus-stops'].filter((l) => map.getLayer(l)); if (!layers.length) return;
-  const feature = map.queryRenderedFeatures(event.point, { layers })[0];
-  if (!feature) { closeSearch(); if (selection && innerWidth < 700) setSheetCollapsed(true); return; }
-  if (feature.properties?.cluster_id !== undefined) { const source = map.getSource('vehicles') as import('maplibre-gl').GeoJSONSource; const zoom = await source.getClusterExpansionZoom(Number(feature.properties.cluster_id)); if (feature.geometry.type === 'Point') map.easeTo({ center: feature.geometry.coordinates as [number, number], zoom }); }
-  else if (feature.properties?.id) { const v = snapshot?.vehicles.find((v) => v.id === feature.properties.id); if (v) void selectVehicle(v); }
-  else if (feature.properties?.key) { const s = network?.stops.find((s) => s.key === feature.properties.key); if (s) void selectStop(s); }
+  const cluster = nearbyFeatures(event.point, ['clusters'], 0)[0];
+  if (cluster?.properties?.cluster_id !== undefined) { const source = map.getSource('vehicles') as import('maplibre-gl').GeoJSONSource; const zoom = await source.getClusterExpansionZoom(Number(cluster.properties.cluster_id)); if (cluster.geometry.type === 'Point') map.easeTo({ center: cluster.geometry.coordinates as [number, number], zoom }); return; }
+  const vehicleId = renderer.vehicleAt(event.point, hitTolerance());
+  if (vehicleId) { const v = snapshot?.vehicles.find((v) => v.id === vehicleId); if (v) void selectVehicle(v); return; }
+  const stop = nearbyFeatures(event.point, ['selected-stops-dot', 'stations', 'bus-stops'], hitTolerance() / 2)[0];
+  if (stop?.properties?.key) { const s = network?.stops.find((s) => s.key === stop.properties.key); if (s) void selectStop(s); return; }
+  closeSearch(); if (selection && innerWidth < 700) setSheetCollapsed(true);
 });
-map.on('mousemove', (event) => { const layers = ['vehicle-dot', 'clusters', 'stations', 'bus-stops', 'selected-stops-dot'].filter((l) => map.getLayer(l)); if (layers.length) map.getCanvas().style.cursor = map.queryRenderedFeatures(event.point, { layers }).length ? 'pointer' : ''; });
+let hoverFrame = 0;
+map.on('mousemove', (event) => {
+  if (hoverFrame) return;
+  hoverFrame = requestAnimationFrame(() => {
+    hoverFrame = 0;
+    const hit = renderer.vehicleAt(event.point, hitTolerance()) || nearbyFeatures(event.point, ['clusters', 'stations', 'bus-stops', 'selected-stops-dot'], hitTolerance() / 2).length;
+    map.getCanvas().style.cursor = hit ? 'pointer' : '';
+  });
+});
 map.on('dragstart', (event) => { if (event.originalEvent && following) { following = false; renderDetails(); } });
 const followCamera = new FollowCamera(map);
 renderer.onSelectedPosition = (coordinate) => { if (following) followCamera.update(coordinate, Date.now(), padding(), duration(600)); };

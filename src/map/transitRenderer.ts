@@ -8,7 +8,7 @@ import type { VehicleModels, ModelItem } from './vehicleModels';
 import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
 import { renderedPositionSource, REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 import { liveryFor } from '../../shared/transit/appearance';
-import { vehicleIconId } from './networkMap';
+import { vehicleIconId, vehicleIconPixels } from './networkMap';
 
 type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion; scheduled?: TimelineMotion };
 /** Keep normal mobile motion fluid, but protect slower phones with very large fleets. */
@@ -16,6 +16,16 @@ export function renderInterval(viewportWidth: number, fleetSize: number, focused
   if (reducedMotion) return 250;
   if (viewportWidth < 700 && fleetSize > 300 && !focused) return 80;
   return 48;
+}
+function distanceToPolyline(point: { x: number; y: number }, line: { x: number; y: number }[]) {
+  if (line.length === 1) return Math.hypot(point.x - line[0].x, point.y - line[0].y);
+  let best = Infinity;
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1], b = line[i], dx = b.x - a.x, dy = b.y - a.y, length = dx * dx + dy * dy;
+    const t = length ? Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length)) : 0;
+    best = Math.min(best, Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)));
+  }
+  return best;
 }
 export class TransitRenderer {
   private states = new Map<string, State>();
@@ -92,6 +102,36 @@ export class TransitRenderer {
     const shape = this.shapes.get(state.vehicle.shapeKey);
     const width = this.map.getZoom() >= MODEL_MIN_ZOOM ? vehicleScale(state.vehicle, this.map.getZoom(), state.vehicle.latitude).width : 1;
     return shape ? vehiclePose(shape, this.progress(state, Date.now() + this.clockOffset), state.vehicle, width)?.coordinate ?? null : [state.vehicle.longitude, state.vehicle.latitude] as [number, number];
+  }
+  /**
+   * The vehicle drawn under a screen point. The whole body counts, not only its front:
+   * the icon is centred on the vehicle's position and the 3D cars trail behind it, and a
+   * four-car train is far longer than the old 12 px circle at its head.
+   */
+  vehicleAt(point: { x: number; y: number }, tolerance: number): string | null {
+    const now = Date.now() + this.clockOffset, zoom = this.map.getZoom();
+    let best: { id: string; distance: number } | null = null;
+    for (const vehicle of this.getVehicles()) {
+      if (vehicle.positionQuality !== "scheduled" && vehicle.observationTimestamp && now - vehicle.observationTimestamp > REALTIME_MAX_AGE_MS) continue;
+      const state = this.states.get(vehicle.id), shape = this.shapes.get(vehicle.shapeKey);
+      if (!state) continue;
+      const progress = this.progress(state, now), scale = vehicleScale(vehicle, zoom, vehicle.latitude);
+      const head = shape ? vehiclePose(shape, progress, vehicle, zoom >= MODEL_MIN_ZOOM ? scale.width : 1) : null;
+      if (head?.underground && !this.showUnderground) continue;
+      const headPoint = this.map.project(head?.coordinate ?? [vehicle.longitude, vehicle.latitude]);
+      const metersPerPixel = 40075016.686 * Math.cos(vehicle.latitude * Math.PI / 180) / (512 * 2 ** zoom);
+      const consist = composition(vehicle), icon = vehicleIconPixels(vehicle, zoom);
+      const modelMeters = (consist.count * consist.length + (consist.count - 1) * consist.gap) * scale.length;
+      const ahead = icon.length / 2 * metersPerPixel, behind = Math.max(modelMeters, ahead);
+      const reach = (ahead + behind) / metersPerPixel + tolerance + icon.width;
+      if (Math.hypot(headPoint.x - point.x, headPoint.y - point.y) > reach) continue;
+      // Sample the body along the track, from just ahead of the position to the last car.
+      const samples = shape ? Math.max(2, Math.ceil((ahead + behind) / metersPerPixel / 8)) : 0;
+      const line = shape ? Array.from({ length: samples + 1 }, (_, i) => vehiclePose(shape, progress + ahead - (ahead + behind) * i / samples, vehicle, 1)?.coordinate).filter((c): c is [number, number] => !!c).map((c) => this.map.project(c)) : [headPoint];
+      const distance = distanceToPolyline(point, line) - Math.max(icon.width, scale.width * 2.7 / metersPerPixel) / 2;
+      if (distance <= tolerance && (!best || distance < best.distance)) best = { id: vehicle.id, distance };
+    }
+    return best?.id ?? null;
   }
   getVehicles() {
     return [...this.states.values()].map((s) => s.vehicle).filter((v) => this.operators.has(v.operatorId) && !this.disabledLayers.has(`${v.operatorId}:${v.mode}`) && (this.mode === "all" || v.mode === this.mode));

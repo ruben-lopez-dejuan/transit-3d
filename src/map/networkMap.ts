@@ -29,7 +29,7 @@ export function installLayers(map: Map, network: Network | null, dark: boolean) 
   installVehicleIcons(map, network?.routes ?? []);
   map.addLayer({ id: 'selected-halo', type: 'circle', source: 'selected-vehicle', paint: { 'circle-radius': 8, 'circle-opacity': 0, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 1.2, 'circle-stroke-opacity': .6 } });
   map.addLayer({ id: 'vehicle-dot', type: 'circle', source: 'vehicles', filter: ['!', ['has', 'point_count']], paint: { 'circle-radius': 12, 'circle-opacity': 0 } });
-  map.addLayer({ id: 'vehicle-icon', type: 'symbol', source: 'vehicles', filter: ['!', ['has', 'point_count']], layout: { 'icon-image': ['get', 'icon'], 'icon-size': ['interpolate', ['linear'], ['zoom'], 10, .25, 13, .38, 16, .52, 18, .7], 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-opacity': ['case', ['get', 'underground'], .45, 1], 'icon-opacity-transition': { duration: 0, delay: 0 } } });
+  map.addLayer({ id: 'vehicle-icon', type: 'symbol', source: 'vehicles', filter: ['!', ['has', 'point_count']], layout: { 'icon-image': ['get', 'icon'], 'icon-size': ['interpolate', ['linear'], ['zoom'], ...ICON_SIZE_STOPS.flat()], 'icon-rotate': ['get', 'bearing'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true }, paint: { 'icon-opacity': ['case', ['get', 'underground'], .45, 1], 'icon-opacity-transition': { duration: 0, delay: 0 } } });
   map.addLayer({ id: 'vehicle-label', type: 'symbol', source: 'vehicles', minzoom: 12.5, filter: ['!', ['has', 'point_count']], layout: { 'text-field': ['step', ['zoom'], ['get', 'label'], 14.5, ['concat', ['get', 'label'], ' · ', ['get', 'destination']], 16, ['concat', ['get', 'label'], ' · ', ['get', 'destination'], ['case', ['get', 'underground'], ' · túnel', '']]], 'text-size': 11, 'text-font': ['Noto Sans Bold'], 'text-offset': [0, 2], 'text-anchor': 'top', 'text-max-width': 22, 'text-allow-overlap': false, 'symbol-sort-key': ['case', ['get', 'selected'], 0, 1] }, paint: { 'text-color': dark ? '#eff5f7' : '#243c3b', 'text-halo-color': white, 'text-halo-width': 2 } });
   map.addLayer({ id: 'location-halo', type: 'circle', source: 'user-location', paint: { 'circle-radius': 18, 'circle-color': '#3185e6', 'circle-opacity': .15 } });
   map.addLayer({ id: 'location-dot', type: 'circle', source: 'user-location', paint: { 'circle-radius': 6, 'circle-color': '#3185e6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
@@ -57,12 +57,29 @@ const shade = (hex: string, amount: number) => {
   return `rgb(${channel(16)},${channel(8)},${channel(0)})`;
 };
 /** Top view, front up (the layer rotates it to the bearing): white halo, body, side bands, glazing. */
-function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, { count, length }: { count: number; length: number }, body: string, accent: string) {
+/** Pixel geometry of a vehicle's icon image, before the zoom-dependent icon-size. */
+function iconGeometry(kind: ReturnType<typeof vehicleKind>, { count, length }: { count: number; length: number }) {
   // Rail keeps its proportions; a bus is drawn larger than scale so it stays readable among trains.
   const pixelsPerMeter = kind === 'bus' ? 5.3 : kind === 'tram' ? 3.6 : 2.1;
   const carLength = Math.max(18, Math.round(length * pixelsPerMeter));
   const width = kind === 'bus' ? 26 : kind === 'tram' ? 24 : 27, gap = kind === 'tram' ? 2 : 4;
-  const height = 6 + count * carLength + (count - 1) * gap;
+  return { carLength, width, gap, height: 6 + count * carLength + (count - 1) * gap };
+}
+/** icon-size of the vehicle layer by zoom; hit testing uses the same curve. */
+const ICON_SIZE_STOPS: [number, number][] = [[10, .25], [13, .38], [16, .52], [18, .7]];
+export function iconSize(zoom: number) {
+  const stops = ICON_SIZE_STOPS;
+  if (zoom <= stops[0][0]) return stops[0][1];
+  for (let i = 1; i < stops.length; i++) if (zoom <= stops[i][0]) return stops[i - 1][1] + (stops[i][1] - stops[i - 1][1]) * (zoom - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0]);
+  return stops.at(-1)![1];
+}
+/** Length and width on screen, in pixels, of the icon drawn for this vehicle at this zoom. */
+export function vehicleIconPixels(vehicle: IconVehicle, zoom: number) {
+  const { height, width } = iconGeometry(vehicleKind(vehicle), compositionFor(vehicle)), size = iconSize(zoom);
+  return { length: height * size, width: (width + 4) * size };
+}
+function drawVehicleIcon(kind: ReturnType<typeof vehicleKind>, consist: { count: number; length: number }, body: string, accent: string) {
+  const { count } = consist, { carLength, width, gap, height } = iconGeometry(kind, consist);
   const canvas = document.createElement('canvas'); canvas.width = 48; canvas.height = height;
   const ctx = canvas.getContext('2d')!, x = (48 - width) / 2;
   for (let car = 0; car < count; car++) {

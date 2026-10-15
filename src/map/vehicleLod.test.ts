@@ -193,3 +193,32 @@ test('a bus with GPS moves at its observed pace, not at noisy official minute fo
   const drawn = renderer.progressMeters('bz')!;
   assert.ok(Math.abs(drawn - 1300) < 60, `drawn at ${Math.round(drawn)} m`);
 });
+
+test('a train is selected anywhere along its body, at close and far zooms', () => {
+  let zoom = 16;
+  const pixelsPerDegree = () => 512 * 2 ** zoom / 360;
+  const map = { getZoom: () => zoom, project: ([lon, lat]: [number, number]) => ({ x: lon * pixelsPerDegree(), y: -lat * pixelsPerDegree() }) } as unknown as TransitMap;
+  const renderer = new TransitRenderer(map);
+  renderer.operators.add('metro-bilbao');
+  // A shape along the equator heading east; 0.05° ≈ 5566 m.
+  renderer.shapes.set('s', { key: 's', coordinates: [[0, 0], [.05, 0]], cumulative: [0, 5566], total: 5566 });
+  const now = Date.now();
+  const train = (id: string, progress: number) => ({
+    id, mode: 'rail', operatorId: 'metro-bilbao', shapeKey: 's', routeKey: id, tripId: id, label: 'MB', headsign: 'Basauri', color: '#d95038',
+    appearance: { kind: 'metro', composition: { count: 4, length: 17.8, gap: .3 }, lateralOffsetMeters: 0 },
+    progressMetersAlongShape: progress, positionQuality: 'scheduled', observationTimestamp: null, longitude: progress / 5566 * .05, latitude: 0, bearing: 90,
+    timeline: [{ at: now - 1000, progress }, { at: now + 600_000, progress }],
+  }) as unknown as Vehicle;
+  renderer.update([train('near', 2000), train('far', 3000)], now, now);
+  const x = (meters: number) => meters / 5566 * .05 * pixelsPerDegree();
+  // Close in, the 72 m train trails ~60 px behind its front: its last car still selects it.
+  assert.equal(renderer.vehicleAt({ x: x(2000) - 55, y: 4 }, 22), 'near');
+  assert.equal(renderer.vehicleAt({ x: x(2000) + 20, y: 0 }, 22), 'near', 'the icon is centred on the position');
+  assert.equal(renderer.vehicleAt({ x: x(2000) - 400, y: 0 }, 22), null);
+  assert.equal(renderer.vehicleAt({ x: x(3000) - 30, y: -10 }, 22), 'far', 'each train answers for its own body');
+  // Far out, the icon is what you see: both its ends select the train.
+  zoom = 12;
+  assert.equal(renderer.vehicleAt({ x: x(2000) - 24, y: 0 }, 12), 'near');
+  assert.equal(renderer.vehicleAt({ x: x(2000) + 24, y: 0 }, 12), 'near');
+  assert.equal(renderer.vehicleAt({ x: x(2000) + 120, y: 0 }, 12), null);
+});

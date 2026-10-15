@@ -30,7 +30,8 @@ button,a,input,select { -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 699px) {
   .brand { top: calc(env(safe-area-inset-top, 0px) + 10px); left: max(14px,env(safe-area-inset-left, 0px)); }
-  .brand #city-picker { max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 132px); min-height: 44px; font-size: 16px; }
+  /* Room for the logo on the left and the Capas button on the right. */
+  .brand #city-picker { max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 178px); min-height: 44px; font-size: 16px; }
   .top-actions { top: calc(env(safe-area-inset-top, 0px) + 10px); right: max(14px,env(safe-area-inset-right, 0px)); }
   .surface-button { min-height: 44px; }
   .search-shell { top: calc(env(safe-area-inset-top, 0px) + 62px); left: max(14px,env(safe-area-inset-left, 0px)); right: max(14px,env(safe-area-inset-right, 0px)); }
@@ -46,18 +47,28 @@ button,a,input,select { -webkit-tap-highlight-color: transparent; }
   .operator-row { min-height: 60px; }
   .operator-row input { width: 22px; height: 22px; }
   .detail-panel { bottom: calc(env(safe-area-inset-bottom, 0px) + 72px); height: min(50dvh,440px); max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 150px); }
-  .detail-panel.collapsed { height: 224px; }
   .sheet-handle { height: 38px; min-height: 38px; }
   .sheet-handle>span { width: 42px; }
   .detail-toolbar { height: 44px; min-height: 44px; padding-inline: 14px; }
   .detail-toolbar>button:not(.text-button) { width: 44px; height: 44px; }
   #detail-content { overscroll-behavior-y: contain; }
-  .detail-panel.collapsed .detail-heading { padding: 0 16px 8px; }
-  .detail-panel.collapsed .detail-heading .eyebrow { margin-bottom: 5px; }
-  .detail-panel.collapsed .detail-heading .title-row { margin-bottom: 6px; }
   .detail-panel.collapsed .quality-explanation,.detail-panel.collapsed .detail-actions,.detail-panel.collapsed .detail-section,.detail-panel.collapsed .direction-control { display: none; }
-  .detail-panel.collapsed .next-stop { padding: 10px 16px 13px; border-bottom: 0; }
-  .detail-panel.collapsed .next-stop>span { margin-bottom: 4px; }
+  /* Collapsed, the sheet is a card sized to its content: line, destination, reliability, next stop. */
+  .detail-panel.collapsed { height: auto; max-height: 42dvh; }
+  .detail-panel.collapsed .sheet-handle { height: 20px; min-height: 20px; }
+  .detail-panel.collapsed .detail-toolbar { position: absolute; top: 12px; right: 6px; height: auto; min-height: 0; padding: 0; z-index: 1; }
+  .detail-panel.collapsed #back,.detail-panel.collapsed #favorite { display: none; }
+  .detail-panel.collapsed .detail-toolbar>button:not(.text-button) { width: 40px; height: 40px; }
+  .detail-panel.collapsed #detail-content { overflow: hidden; padding-bottom: 4px; }
+  .detail-panel.collapsed .detail-heading { padding: 0 50px 8px 16px; }
+  .detail-panel.collapsed .detail-heading .eyebrow { display: none; }
+  .detail-panel.collapsed .detail-heading .title-row { margin-bottom: 5px; align-items: center; }
+  .detail-panel.collapsed .detail-heading h1 { font-size: 16px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail-panel.collapsed .detail-heading>p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail-panel.collapsed .next-stop { display: flex; align-items: baseline; gap: 8px; padding: 9px 16px 11px; border-bottom: 0; }
+  .detail-panel.collapsed .next-stop>span { display: none; }
+  .detail-panel.collapsed .next-stop>strong { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail-panel.collapsed .next-stop>div { margin: 0; font-size: 15px; white-space: nowrap; }
   .detail-actions button,.stop-timeline button { min-height: 48px; }
   .map-controls { right: max(14px,env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 82px); }
   .map-controls>button,.control-group { width: 46px; }
