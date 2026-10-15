@@ -14,8 +14,8 @@ export function carRole(car: number, count: number) {
 }
 /** Tinted parts take the livery: the body colour, its band or the front end. */
 export type Tint = 'body' | 'accent' | 'front';
-/** One instanced mesh: the cars it is drawn on (`on`), from which zoom, and whether it stays on a car seen through the ground. */
-export type Part = { geometry: THREE.BufferGeometry; color: string; tinted?: Tint; minZoom: number; maxZoom?: number; on: number; ghost?: boolean };
+/** One instanced mesh: the cars it is drawn on (`on`) and between which zooms. */
+export type Part = { geometry: THREE.BufferGeometry; color: string; tinted?: Tint; minZoom: number; maxZoom?: number; on: number };
 
 const far = MODEL_MIN_ZOOM, medium = MODEL_DETAIL_ZOOM, close = MODEL_FULL_ZOOM;
 /** Every piece as plain triangles with normals, so pieces of one colour merge into one mesh. */
@@ -147,13 +147,13 @@ function railParts(kind: VehicleKind, band: LiveryBand, body: VehicleBody, lengt
   for (const [on, cabs] of roles) {
     const { stations, front, rear } = stationsFor(base, length, body.cab, cabs), tint = NOSES[body.cab].tint;
     const bodyFrom = cabs[0] ? rear + tint : rear, bodyTo = cabs[1] ? front - tint : front;
-    result.push({ geometry: loft(between(stations, bodyFrom, bodyTo), hull, [!cabs[0], !cabs[1]]), color: '#fff', tinted: 'body', minZoom: far, on, ghost: true });
+    result.push({ geometry: loft(between(stations, bodyFrom, bodyTo), hull, [!cabs[0], !cabs[1]]), color: '#fff', tinted: 'body', minZoom: far, on });
     // The cab end in its own colour: Metro Bilbao's dark nose, Renfe's red cab, Euskotren's mask.
     const cabsGeometry = [cabs[0] && loft(between(stations, rear, bodyFrom), hull, [true, false]), cabs[1] && loft(between(stations, bodyTo, front), hull, [false, true])].filter((g): g is THREE.BufferGeometry => !!g);
-    if (cabsGeometry.length) result.push({ geometry: merge(...cabsGeometry), color: '#fff', tinted: 'front', minZoom: far, on, ghost: true });
-    result.push({ geometry: loft(stations, slab(() => bandRange, .03), [true, true], .03), color: '#fff', tinted: 'accent', minZoom: far, on, ghost: true });
+    if (cabsGeometry.length) result.push({ geometry: merge(...cabsGeometry), color: '#fff', tinted: 'front', minZoom: far, on });
+    result.push({ geometry: loft(stations, slab(() => bandRange, .03), [true, true], .03), color: '#fff', tinted: 'accent', minZoom: far, on });
     // A continuous dark glazing band, as on the real cars, that wraps round into the windscreen.
-    result.push({ geometry: loft(stations, slab(glazing, .04), [true, true], .04), color: GLASS, minZoom: medium, on, ghost: true });
+    result.push({ geometry: loft(stations, slab(glazing, .04), [true, true], .04), color: GLASS, minZoom: medium, on });
 
     // Doors: plug doors a shade darker than the body, with their windows, spread over the saloon.
     const cabLength = Math.max(2.6, NOSES[body.cab].profile[0][0] + .9), saloonFrom = cabs[0] ? rear + cabLength : rear + .9, saloonTo = cabs[1] ? front - cabLength : front - .9;
@@ -196,9 +196,9 @@ function railParts(kind: VehicleKind, band: LiveryBand, body: VehicleBody, lengt
 function busParts(band: LiveryBand): Part[] {
   const [z, h] = band === 'broad' ? [1.12, 1.1] : band === 'skirt' ? [.78, .45] : [1.05, .32];
   return [
-    { geometry: merge(box(2.5, 10.8, 2.35, 0, -.3, 1.8), box(2.3, .9, 2.15, 0, 5.45, 1.7)), color: '#fff', tinted: 'body', minZoom: far, on: EVERY, ghost: true },
-    { geometry: merge(box(.05, 10.2, h, -1.27, -.4, z), box(.05, 10.2, h, 1.27, -.4, z), box(2.3, .05, h, 0, 5.92, z), box(2.3, .05, h, 0, -5.72, z)), color: '#fff', tinted: 'accent', minZoom: far, on: EVERY, ghost: true },
-    { geometry: box(2.2, 8.5, .22, 0, -.3, 3.1), color: '#e4eaea', tinted: 'body', minZoom: far, on: EVERY, ghost: true },
+    { geometry: merge(box(2.5, 10.8, 2.35, 0, -.3, 1.8), box(2.3, .9, 2.15, 0, 5.45, 1.7)), color: '#fff', tinted: 'body', minZoom: far, on: EVERY },
+    { geometry: merge(box(.05, 10.2, h, -1.27, -.4, z), box(.05, 10.2, h, 1.27, -.4, z), box(2.3, .05, h, 0, 5.92, z), box(2.3, .05, h, 0, -5.72, z)), color: '#fff', tinted: 'accent', minZoom: far, on: EVERY },
+    { geometry: box(2.2, 8.5, .22, 0, -.3, 3.1), color: '#e4eaea', tinted: 'body', minZoom: far, on: EVERY },
     { geometry: merge(box(.04, 8.7, .85, -1.27, -.3, 2.15), box(.04, 8.7, .85, 1.27, -.3, 2.15), box(2.08, .06, 1.1, 0, 5.93, 2.12)), color: GLASS, minZoom: medium, on: EVERY },
     { geometry: merge(wheel(-1.27, 3.1), wheel(1.27, 3.1), wheel(-1.27, -3.9), wheel(1.27, -3.9)), color: '#17252d', minZoom: medium, on: EVERY },
     { geometry: merge(box(.4, .08, .18, -.8, 5.96, .85), box(.4, .08, .18, .8, 5.96, .85)), color: '#fff5c5', minZoom: close, on: EVERY },
@@ -214,7 +214,7 @@ function busParts(band: LiveryBand): Part[] {
 function roofLivery(kind: VehicleKind, band: LiveryBand, body: VehicleBody, length: number): Part {
   const bus = kind === 'bus', width = bus ? 2.3 : body.width - .8, z = bus ? 3.24 : body.height + .01;
   const stripe = width * (band === 'broad' ? .3 : bus ? .17 : .1), x = width / 2 - stripe / 2, along = length - (bus ? 1.6 : 1.2);
-  return { geometry: merge(box(stripe, along, .04, -x, bus ? -.3 * length / 12 : 0, z), box(stripe, along, .04, x, bus ? -.3 * length / 12 : 0, z)), color: '#fff', tinted: 'accent', minZoom: far, maxZoom: close, on: EVERY, ghost: true };
+  return { geometry: merge(box(stripe, along, .04, -x, bus ? -.3 * length / 12 : 0, z), box(stripe, along, .04, x, bus ? -.3 * length / 12 : 0, z)), color: '#fff', tinted: 'accent', minZoom: far, maxZoom: close, on: EVERY };
 }
 
 /**
@@ -226,7 +226,7 @@ export function vehicleParts(kind: VehicleKind, band: LiveryBand, body: VehicleB
   parts.push(roofLivery(kind, band, body, length));
   const merged = new Map<string, Part[]>();
   for (const part of parts) {
-    const key = `${part.color}|${part.tinted}|${part.minZoom}|${part.maxZoom}|${part.on}|${!!part.ghost}`;
+    const key = `${part.color}|${part.tinted}|${part.minZoom}|${part.maxZoom}|${part.on}`;
     merged.set(key, [...merged.get(key) ?? [], part]);
   }
   return [...merged.values()].map((same) => same.length === 1 ? same[0] : { ...same[0], geometry: merge(...same.map((part) => part.geometry)) });

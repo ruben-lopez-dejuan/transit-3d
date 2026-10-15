@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 import { CENTRE, LEAD, MIDDLE, SINGLE, TAIL, carRole, vehicleParts } from './vehicleShapes';
-import { MODEL_FULL_ZOOM } from './vehicleLod';
+import { MODEL_FULL_ZOOM, MODEL_MIN_ZOOM } from './vehicleLod';
 import type { VehicleBody } from '../../shared/transit/contracts';
 
 const metro: VehicleBody = { cab: 'round', doors: 4, width: 2.8, height: 3.75 };
@@ -26,7 +26,7 @@ test('car bodies are closed, face outwards and keep the real width, roof height 
   for (const [kind, body, length] of [['metro', metro, 17.8], ['train', euskotren, 19], ['tram', { cab: 'round', doors: 1, width: 2.4, height: 3.3 }, 8]] as const) {
     const parts = vehicleParts(kind, 'skirt', body, length, .3);
     for (const role of [LEAD, MIDDLE]) {
-      const shell = parts.filter((part) => part.on & role && part.ghost && (part.tinted === 'body' || part.tinted === 'front') && part.maxZoom === undefined);
+      const shell = parts.filter((part) => part.on & role && part.minZoom === MODEL_MIN_ZOOM && (part.tinted === 'body' || part.tinted === 'front') && part.maxZoom === undefined);
       const total = shell.reduce((sum, part) => sum + volume(part.geometry), 0);
       assert.ok(total > 0, `${kind} ${role}: outward faces`);
       const box = shell.map((part) => bounds(part.geometry)).reduce((all, b) => all.union(b), new THREE.Box3());
