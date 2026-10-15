@@ -281,7 +281,7 @@ export async function getBizkaibusProviderSnapshot(now = new Date()): Promise<Pr
         vehicleId: vehicle.vehicleId,
         observationProgressMeters: acceptedProgress,
         previousObservation: history.previous,
-        speedMetersPerSecond: history.speed,
+        speedMetersPerSecond: history.pace ?? history.speed,
         stoppedAtStop: history.current.stoppedAtStop,
         tripIdentityQuality: 'exact', positionSource: 'gps',
       };

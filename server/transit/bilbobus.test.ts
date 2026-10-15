@@ -50,6 +50,23 @@ test('a bus without a usable fix in this poll stays where it was while its GPS i
   assert.ok(!placed.has('611'), 'a stale bus is forgotten');
 });
 
+test('the pace averages about four minutes of fixes, so one wait at a light does not stop the prediction', () => {
+  const tracker = new ObservationTracker(), start = Date.parse('2026-10-15T10:00:00Z');
+  // A bus at 6 m/s that waits 20 s at a light in its last interval.
+  const fixes = [0, 120, 240, 360, 480, 600, 600].map((progress, i) => ({ at: start + i * 20_000, progress }));
+  let state = null;
+  for (const fix of fixes) state = tracker.accept('bus', fix, 'bus', fix.at);
+  assert.equal(state?.speed, 0, 'the last interval alone says it is stopped');
+  assert.ok(Math.abs(state!.pace! - 5) < .01, `pace ${state!.pace}`);
+  // Too short a history gives no pace; a fix older than the window is the reference.
+  const fresh = new ObservationTracker();
+  fresh.accept('b', { at: start, progress: 0 }, 'bus', start);
+  assert.equal(fresh.accept('b', { at: start + 20_000, progress: 100 }, 'bus', start + 20_000)?.pace, null);
+  for (let i = 2; i <= 20; i++) state = fresh.accept('b', { at: start + i * 20_000, progress: i * 100 }, 'bus', start + i * 20_000);
+  assert.ok(Math.abs(state!.pace! - 5) < .01);
+  assert.ok(state!.recent.length <= 15, 'history stays bounded');
+});
+
 test('Bilbobus official route progress disambiguates nearby shape segments and is GPS-validated', () => {
   const metric = buildShapeMetric([
     { latitude: 43, longitude: -2.001, sequence: 0 },

@@ -177,3 +177,19 @@ test('pending 3D loading respects page stop and retries after the style anchor r
     assert.equal(mounts, 1, 'retry when the page and anchor become available');
   }
 });
+
+test('a bus with GPS moves at its observed pace, not at noisy official minute forecasts', () => {
+  const renderer = new TransitRenderer({} as TransitMap);
+  renderer.shapes.set('s', { key: 's', coordinates: [[0, 0], [.05, 0]], cumulative: [0, 5000], total: 5000 });
+  const now = Date.now();
+  // Last fix a minute ago at 1000 m, observed pace 5 m/s; the forecast claims it reached 3000 m by now.
+  const bus = {
+    id: 'bz', mode: 'bus', operatorId: 'bizkaibus', shapeKey: 's', tripId: 't', routeKey: 'r', label: 'A3411', headsign: 'Bilbao', color: '#177857',
+    progressMetersAlongShape: 1000, observationProgressMeters: 1000, observationTimestamp: now - 60_000, positionQuality: 'predicted',
+    speedMetersPerSecond: 5, timetableTimestamp: now, timelineSource: 'siri', longitude: 0, latitude: 0, bearing: 90,
+    timeline: [{ at: now - 60_000, progress: 1000 }, { at: now, progress: 3000 }, { at: now + 60_000, progress: 3200 }],
+  } as unknown as Vehicle;
+  renderer.update([bus], now, now);
+  const drawn = renderer.progressMeters('bz')!;
+  assert.ok(Math.abs(drawn - 1300) < 60, `drawn at ${Math.round(drawn)} m`);
+});

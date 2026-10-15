@@ -13,6 +13,7 @@ import { passengerHeadsign } from '../transit/labels';
 
 export const BILBOBUS_POSITIONS = 'https://api.bilbao.eus/bilbobus/Ultimas_posiciones';
 export const BILBOBUS_SIRI = 'https://api.bilbao.eus/sae/SIRI.svc';
+const POSITION_POLL_MS = 15_000;
 const ED50 = '+proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs';
 export type BilbobusPosition = { Vehiculo: number; LineaCodigoOriginal: number | string; lineIdPerm: number; CoordX: number; CoordY: number; Instante: string; Ruta: number; Viaje: number; Velocidad: number; Posicion?: number | string };
 export function ed50ToWgs84(x: number, y: number): [number, number] | null {
@@ -100,7 +101,9 @@ export class BilbobusProvider extends StaticGtfsProvider {
   private async poll(gtfs: BizkaibusGtfs, now: Date) {
     if (Date.now() < this.nextPoll) return;
     if (this.pending) return this.pending;
-    this.nextPoll = Date.now() + 30_000;
+    // The city publishes a fix every 20 s, about 25 s old when fetched; polling every 30 s let
+    // what the map drew age to over a minute. 15 s keeps it near the source (audit 15 Oct 2026).
+    this.nextPoll = Date.now() + POSITION_POLL_MS;
     this.pending = (async () => {
       const day = formatServiceDate(now), active = getActiveTrips(gtfs, day.date, day.weekday);
       const origin = serviceEpoch(day.date, 0), seconds = (now.getTime() - origin) / 1000;
@@ -184,7 +187,7 @@ export class BilbobusProvider extends StaticGtfsProvider {
       const id = `bilbobus:${day.date}:vehicle-${vehicleId}`;
       const vehicle: TransitVehicle = { id, operatorId: 'bilbobus', tripId: best.trip.tripId, vehicleId, routeId, mode: 'bus', directionId, shapeId: best.trip.shapeId!, progressMetersAlongShape: position.progressMeters, observationProgressMeters: position.progressMeters, previousObservation: history.previous, // Velocidad is instantaneous: 0 at a light or 30 km/h between stops. Neither
       // predicts the next minute, so motion uses the pace between real fixes.
-      speedMetersPerSecond: history.speed, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, observationTimestamp: observedAt, predictionTimestamp: now.getTime(), positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', delaySeconds: null, tripIdentityQuality: 'estimated', positionSource: 'gps' };
+      speedMetersPerSecond: history.pace ?? history.speed, longitude: position.coordinate[0], latitude: position.coordinate[1], bearing: position.bearing, observationTimestamp: observedAt, predictionTimestamp: now.getTime(), positionQuality: now.getTime() - observedAt <= 45_000 ? 'live' : 'predicted', delaySeconds: null, tripIdentityQuality: 'estimated', positionSource: 'gps' };
       vehicles.set(id, vehicle); this.placed.set(vehicleId, vehicle);
     }
     for (const vehicle of keepRecentlyPlaced(this.placed, seen, now.getTime())) {

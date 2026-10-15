@@ -58,15 +58,21 @@ export class TransitRenderer {
     const now = Date.now() + this.clockOffset;
     const next = new Map<string, State>();
     for (const vehicle of vehicles) {
-      if (vehicle.mode === 'bus' && (vehicle.observationTimestamp === null || vehicle.gpsAnchoredTimeline)) vehicle.timeline = estimatedBusDwell(vehicle.timeline);
+      // An observed average pace already includes the time at stops; adding dwell would count it twice.
+      if (vehicle.mode === 'bus' && (vehicle.observationTimestamp === null || (vehicle.gpsAnchoredTimeline && vehicle.speedMetersPerSecond == null))) vehicle.timeline = estimatedBusDwell(vehicle.timeline);
       const previous = this.states.get(vehicle.id);
       const compatible = previous?.vehicle.shapeKey === vehicle.shapeKey ? previous : undefined;
       const displayed = compatible ? this.progress(compatible, now) : undefined;
       const speed = compatible?.motion?.diagnostics.renderedSpeed ?? compatible?.speed ?? 0;
       if (vehicle.observationTimestamp !== null) {
+        // A bus with GPS moves at its own observed pace. Official stop forecasts in whole minutes
+        // (Bizkaibus) were too noisy to drive it between fixes: following them put it a median
+        // 335 m and at worst over 1.2 km away, against ~175 m at its pace (audit 15 Oct 2026).
+        // They still give the arrival times shown.
+        const paceDriven = vehicle.mode === 'bus' && vehicle.speedMetersPerSecond != null;
         const motion = compatible?.motion ?? new GpsMotion(displayed === undefined ? undefined : { progress: displayed, speed });
         motion.setEnd(this.shapes.get(vehicle.shapeKey)?.total ?? Infinity);
-        motion.update({ at: vehicle.observationTimestamp, progress: vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape }, now, { mode: vehicle.mode, timeline: vehicle.timeline, previous: vehicle.previousObservation, speed: vehicle.speedMetersPerSecond, stopped: vehicle.stoppedAtStop, maximumSpeed: vehicle.maximumSpeedMetersPerSecond, realtimeTimetable: vehicle.timetableTimestamp != null, anchoredTimeline: !!vehicle.gpsAnchoredTimeline, forecastTimestamp: vehicle.timetableTimestamp });
+        motion.update({ at: vehicle.observationTimestamp, progress: vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape }, now, { mode: vehicle.mode, timeline: vehicle.timeline, previous: vehicle.previousObservation, speed: vehicle.speedMetersPerSecond, stopped: vehicle.stoppedAtStop, maximumSpeed: vehicle.maximumSpeedMetersPerSecond, realtimeTimetable: !paceDriven && vehicle.timetableTimestamp != null, anchoredTimeline: !!vehicle.gpsAnchoredTimeline, forecastTimestamp: paceDriven ? null : vehicle.timetableTimestamp });
         next.set(vehicle.id, { vehicle, progress: displayed ?? vehicle.progressMetersAlongShape, speed, at: now, motion });
         if (vehicle.id === this.selectedId && previous?.vehicle.observationTimestamp !== vehicle.observationTimestamp && new URLSearchParams(location.search).has('debug')) console.debug('[transit-motion]', { id: vehicle.id, fetchedAt, ...motion.diagnostics });
         continue;
