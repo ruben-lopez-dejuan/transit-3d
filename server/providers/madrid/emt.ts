@@ -5,11 +5,16 @@ import type { Departure } from '../../../shared/transit/network';
 import { entityId } from '../../../shared/transit/ids';
 import { isFresh } from '../../../shared/transit/freshness';
 import { serviceEpoch } from '../../transit/plans';
+import { normalizeTripUpdates, type UpdatedTrip } from '../../transit/realtime';
+import { applyRealtime } from '../../transit/applyRealtime';
+import { emtTripUpdates } from './emtTripUpdates';
 
 const ROOT = 'https://openapi.emtmadrid.es/v2';
 type Credentials = { clientId: string; passKey: string };
 type ApiResponse = { code?: string; datetime?: string; data?: unknown[] };
-export type EmtArrival = { line: string; stop: string; bus: string; destination: string; at: number; sourceTimestamp: number };
+/** `distanceMeters` is EMT's distance along the route to the stop, extrapolated by EMT between
+ * fixes; `position` is the bus's last fix, which EMT renews only about every 4 minutes. */
+export type EmtArrival = { line: string; stop: string; bus: string; destination: string; at: number; sourceTimestamp: number; distanceMeters: number | null; position: [number, number] | null };
 const wall = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 /** EMT's verified server datetime is Madrid civil time, without a UTC offset. */
 export function emtTimestamp(value: string, receivedAt: number): number | null {
@@ -32,10 +37,12 @@ export function parseEmtArrivals(response: ApiResponse, stop: string, receivedAt
   const data = response.data?.[0] as { Arrive?: unknown[] } | undefined;
   if (!Array.isArray(data?.Arrive)) throw new Error('Respuesta de llegadas EMT inválida');
   return data.Arrive.flatMap((item) => {
-    const row = item as { line?: string; stop?: string; bus?: string; destination?: string; estimateArrive?: number };
+    const row = item as { line?: string; stop?: string; bus?: string; destination?: string; estimateArrive?: number; DistanceBus?: number; geometry?: { coordinates?: unknown[] } };
     const seconds = Number(row.estimateArrive);
     if (String(row.stop ?? '') !== stop || !row.line || !row.bus || row.estimateArrive == null || String(row.estimateArrive).trim() === '' || typeof row.estimateArrive === 'boolean' || !Number.isFinite(seconds) || seconds < 0 || seconds > 2700) return [];
-    return [{ line: String(row.line), stop, bus: String(row.bus), destination: String(row.destination ?? ''), at: source + seconds * 1000, sourceTimestamp: source }];
+    const distance = Number(row.DistanceBus), [longitude, latitude] = (row.geometry?.coordinates ?? []).map(Number);
+    const position: [number, number] | null = longitude > -4.5 && longitude < -3 && latitude > 40 && latitude < 41 ? [longitude, latitude] : null;
+    return [{ line: String(row.line), stop, bus: String(row.bus), destination: String(row.destination ?? ''), at: source + seconds * 1000, sourceTimestamp: source, distanceMeters: typeof row.DistanceBus === 'number' && Number.isFinite(distance) && distance >= 0 && distance < 100_000 ? distance : null, position }];
   });
 }
 
@@ -96,12 +103,15 @@ export class EmtClient {
     this.cache.set(stop, entry);
     return entry.promise;
   }
-  latestSource() { return Math.max(0, ...[...this.cache.keys()].flatMap((stop) => this.peek(stop).map((r) => r.sourceTimestamp))) || null; }
+  /** Every arrival still fresh, from all the stops queried recently. */
+  fresh(): EmtArrival[] { return [...this.cache.keys()].flatMap((stop) => this.peek(stop)); }
+  latestSource() { return Math.max(0, ...this.fresh().map((r) => r.sourceTimestamp)) || null; }
 }
 
 export class EmtArrivalProvider implements SourceAdapter {
   readonly arrivals: StopArrivalsAdapter;
-  constructor(readonly operatorId: string, private readonly base: SourceAdapter, private readonly client: EmtClient, cityId: string) {
+  updates = new Map<string, UpdatedTrip>();
+  constructor(readonly operatorId: string, private readonly base: SourceAdapter, private readonly client: EmtClient, cityId: string, private readonly getGtfs?: () => Promise<BizkaibusGtfs>, private readonly timezone = 'Europe/Madrid') {
     const stopCode = (gtfs: BizkaibusGtfs, id: string) => gtfs.stops.get(id)?.stopCode || id;
     this.arrivals = {
       departures: async (gtfs, stopId) => (await client.get(stopCode(gtfs, stopId))).flatMap((row): Departure[] => {
@@ -110,12 +120,16 @@ export class EmtArrivalProvider implements SourceAdapter {
         return [{ routeKey: entityId(cityId, operatorId, 'route', matches[0].routeId), tripId: entityId(cityId, operatorId, 'trip', `arrival:${row.bus}:${row.stop}`), vehicleId: entityId(cityId, operatorId, 'vehicle', row.bus), label: matches[0].shortName, headsign: row.destination, operatorId, at: row.at, quality: 'predicted', source: 'realtime', updatedAt: row.sourceTimestamp, delaySeconds: null }];
       }),
       warm: async (gtfs, stops) => { for (const id of stops.slice(0, 4)) await client.get(stopCode(gtfs, id)); },
-      // Scheduled stand-ins have no verified bus identity: never attach arbitrary ETAs.
+      // Only a bus joined to its journey (see emtTripUpdates) names its vehicle; stand-ins get no ETAs.
       peek: (gtfs, id, vehicleId) => { const row = vehicleId ? client.peek(stopCode(gtfs, id)).find((r) => r.bus === vehicleId) : undefined; return row ? { arrival: row.at, sourceTimestamp: row.sourceTimestamp } : null; },
     };
   }
-  async getSnapshot(now?: Date): Promise<AdapterSnapshot> {
-    const base = await this.base.getSnapshot(now);
-    return { ...base, sourceTimestamp: this.client.latestSource(), receivedTimestamp: this.client.receivedTimestamp ?? base.receivedTimestamp, ...(this.client.error ? { status: 'degraded', error: this.client.error } : {}), realtimeArrivalCount: this.client.latestSource() === null ? 0 : 1 };
+  async getSnapshot(now = new Date()): Promise<AdapterSnapshot> {
+    const [base, gtfs] = await Promise.all([this.base.getSnapshot(now), this.getGtfs?.()]);
+    // Buses due at the stops people are looking at move to EMT's estimate: their
+    // journey takes the delay EMT gives. The rest of the fleet stays on timetable.
+    this.updates = gtfs ? normalizeTripUpdates(gtfs, emtTripUpdates(gtfs, this.client.fresh(), now.getTime(), this.timezone), now, this.timezone) : new Map();
+    const vehicles = gtfs && this.updates.size ? applyRealtime(gtfs, base.vehicles, this.operatorId, this.updates, null, now, undefined, this.timezone).map((v) => v.positionSource === 'trip-updates' ? { ...v, receivedTimestamp: this.client.receivedTimestamp } : v) : base.vehicles;
+    return { ...base, vehicles, sourceTimestamp: this.client.latestSource(), receivedTimestamp: this.client.receivedTimestamp ?? base.receivedTimestamp, ...(this.client.error ? { status: 'degraded', error: this.client.error } : {}), realtimeArrivalCount: this.client.latestSource() === null ? 0 : 1, realtimeTripCount: this.updates.size };
   }
 }

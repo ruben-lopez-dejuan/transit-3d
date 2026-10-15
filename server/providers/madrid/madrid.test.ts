@@ -14,7 +14,8 @@ import { parseMetroBoards, MetroFeedClient, type MetroBoard } from './metroFeed'
 import { MetroEstimates } from './metroEstimates';
 import { MetroArrivalProvider } from './metroProvider';
 import { installMetroTopology, type TopologyDocument } from './metroTopology';
-import { emtTimestamp, parseEmtArrivals, EmtClient, EmtArrivalProvider } from './emt';
+import { emtTimestamp, parseEmtArrivals, EmtClient, EmtArrivalProvider, type EmtArrival } from './emt';
+import { matchEmtArrivals } from './emtTripUpdates';
 import { normalizeVehicle } from '../../transit/normalization';
 import { createCityNetwork } from '../../transit/network';
 import { RegisteredProvider } from '../../transit/registeredProvider';
@@ -235,6 +236,48 @@ test('EMT arrivals hook scopes bus IDs and only claims forecasts; the fleet rema
 test('EMT renewing an open session (01) is a login, and a stop with no buses due (01) is not an error', async () => {
   const client = new EmtClient({ clientId: 'x', passKey: 'y' }, async (url) => new Response(JSON.stringify(String(url).includes('/login/') ? { code: '01', description: 'Token extend into control-cache', data: [{ accessToken: 'token', tokenSecExpiration: 300 }] } : { code: '01', description: 'No estimations found', datetime: '2026-10-03T12:00:00', data: [{ Arrive: [], StopInfo: [] }] })), () => at);
   assert.deepEqual(await client.get('1'), []); assert.equal(client.error, undefined);
+  const [row] = parseEmtArrivals({ code: '00', datetime: '2026-10-03T12:00:00', data: [{ Arrive: [{ line: 'N25', stop: '72', bus: 4914, destination: 'X', estimateArrive: 308, DistanceBus: 837, geometry: { type: 'Point', coordinates: [-3.6848, 40.4055] } }] }] }, '72', at);
+  assert.equal(row.distanceMeters, 837); assert.deepEqual(row.position, [-3.6848, 40.4055]); assert.equal(row.bus, '4914');
+});
+/** EMT line 1 leaving a at 12:00, 12:01 and 12:30 (a, b, c, d two minutes apart); the clock reads 12:03. */
+function emtDay() {
+  const g = fixture(), now = at + 180_000;
+  g.calendarDates.set('expired', new Map([['20261003', 1]]));
+  for (const [tripId, start] of [['later', 1], ['evening', 30]] as const) {
+    g.trips.set(tripId, { ...g.trips.get('forward')!, tripId }); g.routeTripIds.get('10T1')!.push(tripId);
+    g.tripStops.set(tripId, g.tripStops.get('forward')!.map((s, i) => { const time = `12:${String(start + i * 2).padStart(2, '0')}:00`; return { ...s, arrivalTime: time, departureTime: time }; }));
+  }
+  const row = (bus: string, seconds: number, distanceMeters: number | null): EmtArrival => ({ line: '1', stop: '3', bus, destination: 'D', at: now + seconds * 1000, sourceTimestamp: now, distanceMeters, position: null });
+  return { g, now, row };
+}
+test('EMT joins each bus due at a queried stop to its own journey, in order, and only where its metres agree', () => {
+  const { g, now, row } = emtDay();
+  // Bus 7 reaches c at 12:05 with ~900 m to go and bus 8 at 12:06. Bus 7 alone would fit the 12:01
+  // journey best (on time), but it is ahead of bus 8: it runs the 12:00 one, a minute late.
+  const matches = matchEmtArrivals(g, [row('8', 180, 1272), row('7', 120, 900)], now);
+  assert.deepEqual(matches.map((m) => [m.row.bus, m.tripId, m.delaySeconds]), [['7', 'forward', 60], ['8', 'later', 60]]);
+  assert.ok(matches.every((m) => Math.abs(m.distanceGap!) < 100));
+  // A bus 5 km from the stop cannot be one timetabled to arrive in two minutes.
+  assert.deepEqual(matchEmtArrivals(g, [row('9', 120, 5000)], now), []);
+  // 12:28 is over 20 min late for the running journeys, and the 12:30 one has not left yet;
+  // 12:21 would be 16 min late on the 12:01, which then cannot have left a by 12:03.
+  assert.deepEqual(matchEmtArrivals(g, [row('9', 1500, null)], now), []);
+  assert.deepEqual(matchEmtArrivals(g, [row('9', 1080, null)], now), []);
+});
+test('EMT moves the timetabled bus to its estimate and names it; without a queried stop the fleet stays on timetable', async () => {
+  const { g, now } = emtDay();
+  // Only the 12:00 and 12:30 journeys: the bus due at c at 12:05 can only be the first, a minute late.
+  g.trips.delete('later'); g.tripStops.delete('later'); g.routeTripIds.set('10T1', ['forward', 'evening']);
+  const client = new EmtClient({ clientId: 'x', passKey: 'y' }, async (url) => new Response(JSON.stringify(String(url).includes('/login/') ? { code: '00', data: [{ accessToken: 'token', tokenSecExpiration: 300 }] } : { code: '00', datetime: '2026-10-03T12:03:00', data: [{ Arrive: [{ line: '1', stop: '3', bus: 7, destination: 'D', estimateArrive: 120, DistanceBus: 900 }] }] })), () => now);
+  const base = { operatorId: 'emt', getSnapshot: async (d?: Date) => ({ operatorId: 'emt', fetchedAt: now, sourceTimestamp: null, vehicles: generateScheduledVehicles(g, d!, 'emt'), status: 'ok' as const }) };
+  const provider = new EmtArrivalProvider('emt', base, client, 'es-test', async () => g);
+  const [scheduled] = (await provider.getSnapshot(new Date(now))).vehicles; assert.equal(scheduled.positionSource, 'schedule');
+  await provider.arrivals.departures(g, 'c');
+  const snapshot = await provider.getSnapshot(new Date(now)), [bus] = snapshot.vehicles;
+  assert.equal(snapshot.vehicles.length, 1); assert.equal(bus.id, scheduled.id); assert.equal(snapshot.realtimeTripCount, 1);
+  assert.equal(bus.positionSource, 'trip-updates'); assert.equal(bus.vehicleId, '7'); assert.equal(bus.delaySeconds, 60); assert.equal(bus.observationTimestamp, null);
+  assert.ok(bus.progressMetersAlongShape < scheduled.progressMetersAlongShape - 300);
+  assert.deepEqual(provider.arrivals.peek(g, 'c', '7'), { arrival: now + 120_000, sourceTimestamp: now });
 });
 test('Madrid extensions remain code-owned; topology capabilities are honest and other data-only cities are unchanged', () => {
   const config = parseCityPackage(JSON.parse(fs.readFileSync('city-packages/es-madrid/city.json', 'utf8')));

@@ -45,9 +45,9 @@ export function madridExtensions(config: CityPackageConfig): ReadonlyMap<string,
     // EMT already enumerates each scheduled departure in trips/stop_times while
     // also attaching broad frequency windows to every trip. Expanding those
     // windows duplicates the timetable hundreds of times and can exhaust RAM.
-    extensions.set('emt-madrid', { cacheVersion: 'emt-arrivals-v2', expandFrequencies: false, capabilities: { stopArrivals: client.configured }, create: ({ base }) => {
-      const adapter = new EmtArrivalProvider('emt-madrid', base, client, config.id);
-      return { adapter, ...(client.configured ? { arrivals: adapter.arrivals } : {}) };
+    extensions.set('emt-madrid', { cacheVersion: 'emt-arrivals-v2', expandFrequencies: false, capabilities: { stopArrivals: client.configured, tripUpdates: client.configured }, create: ({ base, getGtfs, timezone }) => {
+      const adapter = new EmtArrivalProvider('emt-madrid', base, client, config.id, getGtfs, timezone);
+      return { adapter, ...(client.configured ? { arrivals: adapter.arrivals, getUpdates: () => adapter.updates } : {}) };
     } });
   }
   return extensions;
