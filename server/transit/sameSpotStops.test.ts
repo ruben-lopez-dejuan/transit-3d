@@ -25,3 +25,14 @@ test('bearings are compass degrees', () => {
   assert.equal(Math.round(bearingDegrees({ longitude: -2.9, latitude: 43.2 }, { longitude: -2.9, latitude: 43.21 })), 0);
   assert.equal(Math.round(bearingDegrees({ longitude: -2.9, latitude: 43.2 }, { longitude: -2.91, latitude: 43.2 })), 270);
 });
+
+test('a train station shows both directions: its platforms are joined whatever way they leave', () => {
+  // Euskotren Sondika: platforms Q1 and Q2 are separate stops with the station's name.
+  const platform = (key: string, longitude: number, latitude: number, bearing: number, modes = ['rail']) => ({ key, longitude, latitude, name: 'Sondika', operatorId: 'euskotren', modes, bearings: [bearing] });
+  const q1 = platform('q1', -2.928255, 43.298278, 200), q2 = platform('q2', -2.928092, 43.298351, 20);
+  const bus = { key: 'bus', longitude: -2.9282, latitude: 43.2983, name: 'Sondika geltokia', operatorId: 'bizkaibus', modes: ['bus'], bearings: [20] };
+  assert.deepEqual(keys(sameSpotStops(q1, [q1, q2, bus], (s) => s.bearings) as never), ['q1', 'q2', 'bus']);
+  // Tram platforms on either side of a street are still kept apart.
+  const t1 = platform('t1', -2.946222, 43.263192, 20, ['tram']), t2 = platform('t2', -2.946222, 43.263192, 200, ['tram']);
+  assert.deepEqual(keys(sameSpotStops(t1, [t1, t2], (s) => s.bearings) as never), ['t1']);
+});
