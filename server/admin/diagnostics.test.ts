@@ -107,3 +107,9 @@ test('diagnostics separate what drives arrivals from where the position comes fr
   assert.equal(result.providers.reduce((total, provider) => total + provider.vehicles.byTimelineSource.none, 0), 1);
   assert.equal(all.find((sample) => sample.id === 'estimate-1')?.timelineSource, 'siri');
 });
+
+test('what the adapter set aside in the feed reaches the admin as information, not as a fault', () => {
+  const noted = { ...snapshot, providers: [{ ...providerSnapshot('live', 'healthy', 3), realtimeNotes: ['205 viajes del feed solo repiten el horario.'] }, snapshot.providers[1]] };
+  const live = buildCityDiagnostics(city, network, noted, catalogs, at + 1000).providers[0];
+  assert.deepEqual(live.findings.filter((finding) => finding.code === 'realtime_note'), [{ severity: 'info', code: 'realtime_note', message: '205 viajes del feed solo repiten el horario.' }]);
+});

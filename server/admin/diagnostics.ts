@@ -69,6 +69,7 @@ function providerFindings(
   vehicles: Vehicle[],
   realtimeTripCount: number,
   healthError?: string,
+  realtimeNotes: readonly string[] = [],
 ): AdminFinding[] {
   const findings: AdminFinding[] = [];
   const gps = vehicles.filter((vehicle) => vehicle.positionSource === 'GPS').length;
@@ -84,6 +85,7 @@ function providerFindings(
   if (provider.definition.capabilities.tripUpdates && catalog.state === 'ready' && realtimeTripCount === 0) findings.push({ severity: 'warning', code: 'trip_updates_missing', message: 'El proveedor declara actualizaciones de viajes, pero no se han unido actualizaciones realtime.' });
   if (stale > 0) findings.push({ severity: 'warning', code: 'stale_positions', message: `${stale} vehículo${stale === 1 ? '' : 's'} conserva${stale === 1 ? '' : 'n'} datos caducados.` });
   if (provider.health.state === 'stale' && scheduled > 0 && stale === 0) findings.push({ severity: 'warning', code: 'realtime_schedule_fallback', message: `La señal realtime está caducada. Los ${scheduled} vehículos visibles proceden del horario y no son posiciones antiguas reutilizadas.` });
+  for (const note of realtimeNotes) findings.push({ severity: 'info', code: 'realtime_note', message: note });
   if (vehicles.length > 0 && scheduled === vehicles.length) findings.push({ severity: 'info', code: 'schedule_only', message: 'Todas las posiciones visibles proceden del horario estático.' });
   return findings;
 }
@@ -113,7 +115,7 @@ export function buildCityDiagnostics(
     const byMode: Partial<Record<TransitMode, number>> = {};
     for (const vehicle of vehicles) byMode[vehicle.mode] = (byMode[vehicle.mode] ?? 0) + 1;
     const reliability = vehicles.map((vehicle) => vehicleReliability(vehicle, generatedAt));
-    const findings = providerFindings(provider, catalog, vehicles, status?.realtimeTripCount ?? 0, status?.error ?? health.error);
+    const findings = providerFindings(provider, catalog, vehicles, status?.realtimeTripCount ?? 0, status?.error ?? health.error, status?.realtimeNotes);
     return {
       id: provider.operatorId,
       name: definition.name,

@@ -151,7 +151,9 @@ function eventDelay(event: RealtimeEvent | undefined, scheduled: number): number
   return Number.isFinite(event?.delay) ? event!.delay! : null;
 }
 
-export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage | null, now = new Date(), timezone = 'Europe/Madrid'): Map<string, UpdatedTrip> {
+/** Trips whose update was dropped because it only repeats the timetable. */
+export type NormalizationStats = { echoTripIds: string[] };
+export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage | null, now = new Date(), timezone = 'Europe/Madrid', stats?: NormalizationStats): Map<string, UpdatedTrip> {
   const result = new Map<string, UpdatedTrip>();
   if (!feed || feed.header?.incrementality === 'DIFFERENTIAL' || freshTimestamp(feed.header?.timestamp, now.getTime()) === null) return result;
   for (const entity of feed.entity ?? []) {
@@ -203,6 +205,7 @@ export function normalizeTripUpdates(gtfs: BizkaibusGtfs, feed: RealtimeMessage 
     // not outrank GPS or be labelled realtime (Bizkaibus, most of Euskotren).
     const vehicleId = update.vehicle?.id || update.vehicle?.label || undefined;
     if (valid && stops.size && predictive) result.set(key, { tripId, serviceDate: date, updatedAt, canceled: false, stops, ...(vehicleId ? { vehicleId } : {}) });
+    else if (valid && stops.size) stats?.echoTripIds.push(tripId);
   }
   return result;
 }

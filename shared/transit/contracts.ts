@@ -46,6 +46,8 @@ export type AdapterVehicle = {
 export type AdapterSnapshot = {
   operatorId: string; fetchedAt: number; sourceTimestamp: number | null; receivedTimestamp?: number | null;
   vehicles: AdapterVehicle[]; status: 'ok' | 'degraded' | 'unavailable'; realtimeTripCount?: number; realtimeArrivalCount?: number; error?: string;
+  /** What the adapter had to work around or set aside in the feed, for the admin console. */
+  realtimeNotes?: string[];
 };
 export interface SourceAdapter { readonly operatorId: string; getSnapshot(now?: Date): Promise<AdapterSnapshot>; }
 /** IDs and references here are city/provider namespaced; external IDs are explicitly separate. */

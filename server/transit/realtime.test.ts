@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
-import { applyRealtime } from '../providers/realtimeProvider';
-import { normalizeTripUpdates, renumberTrips, resolveServiceDate, stopStatusIsInformative, updatedTimeline, type TripUpdate, type RealtimeMessage } from './realtime';
+import { applyRealtime, RealtimeProvider } from '../providers/realtimeProvider';
+import { RealtimeFeedClient } from '../providers/realtimeFeed';
+import { normalizeTripUpdates, renumberTrips, resolveServiceDate, stopStatusIsInformative, updatedTimeline, type NormalizationStats, type TripUpdate, type RealtimeMessage } from './realtime';
 import { serviceEpoch } from './plans';
 import { generateScheduledVehicles } from './scheduled';
 import { anchorGpsTimeline } from './gpsTimeline';
@@ -216,3 +217,28 @@ test('renumbering needs most unknown trips to agree; a coincidence, a tie or a s
   assert.equal(renumberTrips(data, known, now).feed, known, 'a feed with known trips is left as is');
 });
 
+test('updates that only repeat the timetable are counted as echoes, not as predictions', () => {
+  const data = numberedFixture(), stats: NormalizationStats = { echoTripIds: [] };
+  const updates = normalizeTripUpdates(data, numberedFeed([numberedUpdate(0, 0, 0), numberedUpdate(1, 0, 90), numberedUpdate(2, 0, 0)]), now, 'Europe/Madrid', stats);
+  assert.deepEqual([...updates.values()].map((update) => update.tripId), ['901']);
+  assert.deepEqual(stats.echoTripIds, ['900', '902']);
+});
+
+test('the provider joins a renumbered feed and tells the admin what it renamed and which lines publish only the timetable', async () => {
+  const data = numberedFixture();
+  data.routes.set('r2', { routeId: 'r2', shortName: 'C2', longName: 'A – D', color: '', textColor: '', routeType: 2 });
+  data.trips.set('902', { ...data.trips.get('902')!, routeId: 'r2' });
+  const client = new RealtimeFeedClient('renumbered-fixture', 'unused:no-network');
+  const onC2 = numberedUpdate(2, 1663, 0); onC2.tripUpdate.trip.routeId = 'r2';
+  const timetable = numberedFeed([numberedUpdate(0, 1663, 60), numberedUpdate(1, 1663, 75), onC2, numberedUpdate(3, 1663, 30)]);
+  // The fixture lives on a fixed service day; the client would judge its freshness against the real clock.
+  Object.assign(client, { get: async () => ({ feed: timetable, sourceTimestamp: now.getTime(), receivedTimestamp: now.getTime() }) });
+  const provider = new RealtimeProvider({ operatorId: 'metro', getSnapshot: async () => ({ operatorId: 'metro', fetchedAt: now.getTime(), sourceTimestamp: null, status: 'ok', vehicles: [] }) }, async () => data, client);
+  const snapshot = await provider.getSnapshot(now);
+  assert.equal(snapshot.realtimeTripCount, 3);
+  assert.equal(snapshot.status, 'ok');
+  assert.deepEqual(snapshot.realtimeNotes, [
+    'Los TripUpdates numeran cada viaje con su trip_id del GTFS publicado +1663; 4 de 4 se han reconocido por su horario.',
+    '1 viaje del feed solo repite el horario, sin retraso ni incertidumbre, y no cuenta como tiempo real. Sin ninguna previsión: C2.',
+  ]);
+});
