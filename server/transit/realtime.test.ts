@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BizkaibusGtfs } from '../providers/bizkaibus/gtfs';
 import { applyRealtime } from '../providers/realtimeProvider';
-import { normalizeTripUpdates, resolveServiceDate, stopStatusIsInformative, updatedTimeline, type TripUpdate, type RealtimeMessage } from './realtime';
+import { normalizeTripUpdates, renumberTrips, resolveServiceDate, stopStatusIsInformative, updatedTimeline, type TripUpdate, type RealtimeMessage } from './realtime';
 import { serviceEpoch } from './plans';
 import { generateScheduledVehicles } from './scheduled';
 import { anchorGpsTimeline } from './gpsTimeline';
@@ -175,3 +175,44 @@ test('a feed marking every vehicle STOPPED_AT carries no stop information', () =
   assert.equal(stopStatusIsInformative([1, 1]), true, 'too few reports to judge the feed');
   assert.equal(stopStatusIsInformative([undefined, null]), true);
 });
+
+/** Six numbered trips 10 min apart over a–d, as Metro Bilbao publishes them. */
+function numberedFixture(): BizkaibusGtfs {
+  const data = fixture(), ids = ['900', '901', '902', '903', '904', '905'];
+  const clock = (seconds: number) => [Math.floor(seconds / 3600), Math.floor(seconds % 3600 / 60), seconds % 60].map((part) => String(part).padStart(2, '0')).join(':');
+  data.trips = new Map(ids.map((tripId) => [tripId, { tripId, routeId: 'r', serviceId: 's', shapeId: 'shape', headsign: 'D', directionId: 0 }]));
+  data.tripStops = new Map(ids.map((tripId, k) => [tripId, ['a', 'b', 'c', 'd'].map((stopId, i) => ({ stopId, sequence: i + 1, arrivalTime: clock(9 * 3600 + 50 * 60 + k * 600 + i * 600), departureTime: clock(9 * 3600 + 50 * 60 + k * 600 + i * 600 + 30) }))]));
+  data.routeTripIds = new Map([['r', ids]]);
+  return data;
+}
+/** The operator's update for published trip `k`, renumbered by `shift` and running `delay` seconds late. */
+function numberedUpdate(k: number, shift: number, delay: number, stopIds = ['b', 'c', 'd']) {
+  return { tripUpdate: { trip: { tripId: String(900 + k + shift), routeId: 'r' }, stopTimeUpdate: stopIds.map((stopId) => ({ stopId, arrival: { time: serviceEpoch(date, 9 * 3600 + 50 * 60 + k * 600 + 'abcd'.indexOf(stopId) * 600) / 1000 + delay } })) } };
+}
+const numberedFeed = (entity: RealtimeMessage['entity']): RealtimeMessage => ({ header: { gtfsRealtimeVersion: '2.0', timestamp: now.getTime() / 1000 }, entity });
+
+test('a feed that renumbers every trip by a constant is matched back to the timetable (Metro Bilbao +1663)', () => {
+  const data = numberedFixture();
+  const input = numberedFeed([0, 1, 2, 3].map((k) => numberedUpdate(k, 1663, 40 + k)));
+  assert.equal(normalizeTripUpdates(data, input, now).size, 0);
+  const { feed: renamed, renumbering } = renumberTrips(data, input, now);
+  assert.deepEqual(renumbering, { offset: -1663, renamed: 4, unknown: 4 });
+  const updates = normalizeTripUpdates(data, renamed, now);
+  assert.deepEqual([...updates.values()].map((update) => update.tripId), ['900', '901', '902', '903']);
+  assert.equal(updates.get(`${date}:901`)!.stops.get(2)!.arrival - updates.get(`${date}:901`)!.stops.get(2)!.scheduledArrival, 41_000);
+  assert.equal(input.entity![0].tripUpdate!.trip.tripId, '2563', 'the downloaded feed is not mutated');
+});
+
+test('renumbering needs most unknown trips to agree; a coincidence, a tie or a stranger is not renamed', () => {
+  const data = numberedFixture();
+  assert.equal(renumberTrips(data, numberedFeed([numberedUpdate(0, 50, 0), numberedUpdate(1, 50, 0)]), now).renumbering, null, 'two trips are too few to call it a renumbering');
+  assert.equal(renumberTrips(data, numberedFeed([0, 1, 2].map((k) => numberedUpdate(k, 50, 3 * 3600))), now).renumbering, null, 'no trip runs at those times');
+  assert.equal(renumberTrips(data, numberedFeed([numberedUpdate(0, 50, 0), numberedUpdate(1, 50, 0), numberedUpdate(2, 70, 0), numberedUpdate(3, 70, 0)]), now).renumbering, null, 'two shifts tie');
+  const mixed = numberedFeed([numberedUpdate(0, 50, 0), numberedUpdate(1, 50, 0), numberedUpdate(2, 50, 0), numberedUpdate(3, 50, 0, ['d', 'b'])]);
+  const { feed: renamed, renumbering } = renumberTrips(data, mixed, now);
+  assert.deepEqual(renumbering, { offset: -50, renamed: 3, unknown: 4 });
+  assert.equal(renamed!.entity![3].tripUpdate!.trip.tripId, '953', 'stations out of order do not agree with trip 903');
+  const known = numberedFeed([numberedUpdate(0, 0, 60), numberedUpdate(1, 0, 60), numberedUpdate(2, 0, 60)]);
+  assert.equal(renumberTrips(data, known, now).feed, known, 'a feed with known trips is left as is');
+});
+

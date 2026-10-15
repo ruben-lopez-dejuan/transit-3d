@@ -78,6 +78,71 @@ export function resolveServiceDate(gtfs: BizkaibusGtfs, descriptor: TripDescript
   return best?.date ?? null;
 }
 
+/** A late or early train still matches its own timetable within this margin. */
+const RENUMBERED_MAX_DEVIATION_SECONDS = 20 * 60;
+/** Mean deviation in seconds from trip `tripId`'s timetable, or null when the update cannot be that trip. */
+function timetableDeviation(gtfs: BizkaibusGtfs, update: TripUpdate, tripId: string, now: Date, timezone: string): number | null {
+  const trip = gtfs.trips.get(tripId), updates = update.stopTimeUpdate ?? [];
+  if (!trip || !updates.length) return null;
+  const date = resolveServiceDate(gtfs, { ...update.trip, tripId }, now, updates, 0, timezone);
+  if (!date) return null;
+  const stops = gtfs.tripStops.get(tripId)!;
+  let previous = -1, total = 0, events = 0;
+  for (const stopUpdate of updates) {
+    const stop = matchStop(stops, stopUpdate);
+    if (!stop || stop.sequence <= previous) return null;
+    previous = stop.sequence;
+    for (const [event, time] of [[stopUpdate.arrival, stop.arrivalTime ?? stop.departureTime], [stopUpdate.departure, stop.departureTime ?? stop.arrivalTime]] as const) {
+      const seconds = parseGtfsTime(time);
+      if (!Number.isFinite(event?.time) || seconds === null) continue;
+      const deviation = Math.abs(event!.time! - serviceEpoch(date, seconds, timezone) / 1000);
+      if (deviation > RENUMBERED_MAX_DEVIATION_SECONDS) return null;
+      total += deviation; events++;
+    }
+  }
+  return events ? total / events : null;
+}
+
+export type Renumbering = { offset: number; renamed: number; unknown: number };
+/**
+ * Metro Bilbao's TripUpdates name each trip by its published trip_id plus a constant (15 Oct
+ * 2026: +1663 over that morning's GTFS, so none of the 66 ids existed). Each unknown numeric id
+ * votes for the trip calling at the same stations closest to its times; the shift most of them
+ * point to is the renumbering, and only updates that agree with it are renamed. A shift seen on
+ * fewer than half of them, or tied with another, is ignored.
+ */
+export function renumberTrips(gtfs: BizkaibusGtfs, feed: RealtimeMessage | null, now = new Date(), timezone = 'Europe/Madrid'): { feed: RealtimeMessage | null; renumbering: Renumbering | null } {
+  const unknown = new Set((feed?.entity ?? []).filter((entity) => {
+    const id = entity.tripUpdate?.trip.tripId;
+    return !entity.isDeleted && id && /^\d+$/.test(id) && !gtfs.trips.has(id) && entity.tripUpdate!.stopTimeUpdate?.length;
+  }));
+  if (!feed || unknown.size < 3) return { feed, renumbering: null };
+  const numericTrips = [...gtfs.trips.keys()].filter((id) => /^\d+$/.test(id));
+  const votes = new Map<number, number>();
+  for (const entity of unknown) {
+    const update = entity.tripUpdate!, id = Number(update.trip.tripId), first = update.stopTimeUpdate![0].stopId;
+    let closest: { tripId: string; deviation: number } | null = null;
+    for (const candidate of numericTrips) {
+      if (first && !gtfs.tripStops.get(candidate)?.some((stop) => stop.stopId === first)) continue;
+      const deviation = timetableDeviation(gtfs, update, candidate, now, timezone);
+      if (deviation !== null && (!closest || deviation < closest.deviation)) closest = { tripId: candidate, deviation };
+    }
+    if (closest) votes.set(Number(closest.tripId) - id, (votes.get(Number(closest.tripId) - id) ?? 0) + 1);
+  }
+  const [best, runnerUp] = [...votes].sort((a, b) => b[1] - a[1]);
+  if (!best || best[1] < Math.max(3, unknown.size / 2) || (runnerUp && runnerUp[1] === best[1])) return { feed, renumbering: null };
+  const offset = best[0];
+  let renamed = 0;
+  const entity = feed.entity!.map((item) => {
+    if (!unknown.has(item)) return item;
+    const tripId = String(Number(item.tripUpdate!.trip.tripId) + offset);
+    if (timetableDeviation(gtfs, item.tripUpdate!, tripId, now, timezone) === null) return item;
+    renamed++;
+    return { ...item, tripUpdate: { ...item.tripUpdate!, trip: { ...item.tripUpdate!.trip, tripId } } };
+  });
+  return { feed: { ...feed, entity }, renumbering: { offset, renamed, unknown: unknown.size } };
+}
+
 /** Feeds that echo the timetable round it by up to a second. */
 const ECHO_TOLERANCE_SECONDS = 1;
 function eventDelay(event: RealtimeEvent | undefined, scheduled: number): number | null {

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createCityNetwork } from './network';
 import { RegisteredProvider } from './registeredProvider';
 import { bilbaoManifest } from '../cities/es-bilbao/city.manifest';
-import { bilbaoAppearance } from '../cities/es-bilbao/providers';
+import { bilbaoAppearance, repairMetroBilbaoStops } from '../cities/es-bilbao/providers';
 import { cityRegistry } from '../cities';
 import { entityId, parseEntityId } from '../../shared/transit/ids';
 import type { RuntimeCityPackage, ProviderRuntime } from './cityPackage';
@@ -242,4 +242,18 @@ test('service epochs and realtime delays use an explicit timezone, including non
   const updates = normalizeTripUpdates(gtfs, { header: { timestamp: now.getTime() / 1000 }, entity: [{ tripUpdate: { trip: { tripId: 'trip:1', startDate: date }, delay: 60, stopTimeUpdate: [{ stopId: 'stop:1', stopSequence: 1, departure: { delay: 60 } }] } }] }, now, 'UTC');
   assert.equal(updates.get(tripInstanceKey(date, 'trip:1'))?.stops.get(1)?.scheduledDeparture, serviceEpoch(date, 0, 'UTC'));
   assert.equal(formatServiceDate(new Date('2026-10-02T23:00:00Z'), 'Asia/Kathmandu').date, '20261003');
+});
+
+test("Metro Bilbao TripUpdates naming Urduliz by Gobela's id are repaired; Gobela itself is kept", () => {
+  const stops = (...ids: string[]) => ids.map((stopId, i) => ({ stopId, arrival: { time: 1_792_087_500 + i * 120 } }));
+  const feed = { header: { gtfsRealtimeVersion: '2.0', timestamp: 1_792_087_500 }, entity: [
+    { tripUpdate: { trip: { tripId: '905082' }, stopTimeUpdate: stops('30.0', '20.0', '28.0', '27.0') } },
+    { tripUpdate: { trip: { tripId: '905198' }, stopTimeUpdate: stops('19.0', '21.0', '27.0', '28.0', '20.0') } },
+    { tripUpdate: { trip: { tripId: '904991' }, stopTimeUpdate: stops('19.0', '20.0', '21.0') } },
+  ] };
+  const repaired = repairMetroBilbaoStops(feed)!;
+  assert.deepEqual(repaired.entity!.map((entity) => entity.tripUpdate!.stopTimeUpdate!.map((stop) => stop.stopId).join(' ')), ['30.0 29.0 28.0 27.0', '19.0 21.0 27.0 28.0 29.0', '19.0 20.0 21.0']);
+  assert.equal(repaired.entity![2], feed.entity[2], 'untouched trips are not copied');
+  assert.equal(feed.entity[0].tripUpdate.stopTimeUpdate[1].stopId, '20.0', 'the downloaded feed is not mutated');
+  assert.equal(repairMetroBilbaoStops(feed), repaired, 'one repair per downloaded feed');
 });

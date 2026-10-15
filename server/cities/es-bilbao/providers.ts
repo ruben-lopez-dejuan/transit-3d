@@ -7,6 +7,7 @@ import { renfeProvider } from '../../providers/renfe';
 import { StaticGtfsProvider } from '../../providers/staticGtfs';
 import { RealtimeProvider } from '../../providers/realtimeProvider';
 import { RealtimeFeedClient } from '../../providers/realtimeFeed';
+import type { RealtimeMessage, StopUpdate } from '../../transit/realtime';
 import { RegisteredProvider } from '../../transit/registeredProvider';
 import { repairShapes, shapeRepairVersion } from '../../transit/routedSegments';
 import type { ProviderRuntime } from '../../transit/cityPackage';
@@ -22,11 +23,31 @@ export const staticProviders = [bilbobusProvider, renfeProvider, ...[...primary,
 export const gtfsLoaders = new Map(staticProviders.map((p) => [p.operatorId, () => p.getGtfs()]));
 gtfsLoaders.set('bizkaibus', getBizkaibusGtfs);
 const sourceById = new Map<string, Source>([...primary, ...regionalSources, renfeSource].map((s) => [s.id, s]));
+const repairedMetroFeeds = new WeakMap<RealtimeMessage, RealtimeMessage>();
+const isUrduliz = (updates: StopUpdate[], i: number) => updates[i].stopId === '20.0' && [updates[i - 1]?.stopId, updates[i + 1]?.stopId].some((id) => id === '28.0' || id === '30.0');
+/**
+ * Metro Bilbao's TripUpdates call Urduliz (29.0) by Gobela's id, 20.0 (15 Oct 2026: 29.0 never
+ * appears, and 20.0 shows up both between Areeta and Neguri and between Sopela and Plentzia).
+ * Out of order, that stop made every Plentzia train fall back to the timetable. A 20.0 next to
+ * Sopela (28.0) or Plentzia (30.0) can only be Urduliz; Gobela is left as is.
+ */
+export function repairMetroBilbaoStops(feed: RealtimeMessage | null): RealtimeMessage | null {
+  if (!feed) return feed;
+  const cached = repairedMetroFeeds.get(feed); if (cached) return cached;
+  const repaired = { ...feed, entity: feed.entity?.map((entity) => {
+    const updates = entity.tripUpdate?.stopTimeUpdate;
+    if (!updates?.some((_, i) => isUrduliz(updates, i))) return entity;
+    const stopTimeUpdate = updates.map((update, i) => isUrduliz(updates, i) ? { ...update, stopId: '29.0' } : update);
+    return { ...entity, tripUpdate: { ...entity.tripUpdate!, stopTimeUpdate } };
+  }) };
+  repairedMetroFeeds.set(feed, repaired);
+  return repaired;
+}
 export const realtimeProviders = [
   new RealtimeProvider(new BizkaibusProvider(), getBizkaibusGtfs, new RealtimeFeedClient('bizkaibus-tu', BIZKAIBUS_TRIP_UPDATES_URL), undefined, undefined, bilbaoManifest.timezone),
   ...staticProviders.filter((p) => sourceById.get(p.operatorId)?.tripUpdates || sourceById.get(p.operatorId)?.vehiclePositions).map((provider) => {
     const source = sourceById.get(provider.operatorId)!;
-    return new RealtimeProvider(provider, () => provider.getGtfs(), source.tripUpdates ? new RealtimeFeedClient(`${provider.operatorId}-tu`, source.tripUpdates) : undefined, source.vehiclePositions ? new RealtimeFeedClient(`${provider.operatorId}-vp`, source.vehiclePositions) : undefined, source.maximumGpsSpeed, bilbaoManifest.timezone);
+    return new RealtimeProvider(provider, () => provider.getGtfs(), source.tripUpdates ? new RealtimeFeedClient(`${provider.operatorId}-tu`, source.tripUpdates) : undefined, source.vehiclePositions ? new RealtimeFeedClient(`${provider.operatorId}-vp`, source.vehiclePositions) : undefined, source.maximumGpsSpeed, bilbaoManifest.timezone, provider.operatorId === 'metro-bilbao' ? (_gtfs, feed) => repairMetroBilbaoStops(feed) : undefined);
   }),
 ];
 /** Source adapters stay at their existing paths; this is the Bilbao composition root. */
