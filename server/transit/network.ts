@@ -9,7 +9,7 @@ import { TransitEngine } from "./engine";
 import { formatServiceDate, isServiceActive, parseGtfsTime } from "./gtfsCalendar";
 import { passengerHeadsign } from './labels';
 import { anchorGpsTimeline } from './gpsTimeline';
-import { mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
+import { carryRealtimeDelay, mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
 import { withStationDwell } from './stationDwell';
 import { bearingDegrees, sameSpotStops } from './sameSpotStops';
 import { officialNextStop, withOfficialPosition } from './officialPosition';
@@ -401,7 +401,9 @@ async function getTrip(operatorId: string, tripId: string, serviceDate: string, 
     // snapshot so the motion engine receives them immediately.
     snapshotExpires = 0;
   }
-  return { vehicleId: vehicle?.id ?? key(operatorId, 'vehicle', `${operatorId}:${serviceDate}:${tripId}`), trip: { ...normalizeTrip(trip, scope(operatorId)), destination: vehicle?.destination || trip.headsign }, shape: shape && trip.shapeId ? packet(operatorId, trip.shapeId) : null, stops: (plan?.stops ?? []).flatMap((s) => { const stop = stopMap.get(key(operatorId, 'stop', s.stopId)), changed = update?.stops.get(s.sequence); const siri = arrivals?.peek(gtfs, s.stopId, vehicle?.externalVehicleId); const nativeAt = vehicle?.arrivalPredictions?.find((a) => Math.abs(a.progress - s.progress) < 2)?.at; const topologyOnly = providerFor(operatorId)?.definition.capabilities.scheduledService === false; return stop ? [{ ...stop, at: siri?.arrival ?? changed?.arrival ?? nativeAt ?? (vehicle?.motionTimeline || topologyOnly ? null : serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0), city.manifest.timezone)), progress: s.progress, skipped: changed?.skipped ?? false, realtime: !!siri || nativeAt !== undefined || (changed?.arrivalRealtime ?? false), source: siri || (nativeAt !== undefined && vehicle?.timelineSource === 'siri') ? 'siri' as const : nativeAt !== undefined || changed?.arrivalRealtime ? 'realtime' as const : vehicle?.gpsAnchoredTimeline && vehicle.delaySeconds !== null ? 'gps' as const : 'schedule' as const }] : []; }) };
+  const planned = (plan?.stops ?? []).filter((s) => stopMap.has(key(operatorId, 'stop', s.stopId)));
+  const stops = carryRealtimeDelay(planned.flatMap((s) => { const stop = stopMap.get(key(operatorId, 'stop', s.stopId)), changed = update?.stops.get(s.sequence); const siri = arrivals?.peek(gtfs, s.stopId, vehicle?.externalVehicleId); const nativeAt = vehicle?.arrivalPredictions?.find((a) => Math.abs(a.progress - s.progress) < 2)?.at; const topologyOnly = providerFor(operatorId)?.definition.capabilities.scheduledService === false; return stop ? [{ ...stop, at: siri?.arrival ?? changed?.arrival ?? nativeAt ?? (vehicle?.motionTimeline || topologyOnly ? null : serviceEpoch(serviceDate, s.arrival + (vehicle?.delaySeconds ?? 0), city.manifest.timezone)), progress: s.progress, skipped: changed?.skipped ?? false, realtime: !!siri || nativeAt !== undefined || (changed?.arrivalRealtime ?? false), source: siri || (nativeAt !== undefined && vehicle?.timelineSource === 'siri') ? 'siri' as const : nativeAt !== undefined || changed?.arrivalRealtime ? 'realtime' as const : vehicle?.gpsAnchoredTimeline && vehicle.delaySeconds !== null ? 'gps' as const : 'schedule' as const }] : []; }), planned.map((s) => serviceEpoch(serviceDate, s.arrival, city.manifest.timezone)));
+  return { vehicleId: vehicle?.id ?? key(operatorId, 'vehicle', `${operatorId}:${serviceDate}:${tripId}`), trip: { ...normalizeTrip(trip, scope(operatorId)), destination: vehicle?.destination || trip.headsign }, shape: shape && trip.shapeId ? packet(operatorId, trip.shapeId) : null, stops };
 }
 async function getGeometries(keys: string[]): Promise<Shape[]> {
   await getNetwork();

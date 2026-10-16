@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
+import { carryRealtimeDelay, mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
 
 // Base timetable: stops every 1000 m, 100 s apart, 20 s dwell at the middle stops.
 const base = [
@@ -29,4 +29,18 @@ test('anchors before the first forecast move with it, so a late vehicle without 
 test('merged timelines never run backwards in time', () => {
   const merged = mergeStopForecasts(base, [forecast(1000, 300), forecast(2000, 310)]);
   for (let i = 1; i < merged.length; i++) assert.ok(merged[i].at >= merged[i - 1].at && merged[i].progress >= merged[i - 1].progress);
+});
+
+test('a late bus keeps its real-time delay at the stops after the last real-time time, never earlier than it', () => {
+  const minute = 60_000;
+  // Timetable every 2 min. Real-time at the first two stops, 6 min late; the rest only have the timetable.
+  const stops = [
+    { at: 8 * minute, realtime: true, source: 'siri' }, { at: 10 * minute, realtime: true, source: 'siri' },
+    { at: 6 * minute, realtime: false, source: 'schedule' }, { at: null, realtime: false }, { at: 10 * minute, realtime: false, skipped: true, source: 'schedule' }, { at: 9 * minute, realtime: false, source: 'schedule' },
+  ];
+  const result = carryRealtimeDelay(stops, [2, 4, 6, 8, 10, 12].map((m) => m * minute));
+  assert.deepEqual(result.map((s) => s.at === null ? null : s.at / minute), [8, 10, 12, null, 10, 18]);
+  assert.equal(result[2].source, 'gps');
+  // Without real-time times nothing changes, except that times never go back along the trip.
+  assert.deepEqual(carryRealtimeDelay([{ at: 5 * minute }, { at: 4 * minute }], [5 * minute, 4 * minute]).map((s) => s.at! / minute), [5, 5]);
 });

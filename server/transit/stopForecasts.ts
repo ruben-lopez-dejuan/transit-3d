@@ -51,3 +51,22 @@ export function mergeStopForecasts(base: MotionAnchor[], forecasts: StopForecast
   for (const anchor of anchors) if (!result.length || anchor.at >= result[result.length - 1].at) result.push(anchor);
   return result;
 }
+
+/**
+ * After the last stop with a real-time time, the others only have the timetable, shifted by an
+ * older or no delay: for a late bus they came earlier than the real-time times before them. The
+ * latest real-time delay carries on to the stops after it, and times never go back along the trip.
+ */
+export function carryRealtimeDelay<T extends { at: number | null; realtime?: boolean; skipped?: boolean; source?: string }>(stops: T[], scheduled: (number | null)[]): T[] {
+  let last: { at: number; scheduled: number } | null = null, previous = -Infinity;
+  return stops.map((stop, i) => {
+    if (stop.skipped || stop.at === null) return stop;
+    let result = stop;
+    const timetable = scheduled[i];
+    if (stop.realtime) { if (timetable != null) last = { at: stop.at, scheduled: timetable }; }
+    else if (last && timetable != null) result = { ...stop, at: last.at + timetable - last.scheduled, source: 'gps' };
+    if (result.at! < previous) result = { ...result, at: previous };
+    previous = result.at!;
+    return result;
+  });
+}

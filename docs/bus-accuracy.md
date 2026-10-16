@@ -122,3 +122,18 @@ Medición a la misma hora frente a la versión anterior (10 min, 16 oct 2026):
 Lo que queda por delante es sobre todo el bus que ya iba dibujado pasada la parada cuando llega la
 lectura (no retrocede) y el que no tiene lectura vigente; por detrás, el que espera en una parada que
 ya ha dejado hasta la siguiente lectura (cada minuto para la flota, cada 15–20 s con la ficha abierta).
+
+Bilbobus (mismo método con su SIRI, que da los metros a la parada; paneles de toda la flota cada 30 s):
+
+| Bilbobus | Antes | Después |
+|---|---|---|
+| Ficha y panel coinciden (muestreo) | 31 % | 60 % |
+| Dibujado pasada la parada / antes de la anterior | 68 % / 1 % | 27 % / 13 % |
+| Con la ficha abierta: coinciden | 33 % | 56 % |
+| Distancia a la parada con «Ahora» (mediana / p90) | 126 / 240 m | 0 / 200 m |
+| Distancia en el mapa al GPS real (mediana / p90) | 83 / 225 m | 76 / 242 m |
+
+En la lista de paradas de la ficha, las paradas sin hora oficial tomaban el horario (desplazado por un
+retraso antiguo, o sin retraso en Bilbobus): con el bus retrasado salían antes que las paradas
+anteriores con hora oficial. Ahora el último retraso oficial se arrastra a las siguientes
+(«Aproximado») y las horas nunca retroceden a lo largo del recorrido.
