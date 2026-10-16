@@ -22,6 +22,8 @@
     "test": "npm run test:core && npm run test:frontend",
     "test:madrid": "tsx --test server/providers/madrid/madrid.test.ts",
     "audit:madrid": "node --use-system-ca --import tsx server/audit-madrid.ts",
+    "monitor:madrid": "node --use-system-ca --import tsx server/monitor-madrid.ts",
+    "replay:metro-madrid": "node --use-system-ca --import tsx server/replay-metro-madrid.ts",
     "nap:discover": "node --use-system-ca --import tsx server/sources/discover.ts",
     "source:inspect": "node --use-system-ca --import tsx server/sources/inspect.ts"
   },
