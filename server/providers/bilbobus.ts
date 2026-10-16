@@ -10,10 +10,14 @@ import { ObservationTracker } from '../transit/observations';
 import type { ProviderSnapshot, TransitVehicle } from '../transit/types';
 import type { Departure } from '../../shared/transit/network';
 import { passengerHeadsign } from '../transit/labels';
+import { coveringStops } from '../transit/coveringStops';
 
 export const BILBOBUS_POSITIONS = 'https://api.bilbao.eus/bilbobus/Ultimas_posiciones';
 export const BILBOBUS_SIRI = 'https://api.bilbao.eus/sae/SIRI.svc';
 const POSITION_POLL_MS = 15_000;
+/** A fix arrives every 20 s; the stop panels that bound where a bus is drawn are refreshed every other one. */
+const FLEET_REFRESH_MS = 30_000;
+const FLEET_CONCURRENCY = 4;
 const ED50 = '+proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs';
 export type BilbobusPosition = { Vehiculo: number; LineaCodigoOriginal: number | string; lineIdPerm: number; CoordX: number; CoordY: number; Instante: string; Ruta: number; Viaje: number; Velocidad: number; Posicion?: number | string };
 export function ed50ToWgs84(x: number, y: number): [number, number] | null {
@@ -57,7 +61,8 @@ export function bilbobusProgress(metric: ShapeMetric, coordinate: Coordinate, pr
     : fallback;
 }
 
-export type SiriArrival = { vehicleId: string; journeyId: string; line: string; directionId: number | null; stopCode: string; destination: string; arrival: number; departure: number; recordedAt: number };
+/** `distance`: metres the bus has left to the stop when recorded (0 or a few negative once it has arrived), when published. */
+export type SiriArrival = { vehicleId: string; journeyId: string; line: string; directionId: number | null; stopCode: string; destination: string; arrival: number; departure: number; recordedAt: number; distance: number | null };
 const xmlParser = new XMLParser({ removeNSPrefix: true, ignoreAttributes: true, parseTagValue: false, processEntities: false });
 const string = (value: unknown) => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
 export function parseSiriArrivals(xml: string, stopCode: string, now = Date.now()): SiriArrival[] {
@@ -68,7 +73,7 @@ export function parseSiriArrivals(xml: string, stopCode: string, now = Date.now(
     const journey = visit.MonitoredVehicleJourney, call = journey?.MonitoredCall;
     const recordedAt = Date.parse(string(visit.RecordedAtTime)), arrival = Date.parse(string(call?.ExpectedArrivalTime)), departure = Date.parse(string(call?.ExpectedDepartureTime));
     if (!journey || string(call?.StopPointRef) !== stopCode || freshTimestamp(recordedAt / 1000, now) === null || !Number.isFinite(arrival)) return [];
-    return [{ vehicleId: string(journey.VehicleRef).replace(/^VEH_/, ''), journeyId: string(journey.FramedVehicleJourneyRef?.DatedVehicleJourneyRef), line: string(journey.LineRef).replace(/^L/, ''), directionId: /^Ida$/i.test(string(journey.DirectionRef)) ? 0 : /^Vuelta$/i.test(string(journey.DirectionRef)) ? 1 : null, stopCode, destination: string(journey.DestinationName), arrival, departure: Number.isFinite(departure) ? departure : arrival, recordedAt }];
+    return [{ vehicleId: string(journey.VehicleRef).replace(/^VEH_/, ''), journeyId: string(journey.FramedVehicleJourneyRef?.DatedVehicleJourneyRef), line: string(journey.LineRef).replace(/^L/, ''), directionId: /^Ida$/i.test(string(journey.DirectionRef)) ? 0 : /^Vuelta$/i.test(string(journey.DirectionRef)) ? 1 : null, stopCode, destination: string(journey.DestinationName), arrival, departure: Number.isFinite(departure) ? departure : arrival, recordedAt, distance: string(call.DistanceFromStop).trim() && Number.isFinite(Number(call.DistanceFromStop)) ? Number(call.DistanceFromStop) : null }];
   });
 }
 
@@ -140,8 +145,32 @@ export class BilbobusProvider extends StaticGtfsProvider {
     if (this.siri.size > 200) for (const [key, value] of this.siri) if (Date.now() - value.expires > 600_000) this.siri.delete(key);
     return entry.promise;
   }
+  private nextFleetRefresh = 0;
+  private fleetPending: Promise<void> | null = null;
+  lastFleetRefresh: { at: number; vehicles: number; covered: number; stops: number; failures: number } | null = null;
+  /**
+   * Every live bus needs its SIRI stop panels: they keep it from being drawn past a stop it has
+   * not reached. Before, only the selected bus and those at an open stop had them. Runs only while
+   * the snapshot is being requested, at most once per FLEET_REFRESH_MS.
+   */
+  private refreshFleet(gtfs: BizkaibusGtfs, vehicles: TransitVehicle[]) {
+    if (this.fleetPending || Date.now() < this.nextFleetRefresh) return;
+    this.nextFleetRefresh = Infinity;
+    this.fleetPending = (async () => {
+      const live = vehicles.filter((v) => v.vehicleId && v.observationTimestamp !== null).map((v) => ({ vehicleId: v.vehicleId, tripId: v.tripId, routeId: v.routeId, headsign: gtfs.trips.get(v.tripId)?.headsign ?? '', progressMetersAlongShape: v.progressMetersAlongShape }));
+      const stops = coveringStops(gtfs, live);
+      const queue = stops.stopIds.flatMap((id) => gtfs.stops.get(id)?.stopCode ?? []);
+      let failures = 0;
+      await Promise.all(Array.from({ length: FLEET_CONCURRENCY }, async () => {
+        while (queue.length) await this.getArrivals(queue.shift()!).catch(() => { failures++; });
+      }));
+      this.lastFleetRefresh = { at: Date.now(), vehicles: live.length, covered: stops.covered, stops: stops.stopIds.length, failures };
+    })().catch(() => {}).finally(() => { this.fleetPending = null; this.nextFleetRefresh = Date.now() + FLEET_REFRESH_MS; });
+  }
   peekArrival(vehicleId: string | null | undefined, stopCode: string) {
-    return this.siri.get(stopCode)?.rows?.find((r) => r.vehicleId === vehicleId && freshTimestamp(r.recordedAt / 1000, Date.now()) !== null);
+    // A bus can be listed twice at a stop, on this trip and on its next one: this one is the nearest.
+    const rows = this.siri.get(stopCode)?.rows?.filter((r) => r.vehicleId === vehicleId && freshTimestamp(r.recordedAt / 1000, Date.now()) !== null) ?? [];
+    return rows.reduce<SiriArrival | undefined>((best, row) => !best || (row.distance ?? Infinity) < (best.distance ?? Infinity) ? row : best, undefined);
   }
   async departures(gtfs: BizkaibusGtfs, stopCode: string): Promise<Departure[]> {
     const arrivals = await this.getArrivals(stopCode);
@@ -195,6 +224,8 @@ export class BilbobusProvider extends StaticGtfsProvider {
       vehicles.set(vehicle.id, vehicle);
     }
     const real = [...vehicles.values()].filter((v) => v.vehicleId);
+    // Stop panels for the whole fleet refresh in the background; the snapshot never waits for them.
+    this.refreshFleet(gtfs, real);
     const observedDirections = new Set(real.map((v) => `${v.routeId}:${v.directionId}`));
     for (const [id, vehicle] of vehicles) if (!vehicle.vehicleId && observedDirections.has(`${vehicle.routeId}:${vehicle.directionId}`)) vehicles.delete(id);
     return { ...base, vehicles: [...vehicles.values()].map((v) => ({ ...v, receivedTimestamp: v.observationTimestamp !== null ? this.positionsReceivedTimestamp : base.receivedTimestamp ?? null })), receivedTimestamp: real.length ? this.positionsReceivedTimestamp : base.receivedTimestamp, sourceTimestamp: real.length ? Math.max(...real.map((v) => v.observationTimestamp!)) : null, status: real.length ? this.failures ? 'degraded' : 'ok' : 'degraded', ...(!real.length ? { error: 'No hay posiciones municipales recientes; se muestra el horario.' } : {}) };

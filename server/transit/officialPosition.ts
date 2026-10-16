@@ -4,7 +4,7 @@ import type { StopArrivalsAdapter } from './cityPackage';
 import type { tripPlan } from './plans';
 import { positionAtProgress } from './motionEngine';
 import { freshTimestamp } from './realtime';
-import { OFFICIAL_STOP_MAX_AGE_MS } from '../../shared/transit/freshness';
+import { GPS_LIVE_MAX_AGE_MS, OFFICIAL_STOP_MAX_AGE_MS } from '../../shared/transit/freshness';
 
 type ArrivalPeek = StopArrivalsAdapter['peek'];
 type Plan = NonNullable<ReturnType<typeof tripPlan>>;
@@ -27,7 +27,8 @@ export function withOfficialPosition(vehicle: NormalizedVehicle, gtfs: Bizkaibus
     const reading = peek(gtfs, stop.stopId, vehicle.externalVehicleId);
     if (reading?.distanceMeters == null) continue;
     const at = reading.sourceTimestamp;
-    if (at <= observedAt || freshTimestamp(at / 1000, now.getTime()) === null) return vehicle;
+    // Only a late GPS needs it (Bizkaibus, 60–90 s); a recent one (Bilbobus, ~25 s) already says where the bus is.
+    if (at - observedAt <= GPS_LIVE_MAX_AGE_MS || freshTimestamp(at / 1000, now.getTime()) === null) return vehicle;
     const progress = Math.max(observed, stop.progress - reading.distanceMeters);
     const pace = vehicle.speedMetersPerSecond ?? 0, travelled = (progress - observed) * 1000 / (at - observedAt);
     if (progress - (observed + pace * (at - observedAt) / 1000) < OFFICIAL_LEAD_METERS || travelled > 40) return vehicle;

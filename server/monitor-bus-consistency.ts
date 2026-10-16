@@ -5,7 +5,7 @@ import { arrivalLabel, consistentArrival, eta } from '../src/ui';
 import type { Departure, Shape, StopDetail, TripDetail, Vehicle } from '../shared/transit/network';
 
 /**
- * Checks that a Bizkaibus card agrees with the official stop panels. The passing times of the
+ * Checks that a bus card agrees with the official stop panels. The passing times of the
  * Diputación (stop panel) are the truth: they list a bus at every stop it has still to reach.
  *
  * Runs the browser's TransitRenderer on /api/transit (every 15 s, as the app does). Every 20 s
@@ -19,10 +19,12 @@ import type { Departure, Shape, StopDetail, TripDetail, Vehicle } from '../share
  * With `follow` it instead keeps a few cards open, as someone watching the bus coming to their stop:
  * each card reloads its trip every 15 s (as the app does) for 2 minutes, and is measured from 30 s on.
  *
- * Usage: node --use-system-ca --import tsx server/monitor-bus-consistency.ts <minutes> [output.jsonl] [api] [follow]
+ * Bilbobus works the same way with its SIRI stop panels (operator `bilbobus`).
+ *
+ * Usage: node --use-system-ca --import tsx server/monitor-bus-consistency.ts <minutes> [output.jsonl] [api] [sample|follow] [bizkaibus|bilbobus]
  */
 const minutes = Number(process.argv[2] ?? 10), output = process.argv[3] ?? 'bus-consistency.jsonl', api = process.argv[4] ?? 'http://localhost:3001', follow = process.argv[5] === 'follow';
-const city = 'es-bilbao', operator = 'bizkaibus', BUSES_PER_ROUND = 5;
+const city = 'es-bilbao', operator = process.argv[6] ?? 'bizkaibus', BUSES_PER_ROUND = 5;
 const renderer = new TransitRenderer({} as never);
 const out = fs.createWriteStream(output);
 let vehicles: Vehicle[] = [];

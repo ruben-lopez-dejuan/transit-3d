@@ -22,11 +22,13 @@ test('municipal wall-clock timestamps resolve repeated DST hours and reject none
   assert.equal(bilbobusPositionTimestamp('2026-03-29T01:15:00Z'), Date.parse('2026-03-29T00:15:00Z'));
 });
 test('SIRI arrivals preserve the official UTC record time and ignore stale predictions', () => {
-  const xml = '<Envelope><Body><GetStopMonitoringResponse><GetStopMonitoringResult><MonitoredStopVisits><MonitoredStopVisit><RecordedAtTime>2026-10-02T13:52:21Z</RecordedAtTime><MonitoredVehicleJourney><VehicleRef>VEH_767</VehicleRef><LineRef>L18</LineRef><DirectionRef>Ida</DirectionRef><DestinationName>ZORROTZA</DestinationName><FramedVehicleJourneyRef><DatedVehicleJourneyRef>V011804_12</DatedVehicleJourneyRef></FramedVehicleJourneyRef><MonitoredCall><StopPointRef>1101</StopPointRef><ExpectedArrivalTime>2026-10-02T14:06:51Z</ExpectedArrivalTime></MonitoredCall></MonitoredVehicleJourney></MonitoredStopVisit></MonitoredStopVisits></GetStopMonitoringResult></GetStopMonitoringResponse></Body></Envelope>';
+  const xml = '<Envelope><Body><GetStopMonitoringResponse><GetStopMonitoringResult><MonitoredStopVisits><MonitoredStopVisit><RecordedAtTime>2026-10-02T13:52:21Z</RecordedAtTime><MonitoredVehicleJourney><VehicleRef>VEH_767</VehicleRef><LineRef>L18</LineRef><DirectionRef>Ida</DirectionRef><DestinationName>ZORROTZA</DestinationName><FramedVehicleJourneyRef><DatedVehicleJourneyRef>V011804_12</DatedVehicleJourneyRef></FramedVehicleJourneyRef><MonitoredCall><DistanceFromStop>1767</DistanceFromStop><StopPointRef>1101</StopPointRef><ExpectedArrivalTime>2026-10-02T14:06:51Z</ExpectedArrivalTime></MonitoredCall></MonitoredVehicleJourney></MonitoredStopVisit></MonitoredStopVisits></GetStopMonitoringResult></GetStopMonitoringResponse></Body></Envelope>';
   const now = Date.parse('2026-10-02T13:52:30Z');
   const [arrival] = parseSiriArrivals(xml, '1101', now);
   assert.equal(arrival.vehicleId, '767'); assert.equal(arrival.directionId, 0);
   assert.equal(arrival.arrival, Date.parse('2026-10-02T14:06:51Z'));
+  assert.equal(arrival.distance, 1767);
+  assert.equal(parseSiriArrivals(xml.replace('<DistanceFromStop>1767</DistanceFromStop>', ''), '1101', now)[0].distance, null);
   assert.equal(parseSiriArrivals(xml, '1101', now + 270_000).length, 0);
 });
 test('Observation speed uses meters and source milliseconds, rejecting actual anomalies only', () => {
