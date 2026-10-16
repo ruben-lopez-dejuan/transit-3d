@@ -7,7 +7,7 @@ import { chooseCityId, cityUrl } from './cities';
 import { loadCities, loadCity, loadNetwork, loadSnapshot, loadShapes } from './client';
 import type { Network, Vehicle } from './networkTypes';
 import { estimatedBusDwell } from './stopMotion';
-import { composition, vehiclePose, trackDepth, CUTTING_METERS, COVER_METERS } from './vehiclePose';
+import { composition, leadProgress, reversals, vehiclePose, trackDepth, CUTTING_METERS, COVER_METERS } from './vehiclePose';
 import { bilbaoManifest } from '../../server/cities/es-bilbao/city.manifest';
 import { migrateFavorites } from './favorites';
 import { entityId } from '../../shared/transit/ids';
@@ -139,8 +139,31 @@ test('on a stretch drawn on its own track a train keeps no lateral offset, and s
   assert.equal(offset(500), 0);
   assert.ok(Math.abs(offset(300) - 1.7) < 1e-6, 'off the stretch it keeps its offset to the right');
   assert.ok(offset(480) > 0 && offset(480) < offset(470) && offset(470) < 1.7, 'it slides onto the track');
-  // Zoomed out the offset widens with the model, and the slide lengthens with it.
-  assert.ok(offset(480, 10) > 0 && offset(480, 10) < 17 * .1);
+  // Zoomed out the offset widens with the model; on its own track only by the widening, towards
+  // the side trains run on there (right by default), so two widened trams do not overlap.
+  assert.ok(Math.abs(offset(1000, 10) - 1.7 * 9) < 1e-6);
+  const left = { ...shape, onTrack: [{ from: 500, to: 1500, runsOn: 'left' as const }] };
+  assert.ok(Math.abs(0 - vehiclePose(left, 1000, vehicle, 10)!.coordinate[1] * 110540 + 1.7 * 9) < 1e-6, 'Euskotren runs on the left');
+  const tram = { mode: 'tram', operatorId: 'euskotren', label: 'TR', appearance: { kind: 'tram', composition: { count: 3, length: 8, gap: .2 }, lateralOffsetMeters: 0 } } as const;
+  assert.ok(Math.abs(0 - vehiclePose(shape, 1000, tram, 4)!.coordinate[1] * 110540 - 1.7 * 3) < 1e-6);
+});
+
+test('a train backs out of a dead end led by its last car, without folding over the turn', () => {
+  // E3 at Sondika: 500 m west into the platform and back east the same way.
+  const shape = { key: 's', coordinates: [[0, 0], [-.0045, 0], [0, .00001]] as [number, number][], cumulative: [0, 500, 1000], total: 1000 };
+  const vehicle = { mode: 'rail', operatorId: 'euskotren', label: 'E3', appearance: { kind: 'train', composition: { count: 3, length: 19, gap: .4 }, lateralOffsetMeters: -1.7 } } as const;
+  assert.deepEqual(reversals(shape), [500]);
+  // At the platform the head car points the way it came in, not across the track.
+  assert.equal(Math.round(vehiclePose(shape, 500, vehicle)!.bearing), 270);
+  assert.equal(Math.round(vehiclePose(shape, 501, vehicle)!.bearing), 90);
+  const length = 2 * 19.4, cars = (progress: number) => { const lead = leadProgress(shape, progress, length); return [0, 1, 2].map((car) => vehiclePose(shape, lead - car * 19.4, vehicle)!.coordinate[0]).sort((a, b) => a - b); };
+  // Leaving, the train is where it stood: the same places, the last car now leading.
+  cars(500).forEach((longitude, i) => assert.ok(Math.abs(longitude - cars(499.999)[i]) < 1e-6));
+  assert.ok(cars(500.1).every((longitude) => longitude > -.0045 - 1e-9), 'no car is left on the way in');
+  assert.ok(leadProgress(shape, 520, length) > leadProgress(shape, 510, length), 'it moves on');
+  assert.equal(leadProgress(shape, 500 + 3 * length, length), 500 + 3 * length, 'three lengths on it is back on the timeline');
+  // Along the dead end it keeps no offset, which would swap sides as it turns.
+  assert.equal(0 - vehiclePose(shape, 450, vehicle)!.coordinate[1], 0);
 });
 
 test('a train goes down a cutting into the tunnel mouth smoothly, car after car', () => {

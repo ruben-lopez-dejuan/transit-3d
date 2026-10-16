@@ -21,9 +21,10 @@ export type Snapshot = { cityId: string; fetchedAt: number; serverTime?: number;
 /**
  * underground: stretches in tunnel, in metres along the shape. tunnelBeforeStart/tunnelAfterEnd:
  * the tunnel goes on past that end of the shape (an underground terminus), so there is no portal there.
- * onTrack: stretches drawn on the vehicle's own track (matched onto OSM tracks): no lateral offset there.
+ * onTrack: stretches drawn on the vehicle's own track (matched onto OSM tracks): no lateral offset there,
+ * except to keep a widened model clear of the other direction, towards the side trains run on (`runsOn`).
  */
-export type Shape = { key: string; coordinates: [number, number][]; cumulative: number[]; total: number; underground?: { from: number; to: number; depthMeters: number; approximate: boolean; tunnelBeforeStart?: boolean; tunnelAfterEnd?: boolean }[]; onTrack?: { from: number; to: number }[] };
+export type Shape = { key: string; coordinates: [number, number][]; cumulative: number[]; total: number; underground?: { from: number; to: number; depthMeters: number; approximate: boolean; tunnelBeforeStart?: boolean; tunnelAfterEnd?: boolean }[]; onTrack?: { from: number; to: number; runsOn?: 'left' | 'right' }[] };
 /** `at` is when the service leaves the stop; `arrivalAt`, when it gets there, if earlier (a train standing at the platform). */
 export type Departure = { routeKey: string; tripId: string; label: string; headsign: string; operatorId: string; at: number; arrivalAt?: number; quality: PositionQuality; delaySeconds: number | null; scheduledAt?: number; updatedAt?: number | null; source?: 'realtime' | 'gps' | 'schedule'; canceled?: boolean; directionId?: number | null; vehicleId?: string };
 export type LineDetail = { route: Route; shapes: Shape[]; stops: Stop[]; departures: Departure[] };

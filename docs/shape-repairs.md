@@ -96,7 +96,9 @@ un nodo donde la vía se aleja por los dos lados.
 
 Los tramos de una forma que van sobre estas vías o las del tranvía llegan al cliente como
 `Shape.onTrack`: ahí el tren no lleva el desplazamiento lateral de 1,7 m (va ya por su vía)
-y lo recupera en una rampa de 40 m, más larga al alejar el mapa.
+y lo recupera en una rampa de 40 m, más larga al alejar el mapa. Al alejar el mapa el modelo
+se ensancha, y sobre su vía se aparta solo eso, hacia el lado por el que se circula en esa red
+(`runsOn`), para que los dos sentidos no se solapen.
 
 Auditoría 16 oct 2026: las 37 formas quedan sobre la vía de Matiko a Kukullaga, cada
 sentido por la suya y sin saltar de una a otra (la otra vía queda a la derecha, a

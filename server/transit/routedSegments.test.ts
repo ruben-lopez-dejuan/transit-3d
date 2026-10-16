@@ -106,7 +106,7 @@ test('a shape drawn on the reviewed tracks is on its own track there, and nowher
   const cumulative = path.map((_, i) => path.slice(1, i + 1).reduce((sum, point, j) => sum + straightMeters(path[j], point), 0));
   const stretches = onTrackStretches(path, cumulative);
   assert.equal(stretches.length, 1);
-  assert.deepEqual(stretches[0], { from: 0, to: cumulative[way.length - 1] });
+  assert.deepEqual(stretches[0], { from: 0, to: cumulative[way.length - 1], runsOn: 'left' }, 'Euskotren runs on the left');
 });
 
 test('the stops of an underground station move onto its platform', () => {

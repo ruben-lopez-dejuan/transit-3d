@@ -221,16 +221,18 @@ const MIN_ON_TRACK_METERS = 50;
  * The stretches of a shape, in metres along it, drawn on the reviewed tracks: the vehicle
  * runs there on its own track and needs no diagrammatic offset to keep off the other direction.
  */
-export function onTrackStretches(coordinates: Lonlat[], cumulative: number[]): { from: number; to: number }[] {
+export function onTrackStretches(coordinates: Lonlat[], cumulative: number[]): { from: number; to: number; runsOn: TrackOptions['runsOn'] }[] {
   shapeRepairVersion();
   const networks = trackSets!.filter((set) => set.ways).map((set) => set.network);
   if (!networks.length) return [];
-  const on = coordinates.map((point) => networks.some((network) => network.onTrack(point)));
-  const stretches: { from: number; to: number }[] = [];
+  // The side trains run on there: the network a point lies on.
+  const on = coordinates.map((point) => networks.find((network) => network.onTrack(point))?.options.runsOn);
+  const stretches: { from: number; to: number; runsOn: TrackOptions['runsOn'] }[] = [];
   for (let i = 1; i < coordinates.length; i++) {
-    if (!on[i - 1] || !on[i]) continue;
+    const runsOn = on[i - 1] === on[i] ? on[i] : undefined;
+    if (!runsOn) continue;
     const last = stretches.at(-1);
-    if (last && last.to === cumulative[i - 1]) last.to = cumulative[i]; else stretches.push({ from: cumulative[i - 1], to: cumulative[i] });
+    if (last && last.to === cumulative[i - 1] && last.runsOn === runsOn) last.to = cumulative[i]; else stretches.push({ from: cumulative[i - 1], to: cumulative[i], runsOn });
   }
   return stretches.filter((stretch) => stretch.to - stretch.from >= MIN_ON_TRACK_METERS);
 }

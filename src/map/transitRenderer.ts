@@ -2,7 +2,7 @@ import type { Map as TransitMap, GeoJSONSource } from "maplibre-gl";
 import type { Shape, Vehicle, TransitMode } from "../transit/networkTypes";
 import { GpsMotion } from '../transit/gpsMotion';
 import { TimelineMotion } from '../transit/timelineMotion';
-import { composition, vehiclePose, trackDepth, COVER_METERS } from '../transit/vehiclePose';
+import { composition, leadProgress, vehiclePose, trackDepth, COVER_METERS } from '../transit/vehiclePose';
 import { estimatedBusDwell } from '../transit/stopMotion';
 import type { VehicleModels, ModelItem } from './vehicleModels';
 import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
@@ -106,8 +106,13 @@ export class TransitRenderer {
   coordinate(id: string) {
     const state = this.states.get(id); if (!state) return null;
     const shape = this.shapes.get(state.vehicle.shapeKey);
-    const width = this.map.getZoom() >= MODEL_MIN_ZOOM ? vehicleScale(state.vehicle, this.map.getZoom(), state.vehicle.latitude).width : 1;
-    return shape ? vehiclePose(shape, this.progress(state, Date.now() + this.clockOffset), state.vehicle, width)?.coordinate ?? null : [state.vehicle.longitude, state.vehicle.latitude] as [number, number];
+    const scale = vehicleScale(state.vehicle, this.map.getZoom(), state.vehicle.latitude), width = this.map.getZoom() >= MODEL_MIN_ZOOM ? scale.width : 1;
+    return shape ? vehiclePose(shape, this.lead(shape, this.progress(state, Date.now() + this.clockOffset), state.vehicle, scale.length), state.vehicle, width)?.coordinate ?? null : [state.vehicle.longitude, state.vehicle.latitude] as [number, number];
+  }
+  /** Where the leading end of the train is drawn: past a reversal, the car that arrived last leads. */
+  private lead(shape: Shape, progress: number, vehicle: Vehicle, lengthScale: number) {
+    const consist = composition(vehicle);
+    return leadProgress(shape, progress, (consist.count - 1) * (consist.length + consist.gap) * lengthScale);
   }
   /**
    * The vehicle drawn under a screen point. The whole body counts, not only its front:
@@ -121,7 +126,7 @@ export class TransitRenderer {
       if (vehicle.positionQuality !== "scheduled" && vehicle.observationTimestamp && now - vehicle.observationTimestamp > REALTIME_MAX_AGE_MS) continue;
       const state = this.states.get(vehicle.id), shape = this.shapes.get(vehicle.shapeKey);
       if (!state) continue;
-      const progress = this.progress(state, now), scale = vehicleScale(vehicle, zoom, vehicle.latitude);
+      const scale = vehicleScale(vehicle, zoom, vehicle.latitude), progress = shape ? this.lead(shape, this.progress(state, now), vehicle, scale.length) : this.progress(state, now);
       const head = shape ? vehiclePose(shape, progress, vehicle, zoom >= MODEL_MIN_ZOOM ? scale.width : 1) : null;
       const consist = composition(vehicle), icon = vehicleIconPixels(vehicle, zoom);
       if (!this.showUnderground && shape && head?.buried === 1 && trainBuried(shape, progress, consist.count, (consist.length + consist.gap) * scale.length)) continue;
@@ -185,8 +190,8 @@ export class TransitRenderer {
       const state = this.states.get(vehicle.id)!;
       const shape = this.shapes.get(vehicle.shapeKey);
       if (shape) state.motion?.setEnd(shape.total);
-      const progress = this.progress(state, now);
       const scale = vehicleScale(vehicle, zoom, vehicle.latitude);
+      const progress = shape ? this.lead(shape, this.progress(state, now), vehicle, scale.length) : this.progress(state, now);
       const position = shape ? vehiclePose(shape, progress, vehicle, zoom >= MODEL_MIN_ZOOM ? scale.width : 1) : null;
       const coordinate = position?.coordinate ?? [vehicle.longitude, vehicle.latitude] as [number, number];
       if (!bounds.contains(coordinate) && this.selectedId !== vehicle.id) continue;
