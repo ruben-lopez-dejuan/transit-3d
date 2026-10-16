@@ -130,6 +130,19 @@ test('rail cars follow different tangents around curves, with opposite direction
   assert.notDeepEqual(vehiclePose(shape, 50, vehicle)?.coordinate, vehiclePose(reverse, 150, vehicle)?.coordinate);
 });
 
+test('on a stretch drawn on its own track a train keeps no lateral offset, and slides onto it', () => {
+  // 2 km east; the middle kilometre is matched onto the OSM track (Euskotren Matiko – Kukullaga).
+  const shape = { key: 's', coordinates: [[0, 0], [.018, 0]] as [number, number][], cumulative: [0, 2003.8], total: 2003.8, onTrack: [{ from: 500, to: 1500 }] };
+  const vehicle = { mode: 'rail', operatorId: 'euskotren', label: 'E1', appearance: { kind: 'train', composition: { count: 4, length: 19, gap: .4 }, lateralOffsetMeters: 1.7 } } as const;
+  const offset = (progress: number, scale = 1) => 0 - vehiclePose(shape, progress, vehicle, scale)!.coordinate[1] * 110540;
+  assert.equal(offset(1000), 0);
+  assert.equal(offset(500), 0);
+  assert.ok(Math.abs(offset(300) - 1.7) < 1e-6, 'off the stretch it keeps its offset to the right');
+  assert.ok(offset(480) > 0 && offset(480) < offset(470) && offset(470) < 1.7, 'it slides onto the track');
+  // Zoomed out the offset widens with the model, and the slide lengthens with it.
+  assert.ok(offset(480, 10) > 0 && offset(480, 10) < 17 * .1);
+});
+
 test('a train goes down a cutting into the tunnel mouth smoothly, car after car', () => {
   // 2 km straight, with a portal at 1000 m and the tunnel running on past the end of the shape.
   const shape = { key: 's', coordinates: [[0, 0], [.018, 0]] as [number, number][], cumulative: [0, 2003.8], total: 2003.8, underground: [{ from: 1000, to: 2003.8, depthMeters: 12, approximate: true, tunnelAfterEnd: true }] };

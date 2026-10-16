@@ -39,11 +39,22 @@ export function trackDepth(shape: Shape, progress: number) {
   }
   return { depth, slope, tunnel };
 }
+/**
+ * A train slides from its diagrammatic offset onto a stretch drawn on its own track over this
+ * many metres, times the widening of the model when zoomed out (so is the offset).
+ */
+export const ON_TRACK_RAMP_METERS = 40;
+/** How much of the lateral offset applies here: none on a stretch drawn on the vehicle's own track. */
+function offTrack(shape: Shape, progress: number, ramp: number) {
+  let factor = 1;
+  for (const range of shape.onTrack ?? []) factor = Math.min(factor, smooth(Math.max(range.from - progress, progress - range.to, 0) / ramp));
+  return factor;
+}
 export function vehiclePose(shape: Shape, progress: number, vehicle: StyledVehicle, lateralScale = 1) {
   const located = positionAlong(shape, progress); if (!located) return null;
   const position = { coordinate: located.coordinate, bearing: heading(shape, progress, located.bearing) };
   const rail = vehicle.mode === 'rail' || vehicle.mode === 'tram';
-  const lateral = (vehicle.appearance?.lateralOffsetMeters ?? (rail ? 1.7 : 0)) * lateralScale;
+  const lateral = (vehicle.appearance?.lateralOffsetMeters ?? (rail ? 1.7 : 0)) * lateralScale * offTrack(shape, progress, ON_TRACK_RAMP_METERS * Math.max(1, lateralScale));
   const angle = position.bearing * Math.PI / 180;
   const coordinate: [number, number] = [position.coordinate[0] + lateral * Math.cos(angle) / (111320 * Math.cos(position.coordinate[1] * Math.PI / 180)), position.coordinate[1] - lateral * Math.sin(angle) / 110540];
   const { depth, slope, tunnel } = trackDepth(shape, progress);

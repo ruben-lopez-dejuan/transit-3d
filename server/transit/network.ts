@@ -14,6 +14,7 @@ import { withStationDwell } from './stationDwell';
 import { bearingDegrees, sameSpotStops } from './sameSpotStops';
 import { officialNextStop, withOfficialPosition } from './officialPosition';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
+import { onTrackStretches } from './routedSegments';
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape, MotionAnchor, TimelineSource } from '../../shared/transit/network';
 import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
 import { transitDebugTraceStore } from '../admin/traceStore';
@@ -70,7 +71,8 @@ function packet(operatorId: string, shapeId: string) {
   if (packets.has(shapeKey)) return packets.get(shapeKey)!;
   const gtfs = feeds.get(operatorId), metric = gtfs ? shapeMetric(gtfs, shapeId) : null;
   if (!gtfs || !metric) return null;
-  const result = { ...shapePacket(metric, shapeKey), underground: city.infrastructure(gtfs, operatorId, shapeId) };
+  const onTrack = onTrackStretches(metric.coordinates, metric.cumulativeMeters);
+  const result = { ...shapePacket(metric, shapeKey), underground: city.infrastructure(gtfs, operatorId, shapeId), ...(onTrack.length ? { onTrack } : {}) };
   packets.set(shapeKey, result); return result;
 }
 type StopReference = { tripId: string; seconds: number; stopId: string; sequence: number };
