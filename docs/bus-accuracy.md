@@ -108,5 +108,17 @@ Ahora la lectura oficial más reciente (como mucho 90 s) da al vehículo `offici
 que aún lo lista y dónde lo situaba al consultarla. El dibujo no pasa esa parada y no se queda por
 detrás de esa posición; la ficha la usa como próxima parada. No se usa como observación: lecturas de
 paradas distintas difieren ±200 m y el bus iba adelante y atrás o corría con velocidades inventadas.
-Con la primera versión (solo el tope) bajó al 18 % por delante y 12 % por detrás; falta medir la
-versión con suelo frente a master a la misma hora.
+Medición a la misma hora frente a la versión anterior (10 min, 16 oct 2026):
+
+| Bizkaibus | Antes | Después |
+|---|---|---|
+| Ficha y panel coinciden (muestreo) | 60 % | 75 % |
+| Dibujado pasada la parada / antes de la anterior | 40 % / 0 % | 17 % / 8 % |
+| Con la ficha abierta: coinciden | 55 % | 81 % |
+| Con la ficha abierta: distancia a la parada con «Ahora» (mediana / p90) | 162 / 232 m | 40 / 180 m |
+| Distancia en el mapa al GPS real (mediana / p90) | 282 / 915 m | 216 / 778 m |
+| Sesgo a lo largo | 149 m por delante | 32 m |
+
+Lo que queda por delante es sobre todo el bus que ya iba dibujado pasada la parada cuando llega la
+lectura (no retrocede) y el que no tiene lectura vigente; por detrás, el que espera en una parada que
+ya ha dejado hasta la siguiente lectura (cada minuto para la flota, cada 15–20 s con la ficha abierta).
