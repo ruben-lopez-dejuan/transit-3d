@@ -198,6 +198,13 @@ test('Realtime timetables show freshness, delay and cancellation, reverting stal
   const stale = departures([row], () => 'Renfe', at);
   assert.ok(stale.includes('Sin actualización reciente')); assert.ok(!stale.includes('Tiempo real'));
 });
+test('A train standing at the platform is "Ahora" until it leaves, not "1 min"', () => {
+  const now = Date.now(), at = now + 16_000;
+  const row = { routeKey: 'metro:r', tripId: 't', label: 'L1', headsign: 'Plentzia', operatorId: 'metro', at, arrivalAt: now - 8_000, scheduledAt: at, source: 'realtime' as const, updatedAt: now - 60_000, quality: 'predicted' as const, delaySeconds: 0 };
+  assert.ok(departures([row], () => 'Metro', now).includes('<strong>Ahora</strong>'));
+  // Still on its way: the minutes count to the arrival, not to the departure.
+  assert.ok(departures([{ ...row, arrivalAt: now + 100_000, at: now + 124_000 }], () => 'Metro', now).includes('<strong>2 min</strong>'));
+});
 test('A position predicted from TripUpdates does not claim to have a GPS signal', () => {
   const v = { positionQuality: 'predicted', observationTimestamp: null, timetableTimestamp: 1000 } as Vehicle;
   assert.equal(positionExplanation(v, 16000), 'Sin GPS · previsión hace 15 s');

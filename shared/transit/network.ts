@@ -24,7 +24,8 @@ export type Snapshot = { cityId: string; fetchedAt: number; serverTime?: number;
  * onTrack: stretches drawn on the vehicle's own track (matched onto OSM tracks): no lateral offset there.
  */
 export type Shape = { key: string; coordinates: [number, number][]; cumulative: number[]; total: number; underground?: { from: number; to: number; depthMeters: number; approximate: boolean; tunnelBeforeStart?: boolean; tunnelAfterEnd?: boolean }[]; onTrack?: { from: number; to: number }[] };
-export type Departure = { routeKey: string; tripId: string; label: string; headsign: string; operatorId: string; at: number; quality: PositionQuality; delaySeconds: number | null; scheduledAt?: number; updatedAt?: number | null; source?: 'realtime' | 'gps' | 'schedule'; canceled?: boolean; directionId?: number | null; vehicleId?: string };
+/** `at` is when the service leaves the stop; `arrivalAt`, when it gets there, if earlier (a train standing at the platform). */
+export type Departure = { routeKey: string; tripId: string; label: string; headsign: string; operatorId: string; at: number; arrivalAt?: number; quality: PositionQuality; delaySeconds: number | null; scheduledAt?: number; updatedAt?: number | null; source?: 'realtime' | 'gps' | 'schedule'; canceled?: boolean; directionId?: number | null; vehicleId?: string };
 export type LineDetail = { route: Route; shapes: Shape[]; stops: Stop[]; departures: Departure[] };
 export type StopDetail = { stop: Stop; nearbyStops: Stop[]; departures: Departure[] };
 export type TripDetail = { vehicleId: string; trip: NormalizedTrip; stops: (Stop & { at: number | null; progress: number; skipped?: boolean; realtime?: boolean; source?: 'siri' | 'realtime' | 'gps' | 'schedule' })[]; shape: Shape | null };

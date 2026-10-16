@@ -75,7 +75,8 @@ function packet(operatorId: string, shapeId: string) {
   const result = { ...shapePacket(metric, shapeKey), underground: city.infrastructure(gtfs, operatorId, shapeId), ...(onTrack.length ? { onTrack } : {}) };
   packets.set(shapeKey, result); return result;
 }
-type StopReference = { tripId: string; seconds: number; stopId: string; sequence: number };
+/** `dwell`: scheduled seconds between arrival and departure, when the timetable has them apart. */
+type StopReference = { tripId: string; seconds: number; stopId: string; sequence: number; dwell?: number };
 const stopReferences = new Map<string, StopReference[]>();
 let networkCache: Promise<Network> | null = null;
 let networkExpires = 0;
@@ -165,9 +166,10 @@ async function loadNetwork(): Promise<Network> {
           modes.get(time.stopId)!.add(mode);
           const seconds = parseGtfsTime(time.departureTime) ?? parseGtfsTime(time.arrivalTime);
           if (seconds === null) continue;
+          const arrival = parseGtfsTime(time.arrivalTime);
           const stopKey = key(definition.id, 'stop', time.stopId);
           if (!stopReferences.has(stopKey)) stopReferences.set(stopKey, []);
-          stopReferences.get(stopKey)!.push({ tripId, seconds, stopId: time.stopId, sequence: time.sequence });
+          stopReferences.get(stopKey)!.push({ tripId, seconds, stopId: time.stopId, sequence: time.sequence, ...(arrival !== null && arrival < seconds ? { dwell: seconds - arrival } : {}) });
         }
       }
       for (const stop of gtfs.stops.values()) {
@@ -322,8 +324,10 @@ async function departures(operatorId: string, references: StopReference[], now: 
       const at = changed?.departure ?? scheduledAt + (gpsEstimated ? vehicle!.delaySeconds! * 1000 : 0);
       if (at < now.getTime() - 30_000 || at > now.getTime() + 6 * 3600_000) continue;
       const departureKey = `${date.date}:${trip.tripId}:${reference.sequence}`;
+      // While a train stands at the platform the board says "Ahora", not the minutes left until it leaves.
+      const arrivalAt = changed?.arrival ?? (reference.dwell ? at - reference.dwell * 1000 : undefined);
       const realtime = changed?.departureRealtime || update?.canceled;
-      const row: Departure = { routeKey: route.key, tripId: key(operatorId, 'trip', trip.tripId), label: route.shortName, headsign: passengerHeadsign(trip.headsign || route.longName, route.longName), operatorId, at, scheduledAt, updatedAt: realtime ? update!.updatedAt : gpsEstimated ? vehicle!.observationTimestamp : null, source: realtime ? 'realtime' : gpsEstimated ? 'gps' : 'schedule', canceled: update?.canceled ?? false, quality: realtime || gpsEstimated ? 'predicted' : 'scheduled', delaySeconds: changed?.departureRealtime ? (at - scheduledAt) / 1000 : gpsEstimated ? vehicle!.delaySeconds : null };
+      const row: Departure = { routeKey: route.key, tripId: key(operatorId, 'trip', trip.tripId), label: route.shortName, headsign: passengerHeadsign(trip.headsign || route.longName, route.longName), operatorId, at, scheduledAt, updatedAt: realtime ? update!.updatedAt : gpsEstimated ? vehicle!.observationTimestamp : null, source: realtime ? 'realtime' : gpsEstimated ? 'gps' : 'schedule', canceled: update?.canceled ?? false, quality: realtime || gpsEstimated ? 'predicted' : 'scheduled', delaySeconds: changed?.departureRealtime ? (at - scheduledAt) / 1000 : gpsEstimated ? vehicle!.delaySeconds : null, ...(arrivalAt !== undefined && arrivalAt < at ? { arrivalAt } : {}) };
       if (!result.has(departureKey) || at < result.get(departureKey)!.at) result.set(departureKey, row);
     }
   }
