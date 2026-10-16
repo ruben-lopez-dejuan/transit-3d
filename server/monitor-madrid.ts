@@ -16,6 +16,8 @@ import { METRO_TELEINDICADORES_URL } from './providers/madrid/metroFeed';
  * Cercanías: it runs the browser's own TransitRenderer on those snapshots and compares, for
  * every new Renfe GPS fix taken at t, where the map was drawing that train at t (along-track
  * error, + ahead / − behind, and distance on the map), as monitor-bus-accuracy does for Bilbao.
+ * Renfe renews a train's timestamp every ~20 s but its position only every minute or two, so
+ * only fixes where the position moved count as observations at t ("moved" in the summary).
  *
  * Options: --metro-captures saves each teleindicadores poll (30 s) for
  * replay-metro-madrid.ts; --emt-stops=72,73 asks the app for those EMT stops every 60 s,
@@ -40,6 +42,7 @@ let snapshots = 0;
 
 const renderer = new TransitRenderer({} as never);
 const renfe = new Map<string, Vehicle>(), samples = new Map<string, { at: number; progress: number; shapeKey: string }[]>(), seenFixes = new Set<string>();
+const lastPosition = new Map<string, string>();
 const fixes = fs.createWriteStream(path.join(output, 'renfe-fixes.jsonl'));
 const R = 111_320;
 const meters = (a: [number, number], b: [number, number]) => Math.hypot((a[0] - b[0]) * R * Math.cos(a[1] * Math.PI / 180), (a[1] - b[1]) * R);
@@ -112,7 +115,8 @@ async function pollRenfe() {
     const drawn = (samples.get(vehicle.id) ?? []).find((s) => Math.abs(s.at - at) <= 250), shape = renderer.shapes.get(vehicle.shapeKey);
     if (!drawn || !shape || drawn.shapeKey !== vehicle.shapeKey) { fixes.write(JSON.stringify({ kind: 'not-drawn-at-fix', id: vehicle.id, at, latency: seenAt - at }) + '\n'); continue; }
     const point: [number, number] = [raw.position.longitude, raw.position.latitude], truth = project(shape, point, drawn.progress, 3000), drawnPoint = positionAlong(shape, drawn.progress)?.coordinate;
-    fixes.write(JSON.stringify({ kind: 'fix', id: vehicle.id, line: vehicle.label, at, latency: seenAt - at, along: Math.round(drawn.progress - truth.progress), lateral: Math.round(truth.distance), map: drawnPoint ? Math.round(meters(drawnPoint, point)) : null, source: vehicle.positionSource }) + '\n');
+    const where = point.map((c) => c.toFixed(5)).join(','), moved = lastPosition.has(tripId) && lastPosition.get(tripId) !== where; lastPosition.set(tripId, where);
+    fixes.write(JSON.stringify({ kind: 'fix', id: vehicle.id, line: vehicle.label, at, latency: seenAt - at, moved, along: Math.round(drawn.progress - truth.progress), lateral: Math.round(truth.distance), map: drawnPoint ? Math.round(meters(drawnPoint, point)) : null, source: vehicle.positionSource }) + '\n');
   }
 }
 
@@ -132,7 +136,8 @@ function summary() {
   }));
   const rows = fs.existsSync(path.join(output, 'renfe-fixes.jsonl')) ? fs.readFileSync(path.join(output, 'renfe-fixes.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
   const fixed = rows.filter((r) => r.kind === 'fix'), along = fixed.map((r) => Math.abs(r.along)), map = fixed.flatMap((r) => r.map === null ? [] : [r.map]);
-  const renfeGps = { fixes: fixed.length, unmatched: rows.filter((r) => r.kind === 'unmatched').length, notDrawn: rows.filter((r) => r.kind === 'not-drawn-at-fix').length, absAlongMeters: { median: percentile(along, .5), p90: percentile(along, .9) }, mapMeters: { median: percentile(map, .5), p90: percentile(map, .9) }, latencySeconds: { median: percentile(fixed.map((r) => r.latency / 1000), .5) } };
+  const moved = fixed.filter((r) => r.moved), movedAlong = moved.map((r) => Math.abs(r.along)), movedMap = moved.flatMap((r) => r.map === null ? [] : [r.map]);
+  const renfeGps = { fixes: fixed.length, moved: { fixes: moved.length, absAlongMeters: { median: percentile(movedAlong, .5), p90: percentile(movedAlong, .9) }, signedAlongMedian: percentile(moved.map((r) => r.along), .5), mapMeters: { median: percentile(movedMap, .5), p90: percentile(movedMap, .9) } }, unmatched: rows.filter((r) => r.kind === 'unmatched').length, notDrawn: rows.filter((r) => r.kind === 'not-drawn-at-fix').length, absAlongMeters: { median: percentile(along, .5), p90: percentile(along, .9) }, mapMeters: { median: percentile(map, .5), p90: percentile(map, .9) }, latencySeconds: { median: percentile(fixed.map((r) => r.latency / 1000), .5) } };
   return { startedAt: new Date(started).toISOString(), minutes, snapshots, operators, renfeGps };
 }
 
