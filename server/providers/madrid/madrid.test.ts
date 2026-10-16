@@ -7,6 +7,7 @@ import type { BizkaibusGtfs } from '../bizkaibus/gtfs';
 import { orientTripShapes } from '../../transit/shapeOrientation';
 import { tripPlan } from '../../transit/plans';
 import { RenfeAddedTrips } from './renfeAddedTrips';
+import { coversMadrid, MadridRenfeFeed } from './renfeFeed';
 import { normalizeTripUpdates, type RealtimeMessage } from '../../transit/realtime';
 import { applyRealtime } from '../../transit/applyRealtime';
 import { generateScheduledVehicles } from '../../transit/scheduled';
@@ -43,6 +44,19 @@ function addedFeed(now = at): RealtimeMessage {
 }
 const gpsFeed = (now = at): RealtimeMessage => ({ header: { timestamp: now / 1000 }, entity: [{ vehicle: { trip: { tripId: 'SPECIAL_10_test' }, vehicle: { id: 'physical-7' }, timestamp: now / 1000, position: { latitude: 40.4, longitude: -3.695 }, currentStatus: 'IN_TRANSIT_TO', stopId: 'b' } }] });
 
+test('a Renfe publication without any Madrid journey keeps the previous one while it is fresh', async () => {
+  const feed = (seconds: number, tripIds: string[]): RealtimeMessage => ({ header: { timestamp: (at + seconds * 1000) / 1000 }, entity: tripIds.map((tripId) => ({ vehicle: { trip: { tripId }, timestamp: (at + seconds * 1000) / 1000, position: { latitude: 40.4, longitude: -3.7 } } })) });
+  const madrid = (f: RealtimeMessage) => coversMadrid(f, new Set(['10T1']));
+  assert.equal(madrid(feed(0, ['1087V21818C7'])), true); assert.equal(madrid(feed(0, ['SPECIAL_10_91677C7'])), true); assert.equal(madrid(feed(0, ['5187V12345C1', '2087V1C2'])), false);
+  // 16 Oct 2026: national publications alternate between 296 entities (95 in Madrid) and 202 (none).
+  const states = [feed(0, ['1087V1C1', '5187V1C1']), feed(20, ['5187V1C1']), feed(40, ['1087V1C1']), feed(300, ['5187V1C1'])];
+  let i = 0; const client = { get: async () => ({ feed: states[i], sourceTimestamp: states[i].header!.timestamp! * 1000, receivedTimestamp: at + i }) };
+  const kept = new MadridRenfeFeed(client, madrid);
+  assert.equal((await kept.get(at)).feed, states[0]);
+  i = 1; const held = await kept.get(at + 20_000); assert.equal(held.feed, states[0]); assert.equal(held.sourceTimestamp, at); assert.equal(held.receivedTimestamp, at);
+  i = 2; assert.equal((await kept.get(at + 40_000)).feed, states[2]);
+  i = 3; assert.equal((await kept.get(at + 320_000)).feed, states[3], 'a stale Madrid publication is not kept');
+});
 test('orientation copies shared reverse shapes per trip, supports partial journeys and is idempotent', () => {
   const g = fixture(), original = JSON.stringify(g.shapes.get('forward'));
   g.trips.set('reverse', { ...g.trips.get('forward')!, tripId: 'reverse', directionId: null });

@@ -1,5 +1,7 @@
 import type { BizkaibusGtfs } from './bizkaibus/gtfs';
-import { RealtimeFeedClient } from './realtimeFeed';
+import type { RealtimeFeedClient } from './realtimeFeed';
+/** A realtime source as the provider reads it: the downloading client or a filter over one. */
+type FeedSource = Pick<RealtimeFeedClient, 'get'>;
 import { normalizeTripUpdates, renumberTrips, type NormalizationStats, type Renumbering, type UpdatedTrip } from '../transit/realtime';
 import type { TransitProvider, ProviderSnapshot } from '../transit/types';
 import { applyRealtime } from '../transit/applyRealtime';
@@ -22,7 +24,7 @@ export class RealtimeProvider implements TransitProvider {
   updates = new Map<string, UpdatedTrip>();
   /** Renumbering is worked out once per downloaded feed, not on every snapshot. */
   private renumbered = new WeakMap<RealtimeMessage, ReturnType<typeof renumberTrips>>();
-  constructor(private readonly base: TransitProvider, private readonly getGtfs: () => Promise<BizkaibusGtfs>, private readonly timetable?: RealtimeFeedClient, private readonly gps?: RealtimeFeedClient, private readonly maximumGpsSpeed?: number, private readonly timezone = 'Europe/Madrid', private readonly prepare?: RealtimePreparation) { this.operatorId = base.operatorId; }
+  constructor(private readonly base: TransitProvider, private readonly getGtfs: () => Promise<BizkaibusGtfs>, private readonly timetable?: FeedSource, private readonly gps?: FeedSource, private readonly maximumGpsSpeed?: number, private readonly timezone = 'Europe/Madrid', private readonly prepare?: RealtimePreparation) { this.operatorId = base.operatorId; }
   async getSnapshot(now = new Date()): Promise<ProviderSnapshot> {
     const [gtfs, timetableState, gps] = await Promise.all([this.getGtfs(), this.timetable?.get(), this.gps?.get()]);
     const timetable = timetableState ?? { feed: null, sourceTimestamp: null, receivedTimestamp: null };

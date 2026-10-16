@@ -2,6 +2,7 @@ import type { CityPackageConfig } from '../packageConfig';
 import type { ProviderExtension } from '../folderPackage';
 import { RealtimeProvider } from '../../providers/realtimeProvider';
 import { RenfeAddedTrips } from '../../providers/madrid/renfeAddedTrips';
+import { coversMadrid, MadridRenfeFeed } from '../../providers/madrid/renfeFeed';
 import { orientTripShapes } from '../../transit/shapeOrientation';
 import { MetroFeedClient } from '../../providers/madrid/metroFeed';
 import { MetroArrivalProvider } from '../../providers/madrid/metroProvider';
@@ -35,7 +36,9 @@ export function madridExtensions(config: CityPackageConfig): ReadonlyMap<string,
     extensions.set(renfe.id, {
       cacheVersion: 'renfe-madrid-oriented-v1', prepareGtfs: (gtfs) => { orientTripShapes(gtfs); },
       create: ({ base, getGtfs, timetable, gps, timezone, maximumGpsSpeed }) => {
-        const adapter = new RealtimeProvider(base, getGtfs, timetable, gps, maximumGpsSpeed ?? 40, timezone, added.prepare);
+        const madrid = (feed: Parameters<typeof coversMadrid>[0]) => coversMadrid(feed, allowed);
+        const keep = <T extends { get: MadridRenfeFeed['get'] }>(client: T | undefined) => client && new MadridRenfeFeed(client, madrid);
+        const adapter = new RealtimeProvider(base, getGtfs, keep(timetable), keep(gps), maximumGpsSpeed ?? 40, timezone, added.prepare);
         return { adapter, getUpdates: () => adapter.updates };
       },
     });
