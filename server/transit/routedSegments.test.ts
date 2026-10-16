@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bearing, extendShape, extendToTerminals, rejectRoute, replaceCorridor, routeStraightSegments, segmentKey, trimRoute, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
+import fs from 'node:fs';
+import { bearing, extendShape, extendToTerminals, moveToPlatforms, onTrackStretches, rejectRoute, replaceCorridor, routeStraightSegments, segmentKey, trimRoute, simplifyPath, straightMeters, type Corridor, type ShapeExtension } from './routedSegments';
 import type { GtfsShapePoint } from '../providers/bizkaibus/gtfs';
+import { RAIL_TRACKS_FILE } from './trackMatching';
 
 const shape = (points: [number, number][]): GtfsShapePoint[] => points.map(([longitude, latitude], i) => ({ longitude, latitude, sequence: i + 1 }));
 const coordinates = (points: GtfsShapePoint[]) => points.map((p) => [p.longitude, p.latitude]);
@@ -94,4 +96,27 @@ test('simplification keeps the bends that matter and the ends', () => {
   const simplified = simplifyPath(line, 3);
   assert.deepEqual(simplified, [line[0], line[2], line[3]]);
   assert.ok(Math.abs(straightMeters([-2.9, 43.2], [-2.9, 43.21]) - 1113) < 2);
+});
+
+test('a shape drawn on the reviewed tracks is on its own track there, and nowhere else', () => {
+  // The southbound track of the Euskotren tunnel between Otxarkoaga and Txurdinaga, then 1 m off it.
+  const way = (JSON.parse(fs.readFileSync(RAIL_TRACKS_FILE, 'utf8')) as { ways: { id: number; path: [number, number][] }[] }).ways.find((item) => item.id === 559443418)!.path;
+  const off = way.map(([longitude, latitude]): [number, number] => [longitude, latitude + 1 / 110_540]);
+  const path = [...way, ...off];
+  const cumulative = path.map((_, i) => path.slice(1, i + 1).reduce((sum, point, j) => sum + straightMeters(path[j], point), 0));
+  const stretches = onTrackStretches(path, cumulative);
+  assert.equal(stretches.length, 1);
+  assert.deepEqual(stretches[0], { from: 0, to: cumulative[way.length - 1] });
+});
+
+test('the stops of an underground station move onto its platform', () => {
+  // Euskotren puts Zurbaranbarri at its street entrance, 170 m off the track.
+  const stations = [{ name: 'Zurbaranbarri', ids: [5294711015], point: [-2.9137236, 43.2637265] as [number, number] }, { name: 'Zazpikaleak / Casco Viejo', ids: [4298706695], point: [-2.9218361, 43.2602246] as [number, number] }];
+  const stop = (name: string, longitude: number, latitude: number) => ({ stopId: name, stopCode: '', name, longitude, latitude });
+  const stops = [stop('Zurbaranbarri-Bilbao', -2.914971, 43.26495), stop('Zazpikaleak/Casco Viejo-Bilbao', -2.921842, 43.260176), stop('Zurbaranbarri-Bilbao', -2.95, 43.26), stop('Zurbaran', -2.914971, 43.26495)];
+  assert.equal(moveToPlatforms(stops, stations), 2);
+  assert.deepEqual([stops[0].longitude, stops[0].latitude], stations[0].point);
+  assert.deepEqual([stops[1].longitude, stops[1].latitude], stations[1].point, 'names are compared without spaces around the slash');
+  assert.equal(stops[2].longitude, -2.95, 'a stop of the same name far away stays');
+  assert.equal(stops[3].longitude, -2.914971, 'another name stays');
 });

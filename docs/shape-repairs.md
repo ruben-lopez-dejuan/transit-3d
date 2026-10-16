@@ -47,7 +47,7 @@ cambian entre publicaciones, así que no se pueden fijar en un fichero.
 ## Vías del tranvía
 
 `server/cities/es-bilbao/tram-tracks.json`, generado con
-`npx tsx server/import-tram-tracks.ts <respuesta-overpass.json>` (la consulta está en
+`npx tsx server/import-tracks.ts tram <respuesta-overpass.json>` (la consulta está en
 el script): las vías `railway=tram` de Euskal Trenbide Sarea en Bilbao y
 Vitoria-Gasteiz, las mismas que muestra OpenRailwayMap, con el sentido de circulación
 cuando OSM lo indica (`railway:preferred_direction`, casi todo Vitoria).
@@ -70,6 +70,51 @@ media y hasta 29 m en el túnel Atxuri – Bolueta), sin giros de más de 24° e
 puntos y 7° como máximo. Quedan dos tramos por la vía contraria: unos 100 m de la 41 y
 la TG2 en el apartadero de (-2,6829; 42,8587), y la llegada de la TG2 a Salburua, que
 puede entrar por cualquiera de los dos andenes.
+
+## Vías de Euskotren entre Matiko y Kukullaga
+
+`server/cities/es-bilbao/rail-tracks.json`, generado con
+`npx tsx server/import-tracks.ts euskotren <respuesta-overpass.json>` (la consulta está
+en el script): las vías `railway=subway|narrow_gauge|rail` de Euskal Trenbide Sarea
+desde dentro del túnel de Artxanda hasta la superficie al sur de Kukullaga, sin las de
+Metro Bilbao (también de ETS) y quedándose solo con la red unida a la de Euskotren: 50
+ways, 16 de ellas escapes, apartaderos y cocheras. Guarda también los andenes de las siete
+estaciones: la media de los `stop_position` que OSM pone sobre estas vías (en Zurbaranbarri,
+que no tiene, el nodo de la estación, también sobre la vía).
+
+El GTFS dibuja ese túnel (L3, y los E1, E3, E4 y FCC que pasan por él) como un boceto
+con un punto cada 50 m: la curva entre Otxarkoaga y Kukullaga es una cuerda que pasa a
+177 m de la vía, y cerca de Casco Viejo y Txurdinaga se aparta 60–95 m. Las 37 formas que
+lo recorren se encajan con el mismo modelo que el tranvía, con otros parámetros
+(`RAIL_TRACK_OPTIONS`): busca vía hasta a 200 m; entre dos vías paralelas sin etiqueta
+elige la de la izquierda, porque Euskotren circula por la izquierda en Bizkaia; y solo
+encaja el tramo que pasa por estas vías, dejando el resto de la forma como venía. Un
+punto más allá de un final de vía suelto (donde el conjunto se corta) a más de 10 m no se
+encaja, para que la forma no se amontone en ese final. Lejos de la vía, los nodos junto
+al punto más cercano casi empatan con él y dejarían fuera a la otra vía; ahí solo cuenta
+un nodo donde la vía se aleja por los dos lados.
+
+Los tramos de una forma que van sobre estas vías o las del tranvía llegan al cliente como
+`Shape.onTrack`: ahí el tren no lleva el desplazamiento lateral de 1,7 m (va ya por su vía)
+y lo recupera en una rampa de 40 m, más larga al alejar el mapa.
+
+Auditoría 16 oct 2026: las 37 formas quedan sobre la vía de Matiko a Kukullaga, cada
+sentido por la suya y sin saltar de una a otra (la otra vía queda a la derecha, a
+3,3–3,7 m), sin giros de más de 9° en un vértice (antes 40–51°). La L3 pasa de 5378 a
+5568 m. Las costuras con la forma publicada, dentro del túnel de Artxanda y al sur de
+Kukullaga, giran 16° como mucho; fuera del tramo las formas no cambian (la vuelta de la
+E3 en el andén de Sondika se mantiene). Los túneles siguen saliendo de
+`euskotren-tunnels.json`: la L3 va soterrada de la boca de Kukullaga, 150 m al norte de
+la estación, hasta Matiko.
+
+El GTFS sitúa estas estaciones en un acceso de calle: Uribarri, Zurbaranbarri, Txurdinaga y
+Otxarkoaga quedaban a 95–170 m de la vía, y el tren paraba en el punto de vía más cercano al
+acceso, hasta 120 m antes o después del andén. Las paradas de los trenes que pasan por estas
+vías con el nombre de una de las estaciones (`Txurdinaga-Bilbao` para `Txurdinaga`) y a menos
+de 300 m de ella pasan a su andén (`moveToPlatforms`). Auditoría 16 oct 2026: en las 100
+formas de tren de Euskotren ninguna parada va hacia atrás, y las del tramo quedan a 1–7 m
+de la forma. Matiko, a 35 m: las formas que empiezan allí arrancan 35 m al este del andén,
+como antes.
 
 ## Tramos rectos por carretera
 

@@ -1,15 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { BizkaibusGtfs, GtfsShapePoint, GtfsTrip } from '../providers/bizkaibus/gtfs';
-import { matchToTracks, TrackNetwork, TRAM_TRACKS_FILE, type TrackWay } from './trackMatching';
+import type { BizkaibusGtfs, GtfsShapePoint, GtfsStop, GtfsTrip } from '../providers/bizkaibus/gtfs';
+import { matchToTracks, RAIL_TRACK_OPTIONS, RAIL_TRACKS_FILE, TrackNetwork, TRAM_TRACK_OPTIONS, TRAM_TRACKS_FILE, type TrackOptions, type TrackStation, type TrackWay } from './trackMatching';
 
 /**
  * Offline repairs for operator shapes that are drawn wrong: long straight
  * segments routed along roads (server/build-routed-segments.ts), rail
  * corridors whose published shape detours or jumps, and shapes that stop
  * short of their trips (server/import-shape-extensions.ts, or the track of
- * another shape of the feed for rail terminals), and polygonal tram shapes
- * matched onto OSM tracks (server/transit/trackMatching.ts). Applied once while a feed
+ * another shape of the feed for rail terminals), and polygonal tram shapes and
+ * sketched Euskotren tunnels matched onto OSM tracks (server/transit/trackMatching.ts). Applied once while a feed
  * is prepared; the result is cached with the parsed feed.
  */
 type Lonlat = [number, number];
@@ -198,21 +198,70 @@ const isRail = (routeType: number) => [0, 1, 2, 5, 7, 12].includes(routeType) ||
 let routed: RoutedSegments | null | undefined;
 let corridors: Corridor[] | undefined;
 let extensions: ShapeExtension[] | undefined;
-let tramTracks: TrackNetwork | undefined;
-let tramWays = 0;
+/** Reviewed OSM tracks and the shapes matched onto them: every tram, and Euskotren trains through the Matiko – Kukullaga tunnel. */
+const TRACK_SETS: { file: string; options: TrackOptions; applies: (operatorId: string, routeType: number) => boolean }[] = [
+  { file: TRAM_TRACKS_FILE, options: TRAM_TRACK_OPTIONS, applies: (_, routeType) => isTram(routeType) },
+  { file: RAIL_TRACKS_FILE, options: RAIL_TRACK_OPTIONS, applies: (operatorId, routeType) => operatorId === 'euskotren' && isRail(routeType) && !isTram(routeType) },
+];
+let trackSets: { network: TrackNetwork; ways: number; stations: TrackStation[]; applies: (operatorId: string, routeType: number) => boolean }[] | undefined;
 const load = <T>(file: string, fallback: T): T => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T; } catch { return fallback; } };
 /** Version of the repair datasets, so a parsed-feed cache built without them is not reused. */
 export function shapeRepairVersion() {
   routed ??= load<RoutedSegments | null>(ROUTED_SEGMENTS_FILE, null);
   corridors ??= load<{ corridors: Corridor[] }>(CORRIDORS_FILE, { corridors: [] }).corridors;
   extensions ??= load<{ extensions: ShapeExtension[] }>(EXTENSIONS_FILE, { extensions: [] }).extensions;
-  if (!tramTracks) { const ways = load<{ ways: TrackWay[] }>(TRAM_TRACKS_FILE, { ways: [] }).ways; tramWays = ways.length; tramTracks = new TrackNetwork(ways); }
-  return `repairs-v3:${routed?.generatedAt ?? 'none'}:${corridors.length}:${extensions.length}:${tramWays}`;
+  trackSets ??= TRACK_SETS.map(({ file, options, applies }) => {
+    const { ways, stations = [] } = load<{ ways: TrackWay[]; stations?: TrackStation[] }>(file, { ways: [] });
+    return { network: new TrackNetwork(ways, options), ways: ways.length, stations, applies };
+  });
+  return `repairs-v4:${routed?.generatedAt ?? 'none'}:${corridors.length}:${extensions.length}:${trackSets.map((set) => `${set.ways}+${set.stations.length}`).join(':')}`;
+}
+const MIN_ON_TRACK_METERS = 50;
+/**
+ * The stretches of a shape, in metres along it, drawn on the reviewed tracks: the vehicle
+ * runs there on its own track and needs no diagrammatic offset to keep off the other direction.
+ */
+export function onTrackStretches(coordinates: Lonlat[], cumulative: number[]): { from: number; to: number }[] {
+  shapeRepairVersion();
+  const networks = trackSets!.filter((set) => set.ways).map((set) => set.network);
+  if (!networks.length) return [];
+  const on = coordinates.map((point) => networks.some((network) => network.onTrack(point)));
+  const stretches: { from: number; to: number }[] = [];
+  for (let i = 1; i < coordinates.length; i++) {
+    if (!on[i - 1] || !on[i]) continue;
+    const last = stretches.at(-1);
+    if (last && last.to === cumulative[i - 1]) last.to = cumulative[i]; else stretches.push({ from: cumulative[i - 1], to: cumulative[i] });
+  }
+  return stretches.filter((stretch) => stretch.to - stretch.from >= MIN_ON_TRACK_METERS);
+}
+const STATION_SNAP_METERS = 300;
+const stationName = (name: string) => name.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s*\/\s*/g, '/').trim();
+/**
+ * Move the stops of a station onto its platform on the tracks. Euskotren puts its underground
+ * stations at a street entrance (Zurbaranbarri, 170 m off the track), so the train stopped at the
+ * point of track nearest to it, up to 120 m from the platform. A stop named as the station
+ * ("Txurdinaga-Bilbao" for "Txurdinaga") within 300 m of it moves; returns how many did.
+ */
+export function moveToPlatforms(stops: GtfsStop[], stations: TrackStation[]) {
+  let moved = 0;
+  for (const stop of stops) {
+    const name = stationName(stop.name);
+    const station = stations.find((item) => (name === stationName(item.name) || name.startsWith(stationName(item.name) + '-')) && straightMeters([stop.longitude, stop.latitude], item.point) <= STATION_SNAP_METERS);
+    if (!station || (stop.longitude === station.point[0] && stop.latitude === station.point[1])) continue;
+    [stop.longitude, stop.latitude] = station.point;
+    moved++;
+  }
+  return moved;
 }
 /** Apply every repair to every shape of a feed; returns how many shapes changed. */
 export function repairShapes(gtfs: BizkaibusGtfs, operatorId: string) {
   shapeRepairVersion();
   let repaired = 0;
+  for (const set of trackSets!) if (set.stations.length) {
+    const served = new Set<string>();
+    for (const trip of gtfs.trips.values()) if (set.applies(operatorId, gtfs.routes.get(trip.routeId)?.routeType ?? 3)) for (const time of gtfs.tripStops.get(trip.tripId) ?? []) served.add(time.stopId);
+    moveToPlatforms([...served].flatMap((stopId) => gtfs.stops.get(stopId) ?? []), set.stations);
+  }
   // One trip per rail shape gives its terminal platforms; the published rail shapes are the tracks.
   const railTrips = new Map<string, GtfsTrip>();
   for (const trip of gtfs.trips.values()) if (trip.shapeId && !railTrips.has(trip.shapeId) && isRail(gtfs.routes.get(trip.routeId)?.routeType ?? 3)) railTrips.set(trip.shapeId, trip);
@@ -225,8 +274,9 @@ export function repairShapes(gtfs: BizkaibusGtfs, operatorId: string) {
     const trip = railTrips.get(shapeId), stops = trip && gtfs.tripStops.get(trip.tripId);
     const first = stops?.length && gtfs.stops.get(stops[0].stopId), last = stops?.length && gtfs.stops.get(stops.at(-1)!.stopId);
     if (first && last) next = extendToTerminals(next, { first: [first.longitude, first.latitude], last: [last.longitude, last.latitude] }, tracks) ?? next;
-    if (trip && tramWays && isTram(gtfs.routes.get(trip.routeId)?.routeType ?? 3)) {
-      const matched = matchToTracks(next.map(lonlat), tramTracks!);
+    const routeType = trip ? gtfs.routes.get(trip.routeId)?.routeType ?? 3 : 3;
+    for (const set of trackSets!) if (trip && set.ways && set.applies(operatorId, routeType)) {
+      const matched = matchToTracks(next.map(lonlat), set.network);
       if (matched) next = matched.map((point, i) => toPoint(point, i + 1));
     }
     if (routed) next = routeStraightSegments(next, routed.segments) ?? next;
