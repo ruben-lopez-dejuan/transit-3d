@@ -1,6 +1,6 @@
 # Madrid: fuentes, decisiones y evidencia
 
-Verificación: **3 de octubre de 2026**, con descargas HTTPS, inspección de ZIP/CSV, XML y protobuf. No se abrió ni se arrancó Transit 3D. Los conteos describen muestras concretas, no el número real de vehículos de toda la red.
+Verificación: **3 de octubre de 2026**; mediciones con la app en marcha el **16 de octubre de 2026** (ver [Medición del 16 de octubre](#medición-del-16-de-octubre-de-2026)). Primera verificación, con descargas HTTPS, inspección de ZIP/CSV, XML y protobuf. No se abrió ni se arrancó Transit 3D. Los conteos describen muestras concretas, no el número real de vehículos de toda la red.
 
 ## Resultado por operador
 
@@ -8,7 +8,7 @@ Verificación: **3 de octubre de 2026**, con descargas HTTPS, inspección de ZIP
 |---|---|---|
 | Metro de Madrid | CRTM GTFS para topología + GIS oficial para L3 + teleindicadores oficiales | Llegadas publicadas y posiciones **estimadas**, nunca GPS. Sin predicciones recientes no se generan vehículos desde el calendario caducado |
 | Cercanías Madrid | Renfe GTFS nacional, filtrado a 40 route IDs publicados de Madrid; VehiclePositions y TripUpdates | GPS reciente prioritario, interpolación limitada por el motor existente; estimaciones por TripUpdates y, en ausencia de ambos, horario |
-| EMT Madrid | GTFS EMT + MobilityLabs, opcional con credenciales de servidor | Llegadas por parada seleccionada cuando hay autenticación. La flota sigue representándose por horario; no se declara GPS no verificado |
+| EMT Madrid | GTFS EMT + MobilityLabs, opcional con credenciales de servidor | Llegadas por parada consultada. Los buses que llegan a esas paradas se mueven con la estimación de EMT (retraso del viaje desde su ETA y `DistanceBus`); el resto de la flota, horario. No se declara GPS |
 | Interurbanos CRTM | GTFS oficial CRTM | Horario. No se consiguió una fuente pública directa de realtime verificable |
 | Urbanos de otros municipios | GTFS oficial CRTM | Horario. Misma limitación de acceso realtime |
 | Metro Ligero / Parla | GTFS oficial CRTM; teleindicadores para ML1 | ML1: estimaciones desde llegadas cuando hay evidencia suficiente. ML2, ML3 y ML4: horario. ML1 vuelve al horario si no hay predicciones recientes |
@@ -24,7 +24,12 @@ Verificación: **3 de octubre de 2026**, con descargas HTTPS, inspección de ZIP
 
 ### Estimación y límites
 
-Se correlacionan ETAs de estaciones consecutivas, en la misma línea, sentido y destino, con velocidades plausibles. Una ETA aislada se muestra como llegada, pero no permite colocar un tren. Se deduplican teleindicadores equivalentes. El seguimiento temporal conserva IDs sintéticos internos cuando existe evidencia suficiente; **no identifica el convoy físico**.
+Se correlacionan ETAs de estaciones consecutivas, en la misma línea, sentido y destino, con velocidades plausibles. Una ETA aislada se muestra como llegada, pero no permite colocar un tren nuevo. Se deduplican teleindicadores equivalentes. Cada tren dibujado es un id sintético que **no identifica el convoy físico**, pero se mantiene mientras avanza:
+
+- Cada actualización se empareja con el tren que mejor continúa: donde lo pone ahora su última línea de tiempo publicada, asignando primero los pares más cercanos (−400/+600 m, −700/+1000 m si comparten una ETA a ±90 s). Antes se exigía la misma ETA en una estación común y el tren cambiaba de id en cuanto cambiaba la cadena.
+- Un tren caduca cuando ningún teleindicador reciente lo confirma, no cuando el más antiguo de su cadena pasa de 270 s (cada panel se emite a su hora; p90 de antigüedad ~140 s).
+- Una ETA suelta en la estación siguiente mantiene un tren ya conocido (último tramo antes de la cabecera, panel ausente). Sin ninguna prueba sigue su última línea de tiempo durante 60 s.
+- Nunca retrocede: una ETA más pesimista lo deja esperando; si va por detrás, alcanza la nueva estimación a 25 m/s como máximo. Dos trenes del mismo sentido a menos de 250 m son uno: queda el id más antiguo.
 
 La animación incluye una parada **estimada de 20 s**, no una medición del operador. Las anclas de aproximación/dwell están separadas de `arrivalPredictions`: las horas inferidas para animación no aparecen como llegadas oficiales. La velocidad estimada se limita a 30 m/s y el frontend mantiene sus límites de aceleración y corrección ya existentes. El tiempo civil actual no rejuvenece una predicción.
 
@@ -40,6 +45,8 @@ Limitaciones: red antigua en líneas distintas de L3, cambios de servicio/cortes
 - La muestra descargada a las 10:45 UTC contenía `SPECIAL_10_91677C7`, `ADDED`, ruta oficial `10T0053C7`, vehículo `91677`, GPS de 10:45:34 UTC, stop `18001` y 14 llamadas con horas absolutas. El trip no existía en GTFS y su secuencia correspondía a otra variante estática C7. Se mantiene su **route_id oficial**, se verifica toda la secuencia de estaciones contra geometría de la **misma línea** y se incorpora el viaje únicamente en memoria. El pipeline aceptó ese GPS y esa actualización, con **0 rutas ajenas a Madrid**. No se altera el protobuf.
 - Los viajes añadidos tienen servicio activado solo para sus fechas oficiales, con soporte de medianoche/horas extendidas; caducan junto con sus planes si desaparecen los datos frescos. No se prolongan calendarios históricos. También se incorporan sus llamadas al detalle de parada aunque el índice estático se hubiera creado antes.
 - Prioridad existente: GPS válido → movimiento prudente desde observaciones → TripUpdates → horario. Snapping dentro de 120 m sobre geometría verificada; máximo de 40 m/s para Madrid, sin cambiar Bizkaibus. Conserva `vehicle.id`, status de parada, historial y timestamp original. Una observación incoherente se rechaza, sin renovar el GPS anterior.
+- **Publicaciones sin Madrid** (16/10, muestreo cada 5 s): Renfe publica VehiclePositions y TripUpdates nacionales cada ~20 s y aproximadamente una de cada tres **no trae ningún viaje del núcleo 10** (296 entidades con 95 trenes de Madrid, luego 202 con ninguno). La app tomaba esa publicación como «sin observaciones»: los ~60 trenes pasaban a su posición de horario durante ~20 s y volvían al GPS, a kilómetros. Ahora una publicación sin ningún viaje de Madrid (trip_id `10…`/`SPECIAL_10_…` o una de sus rutas) no sustituye a la anterior mientras esta siga fresca (270 s), con sus horas de fuente y recepción.
+- **VehiclePositions no es un GPS continuo** (medido el 16/10, 58 trenes durante 3 min): la posición de un tren se queda fija 1–2 min mientras su timestamp avanza cada ~20 s y luego salta kilómetros de golpe (C7 de 64,8 a 72,2 km en 20 s; C1 +6 km); hasta la mitad de los trenes están a menos de 30 m de una estación y todas las posiciones caen sobre la vía (0 m de distancia lateral). La app rechazaba ese salto (>40 m/s) y también cada fix posterior que lo confirmaba, así que el tren se quedaba congelado hasta 270 s. Ahora un salto imposible que el siguiente fix confirma (en ≤120 s) se acepta como nuevo punto de partida, sin inventar velocidad; un fix aislado que el siguiente contradice sigue ignorándose.
 - La muestra final de las **11:18:34 UTC** devolvió cabeceras actuales pero **0 vehículos y 0 actualizaciones**. Esto es falta de cobertura del proveedor en esa instantánea; no se sustituye por GPS inventado. El fallback en ese caso es horario, claramente etiquetado. No se garantiza cobertura completa de Renfe ni aceptación de viajes cuyas estaciones/geometría no puedan verificarse.
 
 ## EMT / MobilityLabs
@@ -50,13 +57,21 @@ Endpoints verificados:
 
 - `GET /v2/mobilitylabs/user/login/`: headers `X-ClientId` y `passKey`; sin credenciales, HTTP 200 con **code 99**, sin sesión autorizada.
 - `POST /v2/transport/busemtmad/stops/62/arrives/`: sin token, HTTP **401/code 80**. Body documentado con `cultureInfo`, flags de estimaciones/parada/incidencias; headers `accessToken`. Ninguna petición autenticada se realizó.
-- Login documenta `accessToken` y `tokenSecExpiration`; Arrive documenta `line`, `stop`, `bus`, `destination`, `estimateArrive` en segundos y geometría. El sentinel `999999` no es una ETA utilizable.
+- Login documenta `accessToken` y `tokenSecExpiration`; Arrive documenta `line`, `stop`, `bus`, `destination`, `estimateArrive` en segundos y geometría. El sentinel `999999` no es una ETA utilizable (también aparece `888888`).
+
+Con credenciales reales (16/10/2026):
+
+- El login responde **code 01** («Token extend into control-cache») cuando ya hay una sesión abierta con esas credenciales, por ejemplo Railway y un servidor local a la vez; `arrives` responde **01** («No estimations found») en una parada sin buses próximos. Ambos son respuestas válidas; antes se trataban como fallo y se perdían las llegadas.
+- Cuota de la cuenta: `apiCounter.dailyUse` = **250 000 llamadas/día**, compartida por todas las instancias con las mismas credenciales. El contador de la mañana iba por unos cientos.
+- Cada `Arrive` trae, por bus: `estimateArrive`, **`DistanceBus`** (metros hasta la parada **por el recorrido**: un N4 a 600 m en línea recta daba 33 km) y `geometry` (coordenadas del bus). En 8 minutos de muestreo cada 10 s, `geometry` solo cambió cada **230–252 s**, sin hora propia del fix; `DistanceBus` cambia cada pocos segundos porque EMT lo extrapola y lo corrige al llegar un fix nuevo. No hay endpoint documentado de posiciones de flota: solo `arrives` por parada.
 
 Configuración de servidor: **`EMT_CLIENT_ID`** y **`EMT_PASSKEY`**, ambas necesarias. Nunca en `city.json`, variables `VITE_*`, logs o frontend. Los scripts `npm run dev` y `npm start` cargan el `.env` local al arrancar; en despliegues las credenciales se inyectan como variables del servicio. `.env` y variantes se ignoran en Git.
 
 Se implementan autenticación, reutilización/concurrencia del token, caché de parada de 30 s, timeout de 8 s, límite de 2 consultas concurrentes/10 por minuto y hasta 100 paradas cacheadas. Se consulta una parada seleccionada o, al seleccionar un viaje, hasta cuatro siguientes; nunca toda la flota. Los errores conservan predicciones que sigan frescas y permiten volver a horario. La API documenta distintas cuotas por modalidad y sus ejemplos no coinciden: **comprobar la cuota del registro**, no dar una cifra universal por garantizada.
 
-`datetime` de la respuesta usa hora civil de Madrid sin offset en el recurso verificado: se convierte con DST, sin confundirla con UTC. Es la generación de la respuesta, **no un timestamp GPS individual**. El adaptador expone llegadas y bus IDs; no coloca buses desde coordenadas que no se hayan podido auditar autenticándose. `positionTypeBus` está documentado como no aplicable en esa versión. Las posiciones de la flota permanecen **SCHEDULE_SIMULATION**, incluso si una parada ofrece llegadas realtime. Incidencias y posición completa no se integran sin una respuesta real validada. Tests de autenticación/parsing usan fixtures de la especificación, no una sesión real.
+`datetime` de la respuesta usa hora civil de Madrid sin offset en el recurso verificado: se convierte con DST, sin confundirla con UTC. Es la generación de la respuesta, **no un timestamp GPS individual**. `positionTypeBus` está documentado como no aplicable en esa versión.
+
+**Buses de las paradas consultadas.** Las coordenadas de `geometry` no se usan (hasta 4 min de antigüedad desconocida). Lo que se usa es la ETA de EMT: cada bus se une al viaje del horario que está haciendo y ese viaje recibe como TripUpdate el retraso que implica la ETA, así que el bus del horario se dibuja donde dice EMT (`PROVIDER_ESTIMATED`, con su número de bus y su llegada en la ficha del viaje). Reglas: por línea y parada los buses toman los viajes en el mismo orden (no se adelantan), con la menor desviación total; entre 15 min antes (los nocturnos llegan a Cibeles muy adelantados) y 20 min después; solo viajes ya empezados; y `DistanceBus` debe encajar con la posición del viaje desplazado (600 m + 25 % de la distancia). Un bus visto en varias paradas conserva un viaje. No hay consultas extra: se reutilizan las llegadas que se piden al abrir una parada (máx. 10/min y 30 s de caché por instancia); cuando dejan de ser frescas (270 s) el bus vuelve al horario. El resto de la flota sigue en **SCHEDULE_SIMULATION**. Los tests de autenticación, parsing y unión usan fixtures, no una sesión real.
 
 ## CRTM urbanos, interurbanos y Metro Ligero
 
@@ -75,12 +90,37 @@ Descargas nuevas analizadas en esta sesión:
 
 Los cuatro feeds contienen servicios activos el día inspeccionado; se respetan excepciones y fechas por servicio, no se toma el rango global como garantía de todas las líneas. Para ML1 se reutiliza el feed agregado de Metro (`linea=51`); sus predicciones reemplazan los stand-ins de horario de esa línea para evitar duplicados. ML2/ML3/ML4 conservan horario. La topología de Metro Ligero procede del mismo GTFS de CRTM.
 
+## Medición del 16 de octubre de 2026
+
+`npm run monitor:madrid` con la app local en marcha: cada 15 s lee `/api/transit`, resume por operador y, en Cercanías, compara cada posición del feed de Renfe con dónde estaba dibujado ese tren en ese instante (el `TransitRenderer` del navegador). `npm run replay:metro-madrid` reproduce capturas de teleindicadores sin red ni app. La punta de la mañana se perdió (el equipo se suspendió): son mediciones de **día laborable a media mañana**, no de hora punta.
+
+| Fuente (11:06–11:16) | Vehículos | Origen de la posición | Antigüedad del dato (mediana / p90) | Ids por vehículo | Retrocesos / saltos |
+|---|---:|---|---|---:|---|
+| Metro de Madrid | 156 | estimada desde teleindicadores | 71 / 136 s | 1,48 | 0 / 53 en 5695 pasos |
+| Cercanías | 63 | GPS 89 %, horario 6 %, TripUpdates 5 % | 46 / 161 s | 1,17 | 82 / 203 en 2304 pasos |
+| Cercanías con los arreglos (13:15–13:30) | 67 | GPS 96 %, horario 3 %, TripUpdates 1 % | 41 / 79 s | 1,24 | 146 / 332 en 3936 pasos (siguen los saltos del propio feed) |
+| EMT | 1555 | horario 96 %, estimación EMT 4 % (9 paradas consultadas) | 39 / 78 s (llegadas) | 1,22 | 248 / 72 en 57 171 pasos |
+| Urbanos CRTM | 171 | horario | — | 1,34 | 0 / 0 |
+| Interurbanos CRTM | 1079 | horario | — | 1,23 | 0 / 611 |
+| Metro Ligero | 15 | horario; ML1 estimado | 93 / 244 s | 1,5 | 0 / 0 |
+
+Retroceso: más de 20 m hacia atrás entre dos lecturas; salto: más de 25 m/s. «Ids por vehículo» incluye los que entran y salen de servicio en la ventana.
+
+**Metro, mismo conjunto de capturas con el seguimiento anterior y el nuevo** (`replay:metro-madrid`, paso de 15 s):
+
+| Capturas | Trenes dibujados | Ids distintos | Vida mediana de un id | Retrocesos | Saltos |
+|---|---:|---:|---:|---:|---:|
+| Día, 11:06–11:16 (20) | 94 → **155** | 501 → **221** | 135 → **510 s** | 109 → **0** | 104 → **13** |
+| Noche, 01:14–01:30 (46) | 25 → **46** | 179 → **78** | 75 → **435 s** | 37 → **0** | 45 → **2** |
+
+**Cercanías.** Posición del servidor frente al feed de Renfe del mismo instante (55–65 trenes, mediana / p90): **2360 / 5621 m** antes de los dos arreglos, **0 / 1784 m** y **147 / 5128 m** en dos muestras después. Sin el arreglo de publicaciones sin Madrid, 2 de cada 8 instantáneas no tenían ningún tren en GPS; después, 12 de 12 con 60–63. En el mapa, comparando solo fixes en los que la posición cambió (el resto repite una posición vieja con hora nueva): **2185 / 3384 m** a lo largo de la vía (456 fixes, sesgo mediano +1166 m, el mapa por delante; distancia en el mapa 2072 / 6153 m). El feed no es la verdad: es una posición que se renueva a saltos y muchas veces es la de la estación, así que el error frente a él tiene un mínimo que la app no puede bajar. Medido aparte con el mismo renderer, el mapa dibuja estos trenes a **1002 / 4296 m** de la posición que da el servidor en ese momento (+567 m por delante de mediana): entre dos saltos del feed el navegador sigue moviendo el tren con el horario y el servidor lo mantiene quieto en la posición vieja. Mejorarlo de verdad exige modelar el tren desde TripUpdates y su estado en estación (`STOPPED_AT` + `stopId`), como se hace con el Metro: queda pendiente. De los ~95 trenes que el feed sitúa en la Comunidad, la app dibuja ~65 con GPS: los demás no se emparejan con ningún viaje dibujado (queda por investigar si son viajes fuera de las 40 rutas o trip_id que no casan).
+
 ## Fuentes descartadas y alcance de la validación
 
 - Calendario del GTFS Metro: **descartado como horario actual**, conservado como topología parcial.
 - `/servicios/application.wadl` de Metro: HTTP 200 con HTML **Request Rejected**, no una definición de servicios. No se dedujeron endpoints de ese contenido.
 - EMT sin credenciales: login no autorizado y llegadas HTTP 401; descartado como realtime público anónimo, preparado para autenticación.
-- Coordenadas documentadas por EMT: no usadas como GPS por falta de muestra autenticada/timestamp de observación fiable.
+- Coordenadas (`geometry`) de EMT: renovadas cada ~4 min y sin hora del fix; no se usan como GPS. Sí se usan su ETA y `DistanceBus`.
 - GeoJSON/GIS CRTM y anuncio de Google: no usados como posiciones actuales de buses.
 
 `npm run audit:madrid` descarga **una muestra** de Metro/GIS y Renfe, sin arrancar la aplicación; valida contra el reloj actual y guarda `server/cache/audit/madrid/runtime-report.json`. `-- --cached` no descarga y reproduce la muestra en su instante de fuente: **no es una medición del estado actual**. Fallos de descarga/caché reutilizada y tiempo de evaluación quedan explícitos. Las muestras finales tenían 546 teleindicadores, ETAs de L3 y ML1, cero GPS de Metro y cero servicios simulados desde su calendario caducado. No se hicieron observaciones visuales ni se esperaron ciclos de movimiento. Los 20 nuevos tests cubren orientación, ADDED, IDs, fechas, tiempos, dwell, stale, fallos, caché, autenticación, capacidades y detalles nativos; siguen pasando los anteriores de Bilbao, Málaga y LOD.
