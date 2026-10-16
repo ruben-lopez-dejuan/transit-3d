@@ -1,4 +1,5 @@
 import type { MotionAnchor, Shape, Vehicle, PositionQuality } from "./networkTypes";
+import { OFFICIAL_STOP_MAX_AGE_MS } from "../../shared/transit/freshness";
 
 export function progressAt(timeline: MotionAnchor[], now: number, rail = false): number | null {
   if (!timeline.length) return null;
@@ -35,4 +36,10 @@ export function correctionOffset(offset: number, startedAt: number, duration: nu
 
 export function nextStopAhead<T extends { progress: number }>(stops: readonly T[], renderedProgress: number, toleranceMeters = 10): T | undefined {
   return stops.find((stop) => stop.progress > renderedProgress + toleranceMeters);
+}
+/** The stop the operator's stop panels still list the bus at: while fresh, that is its next stop wherever it is drawn. */
+export function officialStop<T extends { key: string; progress: number; skipped?: boolean }>(stops: readonly T[], vehicle: Pick<Vehicle, 'officialNextStop'>, now: number): T | undefined {
+  const official = vehicle.officialNextStop;
+  if (!official || now - official.sourceTimestamp > OFFICIAL_STOP_MAX_AGE_MS) return undefined;
+  return stops.find((stop) => !stop.skipped && stop.key === official.key && Math.abs(stop.progress - official.progress) < 2);
 }

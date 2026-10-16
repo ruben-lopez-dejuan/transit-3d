@@ -93,3 +93,20 @@ próxima parada se dibuja cada autobús al que la app pone «Llegando».
 Medición (5 min, 15 oct 2026): cuando la Diputación da a un Bizkaibus por llegando a una parada,
 el mapa lo dibuja a 126 m de mediana de ella (p90 413 m, máximo 775 m), sin ningún caso a más de
 1 km. Antes eran 1,5–3 km en el corredor de Artxanda.
+
+## Ficha y posición coherentes con el panel de la parada (16 oct 2026)
+
+`server/monitor-bus-consistency.ts` compara, para cada Bizkaibus, la «Próxima parada» y la hora de su
+ficha con los paneles oficiales de esa parada y de sus vecinas (con `follow`, con fichas abiertas
+como en la app). El panel lista un bus en cada parada que aún no ha pasado y lo quita al salir.
+
+Antes: en el 37 % de las muestras (206) el bus se dibujaba pasada una parada en la que el panel aún
+lo listaba, y la ficha daba como próxima la siguiente; la hora sí coincidía con el panel. Causa: el
+GPS llega con 60–110 s y la extrapolación al ritmo medio se pasa de la parada cuando el bus se para.
+
+Ahora la lectura oficial más reciente (como mucho 90 s) da al vehículo `officialNextStop`: la parada
+que aún lo lista y dónde lo situaba al consultarla. El dibujo no pasa esa parada y no se queda por
+detrás de esa posición; la ficha la usa como próxima parada. No se usa como observación: lecturas de
+paradas distintas difieren ±200 m y el bus iba adelante y atrás o corría con velocidades inventadas.
+Con la primera versión (solo el tope) bajó al 18 % por delante y 12 % por detrás; falta medir la
+versión con suelo frente a master a la misma hora.

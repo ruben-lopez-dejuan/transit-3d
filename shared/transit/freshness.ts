@@ -7,6 +7,11 @@ import type { PositionSource, NormalizedVehicle } from './contracts';
  */
 export const REALTIME_MAX_AGE_MS = 270_000;
 export const GPS_LIVE_MAX_AGE_MS = 45_000;
+/**
+ * An operator passing time lists a bus at every stop it has not reached yet. It is refreshed for
+ * the whole fleet every minute, so past this a stop it named may already be behind the bus.
+ */
+export const OFFICIAL_STOP_MAX_AGE_MS = 90_000;
 export function isFresh(timestamp: number | null | undefined, now: number, maximumAge = REALTIME_MAX_AGE_MS) {
   return timestamp != null && Number.isFinite(timestamp) && timestamp > 0 && now - timestamp <= maximumAge && timestamp - now <= 60_000;
 }

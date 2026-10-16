@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { withOfficialPosition } from './officialPosition';
+import { officialNextStop, withOfficialPosition } from './officialPosition';
 import { buildShapeMetric } from './motionEngine';
 import type { NormalizedVehicle } from '../../shared/transit/contracts';
 
@@ -28,4 +28,37 @@ test('a reading close to where the GPS already puts the bus, older, or impossibl
   assert.equal(withOfficialPosition(bus, {} as never, plan, now, reading('s4', 100, t0 - 10_000)), bus, 'older than the fix');
   assert.equal(withOfficialPosition(bus, {} as never, plan, new Date(t0 + 35_000), reading('s4', 100, t0 + 30_000)), bus, '130 m/s is not a bus');
   assert.equal(withOfficialPosition({ ...bus, observationTimestamp: null }, {} as never, plan, now, reading('s4', 100, t0 + 150_000)).observationTimestamp, null);
+});
+
+test('the next stop is the first one the stop panels still list the bus at', () => {
+  const now = new Date(t0 + 60_000);
+  // GPS at 1000 m, 60 s old; the operator has it 300 m before the 3000 m stop 10 s ago: next is 3000, not 2000.
+  assert.equal(officialNextStop(bus, {} as never, plan, now, reading('s2', 300, t0 + 50_000))?.progress, 3000);
+  // 1500 m before the 4000 m stop: the bus is before the 3000 m stop, its next one.
+  assert.equal(officialNextStop(bus, {} as never, plan, now, reading('s3', 1500, t0 + 50_000))?.progress, 3000);
+  // At the stop (0 m): that stop is still the next one.
+  assert.equal(officialNextStop(bus, {} as never, plan, now, reading('s1', 0, t0 + 50_000))?.stopId, 's1');
+  // Where the operator put it when queried: never behind its GPS fix, never past the stop.
+  assert.equal(officialNextStop(bus, {} as never, plan, now, reading('s2', 300, t0 + 50_000))?.position, 2700);
+  assert.equal(officialNextStop(bus, {} as never, plan, now, reading('s1', 1500, t0 + 50_000))?.position, 985);
+});
+
+test('an old reading, or one a newer GPS fix has overtaken, names no next stop behind the bus', () => {
+  assert.equal(officialNextStop(bus, {} as never, plan, new Date(t0 + 200_000), reading('s2', 300, t0 + 50_000)), null, 'older than 90 s');
+  // The reading put it 1500 m before the 4000 m stop, but a newer fix has it at 2900 m.
+  const later = { ...bus, observationTimestamp: t0 + 55_000, observationProgressMeters: 2900, progressMetersAlongShape: 2900 };
+  assert.equal(officialNextStop(later, {} as never, plan, new Date(t0 + 60_000), reading('s3', 1500, t0 + 50_000))?.progress, 3000);
+  assert.equal(officialNextStop({ ...bus, externalVehicleId: null }, {} as never, plan, new Date(t0 + 60_000), reading('s2', 300, t0 + 50_000)), null);
+});
+
+test('a fresher reading further on beats a stale one at a stop the bus has left, and a newer fix at a stop overtakes it', () => {
+  const now = new Date(t0 + 60_000);
+  // 60 s old: still listed at the 2000 m stop. 10 s old: 400 m before the 3000 m stop. It has left 2000.
+  const readings = (_gtfs: unknown, id: string) => id === 's1' ? { arrival: t0, sourceTimestamp: t0, distanceMeters: 50 } : id === 's2' ? { arrival: t0 + 50_000, sourceTimestamp: t0 + 50_000, distanceMeters: 400 } : null;
+  assert.equal(officialNextStop(bus, {} as never, plan, now, readings)?.progress, 3000);
+  // A fix 5 s after the reading has the bus 9 m past the 2000 m stop it was listed at: that reading says nothing more.
+  const atStop = { ...bus, observationTimestamp: t0 + 55_000, observationProgressMeters: 2009, progressMetersAlongShape: 2009 };
+  assert.equal(officialNextStop(atStop, {} as never, plan, now, reading('s1', 30, t0 + 50_000)), null);
+  // The same fix older than the reading: the bus may still be at the stop.
+  assert.equal(officialNextStop({ ...atStop, observationTimestamp: t0 + 40_000 }, {} as never, plan, now, reading('s1', 0, t0 + 50_000))?.progress, 2000);
 });

@@ -205,3 +205,49 @@ test('far behind a fresh observation the vehicle is placed there instead of chas
   motion.update({ at: 150_000, progress: 4900 }, 155_000, { mode: 'bus', timeline: [], speed: 26, previous: { at: 0, progress: 1000 } });
   assert.ok(Math.abs(motion.position(155_000)! - 5030) < 5);
 });
+
+test('a bus the operator still lists at a stop waits there instead of running past on its old pace', () => {
+  const motion = new GpsMotion();
+  // GPS 60 s old at 0 m, 10 m/s: without the stop it would be drawn 600 m on, past the 400 m stop.
+  motion.setGate({ progress: 400, sourceTimestamp: 50000 });
+  motion.update({ at: 0, progress: 0 }, 60000, options);
+  advance(motion, 60000, 120000);
+  assert.ok(Math.abs(motion.position(120000)! - 400) < 1);
+  // A reading that no longer lists it there lets it go on, without a jump.
+  motion.setGate({ progress: 1500, sourceTimestamp: 125000 });
+  advance(motion, 120000, 130000);
+  const moved = motion.position(130000)!;
+  assert.ok(moved > 400 && moved < 520, String(moved));
+});
+
+test('an expired or overtaken stop reading never holds the bus, nor drives it backwards', () => {
+  const stale = new GpsMotion();
+  stale.setGate({ progress: 400, sourceTimestamp: -100000 });
+  stale.update({ at: 0, progress: 0 }, 60000, options);
+  advance(stale, 60000, 120000);
+  assert.ok(stale.position(120000)! > 900, 'a reading older than 90 s says nothing');
+  const reached = new GpsMotion();
+  reached.setGate({ progress: 400, sourceTimestamp: 50000 });
+  reached.update({ at: 55000, progress: 405 }, 60000, options);
+  advance(reached, 60000, 90000);
+  assert.ok(reached.position(90000)! > 600, 'a fix newer than the reading has it at the stop already');
+  const ahead = new GpsMotion();
+  ahead.update({ at: 0, progress: 0 }, 60000, options);
+  advance(ahead, 60000, 90000);
+  const drawn = ahead.position(90000)!;
+  ahead.setGate({ progress: drawn - 100, sourceTimestamp: 90000 });
+  advance(ahead, 90000, 100000);
+  assert.ok(ahead.position(100000)! >= drawn, 'already past the stop it holds where it is');
+  assert.ok(ahead.position(100000)! < drawn + 1);
+});
+
+test('a bus the panels put further on than its old fix catches up there, and no further than their stop', () => {
+  const motion = new GpsMotion();
+  // An old fix with the bus stopped at 0 m; the panels have it 600 m on, 400 m before its next stop.
+  motion.update({ at: 0, progress: 0 }, 10000, { ...options, speed: 0 });
+  advance(motion, 10000, 30000);
+  motion.setGate({ progress: 1000, sourceTimestamp: 30000, position: 600 });
+  advance(motion, 30000, 90000);
+  const drawn = motion.position(90000)!;
+  assert.ok(drawn >= 590 && drawn <= 1000, String(drawn));
+});

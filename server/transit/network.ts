@@ -12,7 +12,7 @@ import { anchorGpsTimeline } from './gpsTimeline';
 import { mergeStopForecasts, timeAtProgress, type StopForecast } from './stopForecasts';
 import { withStationDwell } from './stationDwell';
 import { bearingDegrees, sameSpotStops } from './sameSpotStops';
-import { withOfficialPosition } from './officialPosition';
+import { officialNextStop, withOfficialPosition } from './officialPosition';
 import { modeFor, serviceEpoch, shapeMetric, shapePacket, shiftDate, timelineFor, tripPlan } from "./plans";
 import type { Network, Operator, Route, Stop, Snapshot, Vehicle, Departure, LineDetail, StopDetail, TripDetail, Shape, MotionAnchor, TimelineSource } from '../../shared/transit/network';
 import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
@@ -254,7 +254,9 @@ function enrich(observed: NormalizedVehicle, now: Date): Vehicle | null {
   if (nextAnchor < 0) nextAnchor = fullTimeline.length - 1;
   const timeline = vehicle.observationTimestamp !== null ? fullTimeline.slice(0, Math.max(6, nextAnchor + 5)) : fullTimeline.slice(Math.max(0, nextAnchor - 1), nextAnchor + 5);
   const nativeNext = vehicle.nextStopId ? parseEntityId(vehicle.nextStopId)?.externalId : undefined;
-  const next = nativeNext ? plan?.stops.find((s) => s.stopId === nativeNext && s.progress >= vehicle.progressMetersAlongShape - 10) : plan?.stops.find((s) => s.progress >= vehicle.progressMetersAlongShape + 10 && !update?.stops.get(s.sequence)?.skipped);
+  // The operator's passing times say which stop the bus has not reached yet; the card and the map follow them.
+  const official = plan && arrivals ? officialNextStop(vehicle, gtfs, plan, now, arrivals.peek.bind(arrivals)) : null;
+  const next = official ? plan?.stops.find((s) => s.stopId === official.stopId && s.progress === official.progress) : nativeNext ? plan?.stops.find((s) => s.stopId === nativeNext && s.progress >= vehicle.progressMetersAlongShape - 10) : plan?.stops.find((s) => s.progress >= vehicle.progressMetersAlongShape + 10 && !update?.stops.get(s.sequence)?.skipped);
   const nextStop = next ? stopMap.get(key(vehicle.operatorId, 'stop', next.stopId)) : null;
   const nextUpdate = next ? update?.stops.get(next.sequence) : null;
   if (nextUpdate) { delaySeconds = nextUpdate.arrivalRealtime ? (nextUpdate.arrival - nextUpdate.scheduledArrival) / 1000 : null; delayEstimated = false; }
@@ -269,7 +271,7 @@ function enrich(observed: NormalizedVehicle, now: Date): Vehicle | null {
   const forecastArrival = next && usesStopForecasts ? usedForecasts.find((f) => Math.abs(f.progress - next.progress) <= 2)?.at ?? timeAtProgress(fullTimeline, next.progress) ?? undefined : undefined;
   const timelineSource: TimelineSource = usesStopForecasts ? 'siri' : vehicle.motionTimeline ? 'provider' : update ? 'gtfs-rt' : gpsAnchoredTimeline ? 'gps-schedule' : 'schedule';
   const nextArrival = forecastArrival ?? nativeArrival ?? nextUpdate?.arrival ?? (vehicle.motionTimeline ? null : next ? serviceEpoch(serviceDate, next.arrival + shiftSeconds, city.manifest.timezone) : null);
-  const presented: Vehicle = { ...vehicle, timetableTimestamp: stopForecastTimestamp ?? vehicle.timetableTimestamp, timelineSource, arrivalPredictions: usesStopForecasts ? usedForecasts.map((forecast) => ({ at: forecast.at, progress: forecast.progress, sourceTimestamp: forecast.sourceTimestamp })) : vehicle.arrivalPredictions, delaySeconds, delayEstimated, gpsAnchoredTimeline: gpsAnchoredTimeline && !vehicle.motionTimeline && !usesStopForecasts, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, appearance: vehicle.externalVehicleId ? providerFor(vehicle.operatorId)?.appearanceFor?.({ mode: vehicle.mode, routeId: trip.routeId }, route.shortName, vehicle.externalVehicleId) ?? route.appearance : route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
+  const presented: Vehicle = { ...vehicle, timetableTimestamp: stopForecastTimestamp ?? vehicle.timetableTimestamp, timelineSource, arrivalPredictions: usesStopForecasts ? usedForecasts.map((forecast) => ({ at: forecast.at, progress: forecast.progress, sourceTimestamp: forecast.sourceTimestamp })) : vehicle.arrivalPredictions, delaySeconds, delayEstimated, gpsAnchoredTimeline: gpsAnchoredTimeline && !vehicle.motionTimeline && !usesStopForecasts, serviceDate, timeline, routeShortName: route.shortName, destination, nextStopId: nextStop?.id ?? null, officialNextStop: official && nextStop ? { key: nextStop.key, progress: official.progress, sourceTimestamp: official.sourceTimestamp, position: official.position } : null, appearance: vehicle.externalVehicleId ? providerFor(vehicle.operatorId)?.appearanceFor?.({ mode: vehicle.mode, routeId: trip.routeId }, route.shortName, vehicle.externalVehicleId) ?? route.appearance : route.appearance, routeKey: route.key, shapeKey: vehicle.shapeId, label: route.shortName, headsign: destination, color: route.color, operatorName: definitions.find((d) => d.id === vehicle.operatorId)!.name, nextStop: next && nextStop && nextArrival !== null ? { key: nextStop.key, name: nextStop.name, at: nextArrival } : null };
   transitDebugTraceStore.recordPresentation(presented, now.getTime());
   return presented;
 }

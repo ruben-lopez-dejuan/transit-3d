@@ -1,4 +1,4 @@
-import { REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
+import { OFFICIAL_STOP_MAX_AGE_MS, REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 import type { MotionAnchor, TransitMode } from './networkTypes';
 import { progressAt } from './motion';
 import { advanceProgress, motionLimits } from './progressFollower';
@@ -21,6 +21,8 @@ const freshness = REALTIME_MAX_AGE_MS;
 const CATCH_UP_JUMP_METERS = 800;
 /** A stop report is a dwell, not a parking: after this the bus is predicted to leave. */
 const stopHold = (mode: TransitMode) => mode === 'bus' ? 30_000 : 45_000;
+/** A bus this close past a stop may still be at it (server/transit/officialPosition.ts). */
+const AT_STOP_METERS = 15;
 
 /** One-dimensional prediction. Source timestamps set pace; HTTP timestamps never do. */
 export class GpsMotion {
@@ -43,6 +45,7 @@ export class GpsMotion {
   private correction = 0;
   private rejection: string | null = null;
   private end = Infinity;
+  private gate: { progress: number; floor: number; source: number; until: number } | null = null;
   private forecastTimestamp = 0;
   private realtimeTimetable = false;
   private holdingForRealtimeAnchor = false;
@@ -116,6 +119,21 @@ export class GpsMotion {
   }
 
   setEnd(meters: number) { if (Number.isFinite(meters) && meters >= 0) this.end = meters; }
+  /**
+   * The operator's stop panels still list the bus at this stop, so it has not passed it, and put it
+   * at `position` when queried, so it is at least there. The drawn bus stays between the two: it
+   * waits at the stop rather than running past on an old fix's pace, and moves up to where the
+   * panels put it rather than lagging behind an old fix. A fresher reading or fix moves both on.
+   */
+  setGate(stop: { progress: number; sourceTimestamp: number; position?: number } | null | undefined) {
+    this.gate = stop && Number.isFinite(stop.progress) ? { progress: stop.progress, floor: Math.min(stop.position ?? -Infinity, stop.progress), source: stop.sourceTimestamp, until: stop.sourceTimestamp + OFFICIAL_STOP_MAX_AGE_MS } : null;
+  }
+  private bounds(at: number) {
+    // A fix newer than the reading that has reached the stop, or one clearly past it, overrides it (as on the server).
+    const gate = this.gate, fix = this.observation;
+    if (!gate || at > gate.until || (fix && (fix.progress > gate.progress + AT_STOP_METERS || (fix.at > gate.source && fix.progress >= gate.progress)))) return { low: 0, high: this.end };
+    return { low: Math.min(gate.floor, this.end), high: Math.min(this.end, gate.progress) };
+  }
 
   private planSpeed(at: number) {
     for (let i = 1; i < this.timeline.length; i++) {
@@ -125,12 +143,16 @@ export class GpsMotion {
     return 0;
   }
   private reference(at: number) {
+    const { low, high } = this.bounds(at);
+    return clamp(this.extrapolate(at), Math.max(0, low), high);
+  }
+  private extrapolate(at: number) {
     const observation = this.observation!;
     let time = clamp(at, observation.at, observation.at + freshness);
     if (this.stopped) {
       // Feeds publish fixes up to minutes late; holding a STOPPED_AT for the whole
       // freshness window left buses parked while they were already driving away.
-      if (time <= observation.at + this.hold) return Math.min(this.end, observation.progress);
+      if (time <= observation.at + this.hold) return observation.progress;
       time -= this.hold;
     }
     const plan = this.timeline;
@@ -138,8 +160,7 @@ export class GpsMotion {
     const pace = this.planSpeed(time);
     // Timetable/ETA is an estimate, and cannot justify an impossible velocity.
     const validPlan = planned !== null && planned >= observation.progress && pace <= this.maximumSpeed;
-    const target = validPlan ? planned : observation.progress + this.sourceSpeed * (time - observation.at) / 1000;
-    return clamp(target, 0, this.end);
+    return validPlan ? planned : observation.progress + this.sourceSpeed * (time - observation.at) / 1000;
   }
   private referenceSpeed(at: number) {
     if (!this.observation || at >= this.observation.at + freshness || (this.stopped && at < this.observation.at + this.hold)) return 0;
@@ -168,7 +189,8 @@ export class GpsMotion {
     const movementTarget = recoveryAnchor?.progress ?? this.target;
     const movementPace = recoveryAnchor ? clamp((recoveryAnchor.progress - this.progress) / recoverySeconds, 0, this.maximumSpeed) : pace;
     const movementLimit = this.holdingForRealtimeAnchor ? 0 : recoveryAnchor ? Math.min(movementPace, brakingLimit) : Math.min(this.maximumSpeed, brakingLimit);
-    const next = advanceProgress(this.progress, this.velocity, dt, movementTarget, movementPace, cadenceSeconds, movementLimit, this.acceleration, this.end);
+    // Never backwards: a bus already drawn past the stop holds where it is.
+    const next = advanceProgress(this.progress, this.velocity, dt, movementTarget, movementPace, cadenceSeconds, movementLimit, this.acceleration, Math.max(this.progress, this.bounds(at).high));
     this.progress = next.progress; this.velocity = next.speed; this.correction = next.correction;
     this.lastAt = at;
     return this.progress;

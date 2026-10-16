@@ -11,7 +11,12 @@ export type MotionAnchor = { at: number; progress: number };
 export type TimelineSource = 'siri' | 'gtfs-rt' | 'provider' | 'gps-schedule' | 'schedule';
 export type Vehicle = NormalizedVehicle & { routeKey: string; shapeKey: string; label: string; headsign: string; color: string; operatorName: string; timeline: MotionAnchor[];
   /** The timetable was shifted to pass through the GPS fix: its pace is commercial speed, not a schedule to catch up with. */
-  gpsAnchoredTimeline?: boolean; timelineSource?: TimelineSource; nextStop: { key: string; name: string; at: number } | null; delayEstimated: boolean };
+  gpsAnchoredTimeline?: boolean; timelineSource?: TimelineSource; nextStop: { key: string; name: string; at: number } | null; delayEstimated: boolean;
+  /**
+   * The stop the operator's passing times say the bus has not reached yet (Bizkaibus), and where
+   * they put it when queried (`position`): the bus is drawn between the two.
+   */
+  officialNextStop?: { key: string; progress: number; sourceTimestamp: number; position: number } | null };
 export type Snapshot = { cityId: string; fetchedAt: number; serverTime?: number; vehicles: Vehicle[]; providers: Omit<NormalizedProviderSnapshot, 'vehicles'>[] };
 /**
  * underground: stretches in tunnel, in metres along the shape. tunnelBeforeStart/tunnelAfterEnd:

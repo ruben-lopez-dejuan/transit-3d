@@ -4,8 +4,12 @@ import type { StopArrivalsAdapter } from './cityPackage';
 import type { tripPlan } from './plans';
 import { positionAtProgress } from './motionEngine';
 import { freshTimestamp } from './realtime';
+import { OFFICIAL_STOP_MAX_AGE_MS } from '../../shared/transit/freshness';
 
 type ArrivalPeek = StopArrivalsAdapter['peek'];
+type Plan = NonNullable<ReturnType<typeof tripPlan>>;
+/** A bus this close past a stop may still be at it: GPS and stop positions are a few metres off. */
+export const AT_STOP_METERS = 15;
 /** How much further ahead than its GPS (extrapolated at its pace) the operator must place a bus to be believed. */
 const OFFICIAL_LEAD_METERS = 250;
 /**
@@ -34,3 +38,38 @@ export function withOfficialPosition(vehicle: NormalizedVehicle, gtfs: Bizkaibus
   return vehicle;
 }
 
+/**
+ * The freshest passing time naming this bus. The stop panels list a bus at every stop still ahead of
+ * it and drop it once it leaves, with the metres it has left. Stops are queried at different times,
+ * so the freshest reading decides (the nearest stop among equals: the most precise metres). A newer
+ * GPS fix rules out stops it has already reached.
+ */
+function freshestReading(vehicle: NormalizedVehicle, gtfs: BizkaibusGtfs, plan: Plan, now: Date, peek: ArrivalPeek) {
+  if (!vehicle.externalVehicleId) return null;
+  const observedAt = vehicle.observationTimestamp, observed = vehicle.observationProgressMeters ?? vehicle.progressMetersAlongShape;
+  let best: { stop: Plan['stops'][number]; at: number; floor: number; progress: number } | null = null;
+  for (const stop of plan.stops) {
+    const reading = peek(gtfs, stop.stopId, vehicle.externalVehicleId);
+    if (reading?.distanceMeters == null) continue;
+    const at = reading.sourceTimestamp;
+    if (now.getTime() - at > OFFICIAL_STOP_MAX_AGE_MS || at - now.getTime() > 60_000 || (best && at <= best.at)) continue;
+    const floor = observedAt === null ? -Infinity : observedAt > at ? observed : observed - AT_STOP_METERS;
+    if (stop.progress < floor) continue;
+    best = { stop, at, floor, progress: stop.progress - reading.distanceMeters };
+  }
+  return best;
+}
+
+/**
+ * The stop the operator's passing times say a bus is heading to: the first one it has not passed
+ * (at 0 minutes it is arriving or at the stop), and where they put it when queried. These bound the
+ * drawn bus; they are not a position fix: readings of different stops disagree by a couple of hundred
+ * metres, so as observations they made the bus run back and forth or race on an invented speed.
+ */
+export function officialNextStop(vehicle: NormalizedVehicle, gtfs: BizkaibusGtfs, plan: Plan, now: Date, peek: ArrivalPeek): { stopId: string; progress: number; sourceTimestamp: number; position: number } | null {
+  const reading = freshestReading(vehicle, gtfs, plan, now, peek);
+  if (!reading) return null;
+  const position = Math.max(reading.progress - 10, reading.floor);
+  const next = plan.stops.find((s) => s.progress >= position && s.progress <= reading.stop.progress);
+  return next ? { stopId: next.stopId, progress: next.progress, sourceTimestamp: reading.at, position: Math.min(next.progress, Math.max(reading.progress, reading.floor)) } : null;
+}
