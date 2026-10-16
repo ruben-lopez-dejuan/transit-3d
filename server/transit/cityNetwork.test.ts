@@ -67,7 +67,9 @@ test('built-in Bilbao remains registered with honest capabilities and existing s
   assert.equal(capabilities('renfe').vehiclePositions, true);
   assert.equal(bilbaoAppearance('renfe', { mode: 'rail', routeId: 'x' }, 'C4').lateralOffsetMeters, 0);
   assert.equal(bilbaoAppearance('euskotren', { mode: 'tram', routeId: 'x' }, 'TR').lateralOffsetMeters, 0, 'trams run on their matched track');
-  assert.equal(bilbaoAppearance('euskotren', { mode: 'rail', routeId: 'x' }, 'E1').lateralOffsetMeters, 1.7);
+  assert.equal(bilbaoAppearance('euskotren', { mode: 'rail', routeId: 'x' }, 'E1').lateralOffsetMeters, -1.7, 'Euskotren runs on the left');
+  assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'L1').lateralOffsetMeters, -1.7, 'so does Metro Bilbao');
+  assert.equal(bilbaoAppearance('renfe', { mode: 'rail', routeId: 'x' }, 'C1').lateralOffsetMeters, 1.7);
   assert.deepEqual(bilbaoAppearance('renfe', { mode: 'rail', routeId: 'x' }, 'C1').composition, { count: 3, length: 23, gap: 1 });
   assert.equal(bilbaoAppearance('metro-bilbao', { mode: 'rail', routeId: 'x' }, 'L1').kind, 'metro');
 });

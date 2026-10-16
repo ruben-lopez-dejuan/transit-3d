@@ -96,7 +96,8 @@ Ejemplo de `appearance` (metros):
 ```
 
 kind: bus/train/metro/tram/funicular/unknown. count: entero 1–16; length: 1–40;
-gap: 0–10; lateralOffsetMeters: 0–10. Si se omite, se usa el modelo común según
+gap: 0–10; lateralOffsetMeters: −10–10, hacia la derecha del sentido de la marcha;
+negativo, hacia la izquierda, en las redes que circulan por la izquierda (Metro de Madrid). Si se omite, se usa el modelo común según
 el modo GTFS. En feeds con varios modos es preferible omitir una apariencia única
 que convertir todos los vehículos en buses o trenes.
 No declarar `capabilities` ni `realtime`: el runtime los deriva de las fuentes

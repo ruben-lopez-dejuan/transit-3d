@@ -56,7 +56,7 @@
           "type": "object", "additionalProperties": false, "required": ["kind", "composition", "lateralOffsetMeters"],
           "properties": {
             "kind": { "enum": ["bus", "train", "metro", "tram", "funicular", "unknown"] },
-            "lateralOffsetMeters": { "type": "number", "minimum": 0, "maximum": 10 },
+            "lateralOffsetMeters": { "type": "number", "minimum": -10, "maximum": 10 },
             "composition": {
               "type": "object", "additionalProperties": false, "required": ["count", "length", "gap"],
               "properties": { "count": { "type": "integer", "minimum": 1, "maximum": 16 }, "length": { "type": "number", "minimum": 1, "maximum": 40 }, "gap": { "type": "number", "minimum": 0, "maximum": 10 } }

@@ -98,7 +98,7 @@ export function parseCityPackage(value: unknown): CityPackageConfig {
       if (!Number.isInteger(count)) fail(`${at}.appearance.composition.count`, 'se requiere un entero');
       number(composition.length, `${at}.appearance.composition.length`, 1, 40);
       number(composition.gap, `${at}.appearance.composition.gap`, 0, 10);
-      number(appearance.lateralOffsetMeters, `${at}.appearance.lateralOffsetMeters`, 0, 10);
+      number(appearance.lateralOffsetMeters, `${at}.appearance.lateralOffsetMeters`, -10, 10);
     }
   }
   return structuredClone(value) as CityPackageConfig;
