@@ -9,6 +9,18 @@ import { generateScheduledVehicles } from './scheduled';
 import { anchorGpsTimeline } from './gpsTimeline';
 import { ObservationTracker } from './observations';
 
+test('an impossible GPS step confirmed by the next fix moves the vehicle there, without inventing a speed', () => {
+  // Renfe Madrid, 16 Oct 2026: C7 held at 64.8 km for over a minute, then 72.2 km 20 s later, then held again.
+  const tracker = new ObservationTracker(), at = now.getTime();
+  tracker.accept('train', { at, progress: 64_808 }, 'rail', at, 40);
+  assert.equal(tracker.accept('train', { at: at + 20_000, progress: 72_187 }, 'rail', at + 20_000, 40), null);
+  const confirmed = tracker.accept('train', { at: at + 40_000, progress: 72_187 }, 'rail', at + 40_000, 40)!;
+  assert.equal(confirmed.current.progress, 72_187); assert.equal(confirmed.speed, 0); assert.equal(confirmed.previous?.at, at + 20_000);
+  // A lone glitch that the next fix contradicts is still ignored.
+  tracker.accept('bus', { at, progress: 100 }, 'bus', at);
+  assert.equal(tracker.accept('bus', { at: at + 10_000, progress: 2_000 }, 'bus', at + 10_000), null);
+  assert.equal(tracker.accept('bus', { at: at + 20_000, progress: 200 }, 'bus', at + 20_000)?.current.progress, 200);
+});
 test('invalid and physically impossible backwards GPS preserves the last accepted observation and stop state', () => {
   const tracker = new ObservationTracker(), at = now.getTime();
   tracker.accept('vehicle', { at, progress: 100, stoppedAtStop: true }, 'bus', at);

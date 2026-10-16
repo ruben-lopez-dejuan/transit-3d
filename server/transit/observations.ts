@@ -7,7 +7,9 @@ export type MotionObservation = { at: number; progress: number; stoppedAtStop?: 
  * a stop, so over the next minute the longer average predicts it much better (audit 15 Oct
  * 2026: 78 m against 98 m median error 40 s ahead for Bilbobus, and unbiased).
  */
-type State = { current: MotionObservation; previous: MotionObservation | null; speed: number | null; pace: number | null; recent: MotionObservation[]; seenAt: number };
+type State = { current: MotionObservation; previous: MotionObservation | null; speed: number | null; pace: number | null; recent: MotionObservation[]; seenAt: number; rejected?: MotionObservation };
+/** How soon a second fix must confirm an impossible one for the vehicle to be moved there. */
+const CONFIRM_MS = 120_000;
 const PACE_WINDOW_MS = 240_000;
 /** Shorter spans say little about the pace of stop-and-go traffic. */
 const MIN_PACE_SPAN_MS = 40_000;
@@ -34,7 +36,19 @@ export class ObservationTracker {
       const distance = observation.progress - previous.current.progress;
       speed = distance / ((observation.at - previous.current.at) / 1000);
       const maximum = maximumSpeed ?? (mode === 'bus' ? 40 : mode === 'tram' ? 30 : 75);
-      if (distance < -75 || Math.abs(speed) > maximum) { this.rejected++; return null; }
+      if (distance < -75 || Math.abs(speed) > maximum) {
+        // One impossible fix can be a glitch, but the next fix agreeing with it
+        // means the vehicle is there: Renfe Madrid holds a position for minutes and
+        // then moves it kilometres at once (16 Oct 2026), and rejecting every fix
+        // after such a step froze trains up to 270 s, a median 2 km from the feed.
+        const pending = previous.rejected, step = pending ? observation.progress - pending.progress : 0, span = pending ? (observation.at - pending.at) / 1000 : 0;
+        if (pending && span > 0 && observation.at - pending.at <= CONFIRM_MS && step >= -75 && step / span <= maximum) {
+          const state = { current: observation, previous: pending, speed: Math.max(0, step / span), pace: null, recent: [pending, observation], seenAt: now };
+          this.states.set(key, state);
+          return state;
+        }
+        previous.rejected = observation; this.rejected++; return null;
+      }
     }
     const contiguous = previous && observation.at - previous.current.at < REALTIME_MAX_AGE_MS;
     // Keep just enough history for the pace window, plus the fix that opens it.
