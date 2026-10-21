@@ -225,7 +225,7 @@ test('SIRI forecasts drive a vehicle that has no fresh GPS', async () => {
   assert.equal(vehicle.timelineSource, 'siri'); assert.equal(vehicle.nextStop?.at, now + 120_000);
   assert.ok(vehicle.timeline.some((anchor) => anchor.at === now + 120_000));
 });
-test('a forecast far from the trip belongs to another journey and is ignored', async () => {
+test('a forecast far from the trip belongs to another journey and is ignored, also in the trip card', async () => {
   const { city, network, now } = memoryCity();
   const provider = city.providers.find((p) => p.operatorId === 'bilbobus')!;
   provider.arrivals = {
@@ -235,6 +235,9 @@ test('a forecast far from the trip belongs to another journey and is ignored', a
   const snapshot = await network.getPresentationSnapshot();
   const vehicle = snapshot.vehicles.find((v) => v.providerId === 'bilbobus')!;
   assert.notEqual(vehicle.timelineSource, 'siri'); assert.equal(vehicle.arrivalPredictions, undefined);
+  // The card must not show that later passage as the next stop either.
+  const trip = await network.getTrip('bilbobus', vehicle.externalTripId, vehicle.serviceDate, vehicle.id);
+  assert.notEqual(trip?.stops.at(-1)?.at, now + 3 * 3600_000); assert.notEqual(trip?.stops.at(-1)?.source, 'siri');
 });
 test('service epochs and realtime delays use an explicit timezone, including non-hour offsets', () => {
   const date = '20261002';
