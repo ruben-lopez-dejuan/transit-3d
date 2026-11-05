@@ -71,7 +71,8 @@ let network: Network | null = null, snapshot: Snapshot | null = null;
 let mode: TransitMode | 'all' = cityPreferences.mode && (cityPreferences.mode === 'all' || city.modes.includes(cityPreferences.mode)) ? cityPreferences.mode : 'all';
 let selection: { kind: 'vehicle'; id: string } | { kind: 'route'; route: Route; direction: string } | { kind: 'stop'; stop: Stop } | null = null;
 let detail: LineDetail | StopDetail | TripDetail | null = null, detailVersion = 0, detailError = '';
-let following = false, polling = false, toastTimer = 0, cameraSaveTimer = 0, sheetTimer = 0, nextNetworkRefreshAt = 0;
+let following = false, polling = false, toastTimer = 0, cameraSaveTimer = 0, sheetTimer = 0, nextNetworkRefreshAt = 0, networkTimer = 0;
+let networkRequest: Promise<void> | null = null;
 let results: SearchResult[] = [], resultIndex = -1;
 let zen = false, zenWakeTimer = 0;
 /** The vehicle whose card led to this line or stop, so the card can go back to it. */
@@ -122,7 +123,7 @@ function updateStatus() {
   const progress = preparing ? ` · ${available}/${network!.operators.length} fuentes listas` : '';
   const live = renderer.getVehicles().filter((v) => vehicleReliability(v, Date.now() + renderer.clockOffset).level === 'high').length;
   const ready = `${count} ${count === 1 ? 'vehículo' : 'vehículos'}${live ? ` · ${live} en tiempo real` : ''}${progress}`;
-  $('#status').textContent = !navigator.onLine ? 'Sin conexión · última actualización disponible' : !snapshot ? 'Cargando la red de transporte…' : stale ? `Esperando datos recientes…${progress}` : ready;
+  $('#status').textContent = !navigator.onLine ? 'Sin conexión · última actualización disponible' : !snapshot ? (network ? `Paradas listas · cargando vehículos…${progress}` : 'Cargando la red de transporte…') : stale ? `Esperando datos recientes…${progress}` : ready;
   $('#empty-map').hidden = !snapshot || count > 0;
   $('#empty-map').textContent = renderer.operators.size === 0 ? 'Activa un operador en Capas para ver la red.' : 'No hay vehículos activos con estos filtros. Puedes explorar las paradas.';
   renderOperators();
@@ -169,31 +170,45 @@ async function ensureShapes() {
     finally { batch.forEach((k) => inFlightShapes.delete(k)); }
   }
 }
+/** The stops only need the catalogue: they appear and answer as soon as it arrives, whatever the vehicles are doing. */
+function refreshNetwork() {
+  networkRequest ??= (async () => {
+    const firstLoad = !network;
+    try {
+      network = await loadNetwork(); favorites = migrateFavorites(favorites, network); write('transit:favorites', JSON.stringify([...favorites]));
+      if (firstLoad) {
+        const valid = new Set(network.operators.map((operator) => operator.id));
+        const selected = cityPreferences.operators ?? [...valid];
+        selected.filter((id) => valid.has(id)).forEach((id) => renderer.operators.add(id));
+        for (const layer of cityPreferences.disabledLayers ?? []) renderer.disabledLayers.add(layer);
+      }
+      const preparing = network.operators.some((operator) => operator.loading);
+      nextNetworkRefreshAt = Date.now() + (preparing ? 5_000 : network.operators.some((operator) => operator.status === 'unavailable') ? 60_000 : 6 * 3600_000);
+      operatorRenderKey = '';
+      setData(map, 'stops', stopsData(network.stops)); filters(); installVehicleIcons(map, network.routes);
+      if (firstLoad) persistCityPreferences();
+      if (!$('#search-results').hidden) search();
+      // While the server prepares its sources, their stops join the map without waiting for the vehicle poll.
+      window.clearTimeout(networkTimer);
+      if (preparing) networkTimer = window.setTimeout(() => { if (!document.hidden && navigator.onLine) refreshNetwork().catch(() => { /* The vehicle poll retries. */ }); }, 5_000);
+    } catch (error) {
+      nextNetworkRefreshAt = Date.now() + 30_000;
+      if (!network) throw error;
+    } finally { networkRequest = null; }
+  })();
+  return networkRequest;
+}
 async function refresh() {
   if (polling || !navigator.onLine) return;
   polling = true; $('#refresh').textContent = 'Actualizando…';
   try {
-    if (!network || Date.now() >= nextNetworkRefreshAt) {
-      const firstLoad = !network;
-      try {
-        network = await loadNetwork(); favorites = migrateFavorites(favorites, network); write('transit:favorites', JSON.stringify([...favorites]));
-        if (firstLoad) {
-          const valid = new Set(network.operators.map((operator) => operator.id));
-          const selected = cityPreferences.operators ?? [...valid];
-          selected.filter((id) => valid.has(id)).forEach((id) => renderer.operators.add(id));
-          for (const layer of cityPreferences.disabledLayers ?? []) renderer.disabledLayers.add(layer);
-        }
-        nextNetworkRefreshAt = Date.now() + (network.operators.some((operator) => operator.loading) ? 5_000 : network.operators.some((operator) => operator.status === 'unavailable') ? 60_000 : 6 * 3600_000);
-        operatorRenderKey = '';
-        setData(map, 'stops', stopsData(network.stops)); installVehicleIcons(map, network.routes);
-        if (firstLoad) persistCityPreferences();
-      } catch (error) {
-        nextNetworkRefreshAt = Date.now() + 30_000;
-        if (!network) throw error;
-      }
-    }
+    if (!network || Date.now() >= nextNetworkRefreshAt) await refreshNetwork();
     snapshot = await loadSnapshot(); if (map.isStyleLoaded()) installVehicleIcons(map, snapshot.vehicles); renderer.update(snapshot.vehicles, snapshot.fetchedAt, snapshot.serverTime); debugInspector?.updateVehicles(snapshot.vehicles); filters(); renderDetails();
-  } catch (error) { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
+  } catch (error) {
+    // With the stops on the map, late vehicles are no alarm: the next poll tries again.
+    if (network && !snapshot) $('#status').textContent = 'Paradas listas · vehículos sin cargar aún';
+    else { toast(error instanceof Error ? error.message : 'No se pudieron cargar los datos.'); $('#status').textContent = snapshot ? 'Actualización no disponible · datos anteriores' : 'Datos no disponibles · reintenta desde Capas'; }
+  }
   finally { polling = false; $('#refresh').textContent = '↻ Actualizar datos'; }
 }
 function search() {
@@ -277,7 +292,7 @@ function renderDetails() {
   } else if (selection.kind === 'route') {
     const route = selection.route, line = detail as LineDetail | null;
     const active = renderer.getVehicles().filter((v) => v.routeKey === route.key && (selection?.kind !== 'route' || selection.direction === 'all' || String(v.directionId ?? 'unknown') === selection.direction));
-    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(operatorName(route.operatorId))}</div><div class="title-row">${badge(route)}<h1>${esc(route.longName || route.shortName)}</h1></div><p>${active.length ? `${active.length} ${active.length === 1 ? 'vehículo' : 'vehículos'} en circulación` : 'Sin vehículos en circulación ahora'}</p></div><div class="direction-control"><label for="direction">Sentido</label><select id="direction"><option value="all">Todos los sentidos</option>${route.directions.map((d) => `<option value="${esc(d.id)}" ${selection?.kind === 'route' && selection.direction === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div><section class="detail-section"><h2>Ahora en circulación</h2>${active.length ? active.slice(0, 12).map((v) => `<button class="row vehicle-row" data-vehicle="${esc(v.id)}"><span class="result-icon">${kindIcon(vehicleKind(v))}</span><span class="row-copy"><strong>${esc(v.headsign || route.longName)}</strong><small>${esc(v.nextStop?.name ?? 'En recorrido')}</small></span>${reliabilityBadge(vehicleReliability(v, Date.now() + renderer.clockOffset).level)}</button>`).join('') : '<p class="empty-copy">Ninguno en este sentido ahora mismo.</p>'}</section><section class="detail-section"><h2>Próximas salidas</h2>${line ? departures(line.departures, operatorName) : loading}</section><section class="detail-section"><h2>Paradas</h2>${line ? stopRows(line.stops) : ''}</section>`;
+    $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${esc(operatorName(route.operatorId))}</div><div class="title-row">${badge(route)}<h1>${esc(route.longName || route.shortName)}</h1></div><p>${!snapshot ? 'Cargando vehículos…' : active.length ? `${active.length} ${active.length === 1 ? 'vehículo' : 'vehículos'} en circulación` : 'Sin vehículos en circulación ahora'}</p></div><div class="direction-control"><label for="direction">Sentido</label><select id="direction"><option value="all">Todos los sentidos</option>${route.directions.map((d) => `<option value="${esc(d.id)}" ${selection?.kind === 'route' && selection.direction === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div><section class="detail-section"><h2>Ahora en circulación</h2>${active.length ? active.slice(0, 12).map((v) => `<button class="row vehicle-row" data-vehicle="${esc(v.id)}"><span class="result-icon">${kindIcon(vehicleKind(v))}</span><span class="row-copy"><strong>${esc(v.headsign || route.longName)}</strong><small>${esc(v.nextStop?.name ?? 'En recorrido')}</small></span>${reliabilityBadge(vehicleReliability(v, Date.now() + renderer.clockOffset).level)}</button>`).join('') : `<p class="empty-copy">${snapshot ? 'Ninguno en este sentido ahora mismo.' : 'Cargando vehículos…'}</p>`}</section><section class="detail-section"><h2>Próximas salidas</h2>${line ? departures(line.departures, operatorName) : loading}</section><section class="detail-section"><h2>Paradas</h2>${line ? stopRows(line.stops) : ''}</section>`;
   } else {
     const stop = selection.stop, data = detail as StopDetail | null;
     $('#detail-content').innerHTML = `<div class="detail-heading"><div class="eyebrow">${icon('stop')}Parada</div><h1>${esc(stop.name)}</h1><p>${data ? [...new Set(data.nearbyStops.map((s) => operatorName(s.operatorId)))].map(esc).join(' · ') : esc(operatorName(stop.operatorId))}</p></div><section class="detail-section"><h2>Próximos servicios</h2>${data ? departures(data.departures, operatorName) : loading}<p class="section-note">Incluye las paradas a menos de 30 m en el mismo sentido.</p></section>`;

@@ -2,6 +2,7 @@ import type { BizkaibusGtfs } from "../providers/bizkaibus/gtfs";
 import { cityRegistry, defaultCityId } from '../cities';
 import type { RuntimeCityPackage } from './cityPackage';
 import type { NormalizedVehicle } from '../../shared/transit/contracts';
+import { REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 import { entityId, parseEntityId, type EntityKind } from '../../shared/transit/ids';
 import { normalizeRoute, normalizeStop, normalizeTrip } from './normalization';
 import { freshTimestamp, tripInstanceKey, updatedTimeline } from './realtime';
@@ -20,7 +21,13 @@ import type { AdminCatalogDiagnostics } from '../../shared/transit/admin';
 import { transitDebugTraceStore } from '../admin/traceStore';
 
 /** Each city owns its caches, catalog and provider bindings. */
-export function createCityNetwork(city: RuntimeCityPackage, options: { catalogWaitMs?: number } = {}) {
+/** Whichever comes first: the work or the fallback. The work carries on, so its result is ready for the next request. */
+function within<T>(work: Promise<T>, milliseconds: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([work, new Promise<T>((resolve) => { timer = setTimeout(() => resolve(fallback), milliseconds); })]).finally(() => clearTimeout(timer));
+}
+
+export function createCityNetwork(city: RuntimeCityPackage, options: { catalogWaitMs?: number; boardSnapshotWaitMs?: number; liveArrivalsWaitMs?: number } = {}) {
 const definitions = city.manifest.providers;
 const providers = city.providers;
 const gtfsLoaders = new Map(providers.map((provider) => [provider.operatorId, () => provider.enabled ? provider.getGtfs() : Promise.reject(new Error('Provider disabled'))]));
@@ -82,6 +89,7 @@ let networkCache: Promise<Network> | null = null;
 let networkExpires = 0;
 let snapshotCache: Promise<Snapshot> | null = null;
 let snapshotExpires = 0;
+let lastSnapshot: Snapshot | null = null;
 let enabledState = providers.map((p) => p.enabled).join(',');
 type CatalogTask = { promise: Promise<void>; result?: PromiseSettledResult<BizkaibusGtfs>; expires: number; warned?: boolean };
 const catalogTasks = new Map<string, CatalogTask>();
@@ -284,15 +292,24 @@ async function getPresentationSnapshot(): Promise<Snapshot> {
   if (snapshotCache && Date.now() < snapshotExpires) return snapshotCache;
   snapshotExpires = Infinity;
   const blocked = new Map(network.operators.flatMap((o): [string, 'loading' | 'unavailable'][] => o.status === 'unavailable' ? [[o.id, 'unavailable']] : !feeds.has(o.id) ? [[o.id, 'loading']] : []));
-  snapshotCache = engine.getSnapshot(new Date(), blocked).then((snapshot) => { snapshotExpires = Date.now() + 5000; return ({ cityId: city.manifest.id, fetchedAt: snapshot.fetchedAt, vehicles: snapshot.vehicles.map((v) => enrich(v, new Date(snapshot.fetchedAt))).filter((v): v is Vehicle => v !== null), providers: snapshot.providers.map(({ vehicles: _vehicles, ...status }) => status) }); }).catch((error) => { snapshotCache = null; throw error; });
+  snapshotCache = engine.getSnapshot(new Date(), blocked).then((snapshot) => { snapshotExpires = Date.now() + 5000; lastSnapshot = { cityId: city.manifest.id, fetchedAt: snapshot.fetchedAt, vehicles: snapshot.vehicles.map((v) => enrich(v, new Date(snapshot.fetchedAt))).filter((v): v is Vehicle => v !== null), providers: snapshot.providers.map(({ vehicles: _vehicles, ...status }) => status) }; return lastSnapshot; }).catch((error) => { snapshotCache = null; throw error; });
   return snapshotCache;
+}
+/**
+ * The vehicles only refine a stop board with their GPS delay, so one slow feed cannot hold it up:
+ * after a short wait it uses the latest vehicles still fresh, or the timetable and the operator's
+ * forecasts alone. The panel asks again every 15 s and then gets the rest.
+ */
+async function vehiclesForBoards(now: Date): Promise<Vehicle[]> {
+  const latest = await within(getPresentationSnapshot(), options.boardSnapshotWaitMs ?? 1500, null).catch(() => null) ?? lastSnapshot;
+  return latest && now.getTime() - latest.fetchedAt <= REALTIME_MAX_AGE_MS ? latest.vehicles : [];
 }
 
 async function departures(operatorId: string, references: StopReference[], now: Date, max = 12): Promise<Departure[]> {
   if (!providerFor(operatorId)?.enabled) return [];
   const gtfs = feeds.get(operatorId)!;
   if (providerFor(operatorId)?.definition.capabilities.scheduledService === false) return [];
-  const snapshot = await getPresentationSnapshot();
+  const presented = await vehiclesForBoards(now);
   // Live ADDED journeys were not present when the static stop index was built.
   // Incorporate their actual calls without rebuilding the whole city catalogue.
   const stopIds = new Set(references.map((r) => r.stopId));
@@ -305,7 +322,7 @@ async function departures(operatorId: string, references: StopReference[], now: 
     if (seconds !== null) { extra.push({ tripId: update.tripId, seconds, stopId: call.stopId, sequence: call.sequence }); indexed.add(`${update.tripId}:${call.sequence}`); }
   }
   references = [...references, ...extra];
-  const vehicles = new Map(snapshot.vehicles.map((v) => [`${v.operatorId}:${v.serviceDate}:${v.externalTripId}`, v]));
+  const vehicles = new Map(presented.map((v) => [`${v.operatorId}:${v.serviceDate}:${v.externalTripId}`, v]));
   const today = formatServiceDate(now, city.manifest.timezone).date;
   const result = new Map<string, Departure>();
   for (const delta of [-1, 0, 1]) {
@@ -381,7 +398,7 @@ async function getStop(operatorId: string, stopId: string): Promise<StopDetail |
     const provider = providerFor(s.operatorId);
     if (!provider?.enabled || !provider.arrivals) return scheduled;
     try {
-      const live = await provider.arrivals.departures(feeds.get(s.operatorId)!, s.stopId);
+      const live = await within(provider.arrivals.departures(feeds.get(s.operatorId)!, s.stopId), options.liveArrivalsWaitMs ?? 4000, []);
       const horizon = new Map<string, number>();
       live.forEach((r) => horizon.set(r.routeKey, Math.max(horizon.get(r.routeKey) ?? 0, r.at + 120_000)));
       return [...live, ...scheduled.filter((r) => r.at > (horizon.get(r.routeKey) ?? 0))].sort((a, b) => a.at - b.at);

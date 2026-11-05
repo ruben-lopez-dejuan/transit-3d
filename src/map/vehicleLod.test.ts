@@ -9,6 +9,8 @@ import type { VehicleModels } from './vehicleModels';
 const bus = { mode: 'bus' as const, operatorId: 'bilbobus' };
 const metroStyle = { kind: 'metro' as const, composition: { count: 4, length: 17, gap: 1 }, lateralOffsetMeters: 1.7 };
 const trainStyle = { kind: 'train' as const, composition: { count: 3, length: 23, gap: 1 }, lateralOffsetMeters: 1.7 };
+/** A vehicle in the fleet, of an operator that is not on the map. */
+const anyVehicle = () => ({ id: 'v', mode: 'bus', operatorId: 'hidden', shapeKey: 's', routeKey: 'r', longitude: 0, latitude: 0, bearing: 0, progressMetersAlongShape: 0, positionQuality: 'scheduled', observationTimestamp: null, timeline: [{ at: Date.now() - 1000, progress: 0 }, { at: Date.now() + 100000, progress: 1000 }] }) as unknown as Vehicle;
 test('mode silhouettes distinguish bus, suburban train, metro, articulated tram and funicular', () => {
   assert.equal(vehicleKind(bus), 'bus');
   assert.equal(vehicleKind({ mode: 'rail', appearance: trainStyle }), 'train');
@@ -124,6 +126,20 @@ test('animation start is idempotent and stop releases the only frame request', (
   } finally { globalThis.requestAnimationFrame = originalRequest; globalThis.cancelAnimationFrame = originalCancel; }
 });
 
+test('the 3D engine is not downloaded until there is a vehicle to draw', () => {
+  let loads = 0;
+  const map = {
+    getSource: () => ({ setData: () => {} }), isStyleLoaded: () => true, getZoom: () => 18, getLayer: () => undefined,
+    getBounds: () => ({ contains: () => true }), getLayoutProperty: () => 'visible', setLayoutProperty: () => {}, triggerRepaint: () => {},
+  } as unknown as TransitMap;
+  const renderer = new TransitRenderer(map, () => { loads++; return new Promise<VehicleModels>(() => {}); });
+  const render = () => (renderer as unknown as { render(): void }).render();
+  render();
+  assert.equal(loads, 0, 'with only the stops on the map');
+  renderer.update([anyVehicle()], Date.now());
+  render();
+  assert.equal(loads, 1);
+});
 test('3D mounts when its import resolves while GeoJSON workers are busy', async () => {
   let idle = true, mounted = false, mounts = 0;
   let resolve!: (models: VehicleModels) => void;
@@ -139,7 +155,7 @@ test('3D mounts when its import resolves while GeoJSON workers are busy', async 
   } as unknown as TransitMap;
   const renderer = new TransitRenderer(map, () => pending);
   Object.assign(renderer, { animation: 1 });
-  renderer.update([], Date.now());
+  renderer.update([anyVehicle()], Date.now());
   const render = () => (renderer as unknown as { render(): void }).render();
   render();
   assert.equal(idle, false, 'setData leaves source workers busy before the import resolves');
@@ -166,7 +182,7 @@ test('pending 3D loading respects page stop and retries after the style anchor r
       addLayer: () => { mounts++; mounted = true; model.ready = true; },
     } as unknown as TransitMap;
     const renderer = new TransitRenderer(map, () => pending);
-    Object.assign(renderer, { animation: 1 }); renderer.update([], Date.now());
+    Object.assign(renderer, { animation: 1 }); renderer.update([anyVehicle()], Date.now());
     const render = () => (renderer as unknown as { render(): void }).render();
     render();
     if (interruptedBy === 'stop') Object.assign(renderer, { animation: 0 }); else anchor = false;

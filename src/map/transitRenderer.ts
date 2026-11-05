@@ -8,7 +8,7 @@ import type { VehicleModels, ModelItem } from './vehicleModels';
 import { MODEL_MIN_ZOOM, MODEL_CAPACITY, modelLevel, representation, vehicleKind, vehicleScale } from './vehicleLod';
 import { renderedPositionSource, REALTIME_MAX_AGE_MS } from '../../shared/transit/freshness';
 import { bodyFor, liveryFor } from '../../shared/transit/appearance';
-import { carRole } from './vehicleShapes';
+import { carRole } from './vehicleRoles';
 import { vehicleIconId, vehicleIconPixels } from './networkMap';
 
 type State = { vehicle: Vehicle; progress: number; speed: number; at: number; motion?: GpsMotion; scheduled?: TimelineMotion };
@@ -167,7 +167,8 @@ export class TransitRenderer {
     const now = Date.now() + this.clockOffset;
     const features = []; const selected = []; const models: ModelItem[] = [];
     const bounds = this.map.getBounds(); const zoom = this.map.getZoom();
-    if (zoom >= MODEL_MIN_ZOOM && !this.map.getLayer('transit-models') && !this.modelsLoading && !this.modelsFailed) {
+    // The 3D engine is the heaviest download: it waits until there is a vehicle to draw.
+    if (this.states.size > 0 && zoom >= MODEL_MIN_ZOOM && !this.map.getLayer('transit-models') && !this.modelsLoading && !this.modelsFailed) {
       this.modelsLoading = true;
       void this.loadModels().then((models) => {
         // GeoJSON setData marks isStyleLoaded() false while workers process it.

@@ -13,6 +13,11 @@ import { formatServiceDate } from './gtfsCalendar';
 import { serviceEpoch } from './plans';
 import { normalizeTripUpdates, tripInstanceKey } from './realtime';
 
+/** Fails instead of hanging the test run when a request waits for something that never comes. */
+function within<T>(work: Promise<T>, milliseconds = 3000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([work, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Still waiting after ' + milliseconds + ' ms')), milliseconds); })]).finally(() => clearTimeout(timer));
+}
 function fixture(longitude = -2.95, routeType = 3): BizkaibusGtfs {
   return {
     routes: new Map([['route:1', { routeId: 'route:1', shortName: 'L1', longName: 'Destination', color: '', textColor: 'FFFFFF', routeType }]]),
@@ -23,7 +28,7 @@ function fixture(longitude = -2.95, routeType = 3): BizkaibusGtfs {
     routeTripIds: new Map([['route:1', ['trip:1']]]), calendars: new Map([['daily', { serviceId: 'daily', weekdays: [true, true, true, true, true, true, true], startDate: '20260101', endDate: '20271231' }]]), calendarDates: new Map(),
   };
 }
-function memoryCity(options: { broken?: string; cityId?: string; longitude?: number; withoutGps?: string } = {}) {
+function memoryCity(options: { broken?: string; hanging?: string; cityId?: string; longitude?: number; withoutGps?: string } = {}) {
   const ids = ['bizkaibus', 'bilbobus', 'metro-bilbao', 'euskotren'];
   const manifest = { ...bilbaoManifest, id: options.cityId ?? bilbaoManifest.id, providers: bilbaoManifest.providers.filter((p) => ids.includes(p.id)) };
   const now = Date.now();
@@ -43,6 +48,7 @@ function memoryCity(options: { broken?: string; cityId?: string; longitude?: num
     const provider = new RegisteredProvider(manifest, manifest.providers.find((p) => p.id === id)!, {
       operatorId: id, getSnapshot: async () => {
         if (options.broken === id) throw new Error('fixture failure');
+        if (options.hanging === id) await new Promise(() => { /* A feed that never answers. */ });
         const vehicle = generateScheduledVehicles(gtfs, new Date(now), id)[0];
         assert.ok(vehicle);
         const bus = id.includes('bus'), gps = bus && options.withoutGps !== id;
@@ -153,6 +159,20 @@ test('failed or disabled providers leave the remaining Bilbao vehicles and stati
   const stop = await network.getStop('metro-bilbao', 'stop:2');
   assert.ok(stop?.departures.some((d) => d.operatorId === 'metro-bilbao'));
   assert.ok(stop?.departures.every((d) => d.operatorId !== 'bilbobus'));
+});
+test('a stop board answers with the timetable while a vehicle feed never responds', async () => {
+  const { city } = memoryCity({ hanging: 'bizkaibus' });
+  const network = createCityNetwork(city, { boardSnapshotWaitMs: 20 });
+  const stop = await within(network.getStop('metro-bilbao', 'stop:2'));
+  assert.ok(stop?.departures.some((d) => d.operatorId === 'metro-bilbao' && d.source === 'schedule'));
+});
+test('a stop board does not wait for the live arrivals of a slow operator', async () => {
+  const { city } = memoryCity();
+  const provider = city.providers.find((p) => p.operatorId === 'bilbobus')!;
+  provider.arrivals = { peek: () => null, warm: async () => {}, departures: () => new Promise(() => { /* Never answers. */ }) };
+  const network = createCityNetwork(city, { liveArrivalsWaitMs: 20 });
+  const stop = await within(network.getStop('bilbobus', 'stop:2'));
+  assert.ok(stop?.departures.some((d) => d.operatorId === 'bilbobus'));
 });
 test('city caches cannot mix identical external IDs and reject cross-city geometry requests', async () => {
   const one = memoryCity(), two = memoryCity({ cityId: 'fixture-scope', longitude: 1 });

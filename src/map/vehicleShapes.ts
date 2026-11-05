@@ -2,16 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MODEL_MIN_ZOOM, MODEL_DETAIL_ZOOM, MODEL_FULL_ZOOM } from './vehicleLod';
 import type { CabShape, LiveryBand, VehicleBody, VehicleKind } from '../../shared/transit/contracts';
+import { CENTRE, EVERY, LEAD, MIDDLE, SINGLE, TAIL } from './vehicleRoles';
 
-/**
- * Which cars of a consist a part belongs to. A train has a cab at each end: its tail car is a
- * lead car turned round, with red lights. CENTRE marks the middle car (a tram's pantograph).
- */
-export const LEAD = 1, MIDDLE = 2, TAIL = 4, SINGLE = 8, CENTRE = 16, EVERY = 31;
-export function carRole(car: number, count: number) {
-  const role = count === 1 ? SINGLE : car === 0 ? LEAD : car === count - 1 ? TAIL : MIDDLE;
-  return role | (count > 1 && car === Math.floor(count / 2) ? CENTRE : 0);
-}
+export { CENTRE, EVERY, LEAD, MIDDLE, SINGLE, TAIL, carRole } from './vehicleRoles';
 /** Tinted parts take the livery: the body colour, its band or the front end. */
 export type Tint = 'body' | 'accent' | 'front';
 /** One instanced mesh: the cars it is drawn on (`on`) and between which zooms. */

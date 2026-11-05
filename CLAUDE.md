@@ -192,6 +192,7 @@ Renfe…). Todo en `docs/data-sources.md`.
   - Mapa a pantalla completa y ficha compacta que se despliega deslizando.
   - Seguir un vehículo con un toque.
   - Controles táctiles de al menos 44 px y letra mínima de 11 px (`abae814`, `38d5639`).
+- Arranque: primero las paradas y sus paneles. No esperan a `/api/transit` (el panel espera 1,5 s a los vehículos y 4 s a las llegadas del operador; si no, da el horario y se completa en 15 s) y Three.js solo se descarga con vehículos que dibujar.
 - Modo zen (tecla Z, botón del loto o desde Capas): oculta etiquetas e interfaz. Funciona
   también con un vehículo seleccionado, siguiéndolo sin ficha (`73f8f66`).
 - Favoritos, botón de ubicación (solo centra el mapa), tema claro y oscuro, selector de ciudad.
